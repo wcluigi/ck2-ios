@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- the guest's 4 GB address block (plat.c plat_mem_init) and the game's memory use; sideloaders that cannot grant
+	     them drop them, and the game then shows "cannot reserve 4 GB of address space" if the phone's default is too small -->
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key><true/>
+	<key>com.apple.developer.kernel.increased-memory-limit</key><true/>
+</dict>
+</plist>

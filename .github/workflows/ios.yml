@@ -1,0 +1,36 @@
+# Unsigned iOS .ipa for sideloading (ios/build_ios.sh). The game data comes from this repo's private release
+# "gamedata" (gamedata.zip from tools/bundle_data.py), uploaded once per game release instead of committed.
+name: ios
+on:
+  workflow_dispatch:
+    inputs:
+      version: { description: "app version shown in Settings", default: "1.0" }
+  push:
+    branches: [main]
+    paths: ["ios/**", "runtime/**", "out_m/**", ".github/workflows/ios.yml"]
+jobs:
+  ipa:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: wgpu-native (iOS)
+        run: |
+          curl -sSfL -o wgpu.zip https://github.com/gfx-rs/wgpu-native/releases/download/v29.0.1.1/wgpu-ios-aarch64-release.zip
+          mkdir -p "$RUNNER_TEMP/wgpu" && unzip -q wgpu.zip -d "$RUNNER_TEMP/wgpu" && rm wgpu.zip
+      - name: game data
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release download gamedata -p gamedata.zip -D "$RUNNER_TEMP"
+      - name: build
+        env:
+          WG: ${{ runner.temp }}/wgpu
+          GAMEDATA: ${{ runner.temp }}/gamedata.zip
+          VERSION: ${{ inputs.version || '1.0' }}
+          BUILD: ${{ github.run_number }}
+        run: sh ios/build_ios.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CrazyKartLegacy-iOS
+          path: build/ios/CrazyKartLegacy-iOS.ipa
+          compression-level: 0
+          retention-days: 14

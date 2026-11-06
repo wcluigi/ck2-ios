@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LoginActivity (Java) signs in like the PC launcher, then starts the recompiled client in NativeActivity (libck2.so). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.crazykart.legacy"
+    android:versionCode="2"
+    android:versionName="0.2">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- room voice chat (VoiceChat.java): asked when voice is switched on in the game -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- app updates from the patch servers (LoginActivity.updateApp): Android asks the player to allow it once -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
+    <application android:label="Crazy Kart Legacy" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:hasCode="true" android:extractNativeLibs="false"
+        android:usesCleartextTraffic="true">
+        <!-- simpleperf from the PC (performance work); no debugger access -->
+        <profileable android:shell="true" />
+        <activity android:name=".LoginActivity" android:exported="true" android:launchMode="singleTop"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:screenOrientation="sensorLandscape" android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".HudEditorActivity" android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".GameActivity" android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden|keyboard"
+            android:launchMode="singleTask">
+            <meta-data android:name="android.app.lib_name" android:value="ck2" />
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,16 @@
+LIBRARY kernel32.dll
+EXPORTS
+VirtualAlloc@16
+VirtualProtect@16
+AddVectoredExceptionHandler@8
+TlsAlloc@0
+TlsGetValue@4
+TlsSetValue@8
+CreateFileA@28
+WriteFile@20
+ExitProcess@4
+GetModuleHandleA@4
+LoadLibraryA@4
+GetProcAddress@8
+GetCurrentThreadId@0
+ReadFile@20

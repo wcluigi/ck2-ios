@@ -1,0 +1,15 @@
+module client_mobile.dat 00400000 005de000 005feba2 1
+module KartRes.dll 10000000 00010000 10006f48 0
+export 1 10001210 ?FreeXmlFile@@YG_NPAD@Z
+export 2 10001d00 ?GetString@@YGPBDPBDH@Z
+export 3 10003330 ?InitKartRes@@YG_NPBD@Z
+export 4 10001130 ?LoadXmlFile@@YG_NPBDPAPAD@Z
+export 5 100010b0 ?ReportError@@YGXXZ
+module SDFriend.dll 10100000 00026000 10105f4a 0
+export 1 101038d0 SDGetFriendClient
+module CKGuildCli.dll 10200000 00010000 10205617 0
+export 1 10202cb0 CKCreateGuildClient
+module CKMarryCli.dll 10300000 0000e000 1030320f 0
+export 1 10301b10 CKCreateMarryClient
+module CKEventCli.dll 10400000 00010000 10405387 0
+export 1 10402120 CKCreateEventClient

@@ -1,0 +1,11 @@
+# private repo for the iOS build (wcluigi/ck2-ios): sources only
+build/
+bench_data/
+out/
+*.keystore
+*.pass
+*.jks
+*.p12
+*.mobileprovision
+*.bak*
+__pycache__/

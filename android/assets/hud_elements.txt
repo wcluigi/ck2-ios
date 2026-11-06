@@ -1,0 +1,22 @@
+# Race HUD elements the player can move / resize (HUD layout editor + runtime/mobile/hud.c).
+# name  x y w h  label      -- original rectangle in game pixels (1280x720, the phone's race screen)
+# Measured on the phone from the 2D draws of a race frame (huddump.txt), 5 Nov 2026; ranking / place from
+# RacingGUIHigh.xml (top-anchored). touch_* = the on-screen buttons (touch_ui.c), rectangle = their circle.
+items       20   12  158  88  Item slots
+itemcount  175   44  113  52  Item count
+place       20   96   84  48  Place
+ranking     20  150  336 285  Ranking
+time      1020   10  260 104  Race time
+minimap   1097  105  156 230  Minimap
+speedo    1061  565  193 113  Speedometer
+touch_left    26.5 542.3 151.2 151.2  Steer left
+touch_right  207.9 542.3 151.2 151.2  Steer right
+touch_gas   1102.3 542.3 151.2 151.2  Gas
+touch_brake  951.1 576.4 113.4 113.4  Brake
+touch_drift 1109.9 376.0 136.1 136.1  Drift
+touch_item   951.1 417.6 121.0 121.0  Item
+touch_swap   815.1 587.7  90.7  90.7  Swap
+touch_esc    566.0  11.0  68.0  68.0  Esc
+touch_chat   646.0  11.0  68.0  68.0  Chat
+chat           0  606 1280 114  Race chat
+announce       0    0  810  62  Announcement
