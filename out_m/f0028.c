@@ -7110,7 +7110,7 @@ L_0051c650:;
 void F_0051c660(CPU *c) {
   NATIVE_HOOK(0x51c660u) REGS; LOADALL;
 L_0051c660:;
-  /* 0051c660 jmp 0x9dd258 */ goto L_009dd258;
+  /* 0051c660 jmp 0x9dd261 */ goto L_009dd261;
 L_0051c668:;
   /* 0051c668 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
   /* 0051c66a je 0x51c68b */ if (ZF_) goto L_0051c68b;
@@ -7131,14 +7131,14 @@ L_0051c681:;
   /* 0051c685 call dword ptr [0x62e520] */ { const u32 m_ = (u32)(0x62e520u); u32 t_ = M32(m_); esp -= 4; M32(esp) = 0x51c68bu; SAVEALL; call_ind(c, t_); RETCHK(0x51c68bu, 0x51c685u); LOADALL; }
 L_0051c68b:;
   /* 0051c68b ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
-L_009dd258:;
-  /* 009dd258 cmp dword ptr [0x9dd808], 0 */ { const u32 m_ = (u32)(0x9dd808u); u32 a_ = M32(m_), b_ = 0x0u; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 009dd25f je 0x9dd263 */ if (ZF_) goto L_009dd263;
-  /* 009dd261 mov cl, 1 */ { ecx = (ecx & 0xffffff00u) | ((u32)(0x1u) & 0xffu); }
-L_009dd263:;
-  /* 009dd263 mov byte ptr [eax + 0x3c], cl */ { const u32 m_ = (u32)(eax + 0x3cu); M8(m_) = (u8)((ecx & 0xffu)); }
-  /* 009dd266 call 0x558f50 */ esp -= 4; M32(esp) = 0x9dd26bu; SAVEALL; F_00558f50(c); ABI_CHECK(0x558f50u, 0x9dd266u); RETCHK(0x9dd26bu, 0x9dd266u); LOADALL;
-  /* 009dd26b jmp 0x51c668 */ goto L_0051c668;
+L_009dd261:;
+  /* 009dd261 cmp dword ptr [0x9dd808], 0 */ { const u32 m_ = (u32)(0x9dd808u); u32 a_ = M32(m_), b_ = 0x0u; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
+  /* 009dd268 je 0x9dd26c */ if (ZF_) goto L_009dd26c;
+  /* 009dd26a mov cl, 1 */ { ecx = (ecx & 0xffffff00u) | ((u32)(0x1u) & 0xffu); }
+L_009dd26c:;
+  /* 009dd26c mov byte ptr [eax + 0x3c], cl */ { const u32 m_ = (u32)(eax + 0x3cu); M8(m_) = (u8)((ecx & 0xffu)); }
+  /* 009dd26f call 0x558f50 */ esp -= 4; M32(esp) = 0x9dd274u; SAVEALL; F_00558f50(c); ABI_CHECK(0x558f50u, 0x9dd26fu); RETCHK(0x9dd274u, 0x9dd26fu); LOADALL;
+  /* 009dd274 jmp 0x51c668 */ goto L_0051c668;
 }
 
 void F_0051c690(CPU *c) {
