@@ -10,7 +10,7 @@ on:
     paths: ["ios/**", "runtime/**", "out_m/**", ".github/workflows/ios.yml"]
 jobs:
   ipa:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
