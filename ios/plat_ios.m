@@ -671,7 +671,7 @@ static UIImage *hud_rgba(NSData *d) {
     self.size.enabled = NO;
     UIStackView *bar = [[UIStackView alloc] initWithArrangedSubviews:@[
         self.info, [self label:@"Size" color:rgb(0xB7C4E8)], self.size,
-        [self label:@"Buttons" color:rgb(0xB7C4E8)], [self slider:0.1 hi:1 value:self.opacity action:@selector(opacityChanged:) width:90],
+        [self label:@"Buttons" color:rgb(0xB7C4E8)], [self slider:0 hi:1 value:self.opacity action:@selector(opacityChanged:) width:90],
         [self button:@"Reset" primary:NO action:@selector(reset)], [self button:@"Back" primary:NO action:@selector(close)],
         [self button:@"Save" primary:YES action:@selector(save)]]];
     bar.spacing = 8; bar.alignment = UIStackViewAlignmentCenter;
@@ -949,6 +949,111 @@ static UIImage *hud_rgba(NSData *d) {
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
 
+// ---- Settings screen: Android's Settings > graphics (6 Nov 2026, the user: "add the graphics settings on ios").
+// Saved in NSUserDefaults and applied at Play (LoginVC go): wide / fps / scale -> CK_WIDE / CK_VSYNC / CK_SCALE +
+// CrazyKart.ini VSync / MaxFps; detail / gamma -> UserSetting.bin 0x18 / 0x1c. Same keys and ranges as Android.
+static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto (VSync: the screen's rate)
+@interface SettingsVC : UIViewController
+@property BOOL zh;
+@end
+@implementation SettingsVC {
+    UISegmentedControl *_wide, *_detail, *_fps;
+    UISlider *_scale, *_gamma;
+    UILabel *_scaleLabel, *_gammaLabel;
+}
+- (NSString *)t:(NSString *)en zh:(NSString *)zh { return self.zh ? zh : en; }
+- (UILabel *)label:(NSString *)t size:(CGFloat)s color:(UIColor *)c {
+    UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:s]; return l;
+}
+- (UISegmentedControl *)segments:(NSArray<NSString *> *)items selected:(NSInteger)sel {
+    UISegmentedControl *c = [[UISegmentedControl alloc] initWithItems:items];
+    c.selectedSegmentIndex = sel;
+    c.selectedSegmentTintColor = rgb(0xF5C21B);
+    [c setTitleTextAttributes:@{NSForegroundColorAttributeName: rgb(0x131A2E)} forState:UIControlStateSelected];
+    [c setTitleTextAttributes:@{NSForegroundColorAttributeName: rgb(0xB7C4E8)} forState:UIControlStateNormal];
+    [c.heightAnchor constraintEqualToConstant:34].active = YES;
+    return c;
+}
+- (UISlider *)slider:(float)lo hi:(float)hi value:(float)v {
+    UISlider *sl = [[UISlider alloc] init];
+    sl.minimumValue = lo; sl.maximumValue = hi; sl.value = v; sl.minimumTrackTintColor = rgb(0xF5C21B);
+    [sl addTarget:self action:@selector(showValues) forControlEvents:UIControlEventValueChanged];
+    return sl;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = rgb(0x0E1F5C);
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    UIStackView *st = [[UIStackView alloc] init];
+    st.axis = UILayoutConstraintAxisVertical; st.spacing = 8;
+    UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
+    [done setTitle:[self t:@"Done" zh:@"完成"] forState:UIControlStateNormal];
+    done.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightHeavy];
+    [done setTitleColor:rgb(0x131A2E) forState:UIControlStateNormal];
+    done.backgroundColor = rgb(0xF5C21B); done.layer.cornerRadius = 19;
+    [done.widthAnchor constraintEqualToConstant:110].active = YES; [done.heightAnchor constraintEqualToConstant:38].active = YES;
+    [done addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *head = [[UIStackView alloc] initWithArrangedSubviews:@[[self label:[self t:@"SETTINGS" zh:@"设置"] size:20 color:UIColor.whiteColor], [[UIView alloc] init], done]];
+    head.alignment = UIStackViewAlignmentCenter;
+    [st addArrangedSubview:head];
+
+    _wide = [self segments:@[[self t:@"Fill screen" zh:@"全屏"], [self t:@"16:9 with bars" zh:@"16:9 黑边"]]
+                  selected:([d objectForKey:@"wide"] ? [d boolForKey:@"wide"] : YES) ? 0 : 1];
+    NSInteger scale = [d objectForKey:@"scale"] ? [d integerForKey:@"scale"] : 100;
+    _scale = [self slider:50 hi:100 value:(float)scale];
+    _scaleLabel = [self label:@"" size:13 color:rgb(0xB7C4E8)];
+    _detail = [self segments:@[[self t:@"High" zh:@"高"], [self t:@"Middle" zh:@"中"]] selected:[d integerForKey:@"detail"] == 1 ? 1 : 0];
+    NSInteger fps = [d integerForKey:@"fps"], fsel = 0;
+    for (int i = 1; i < 5; i++) if (GFX_FPS[i] == fps) fsel = i;
+    _fps = [self segments:@[[self t:@"Auto" zh:@"自动"], @"30", @"60", @"90", @"120"] selected:fsel];
+    float gamma = [d objectForKey:@"gamma"] ? [d floatForKey:@"gamma"] : 1.0f;
+    _gamma = [self slider:0.5f hi:3.0f value:gamma];
+    _gammaLabel = [self label:@"" size:13 color:rgb(0xB7C4E8)];
+    UIButton *defGamma = [UIButton buttonWithType:UIButtonTypeSystem];
+    [defGamma setTitle:[self t:@"Default gamma" zh:@"默认亮度"] forState:UIControlStateNormal];
+    [defGamma setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    defGamma.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [defGamma addTarget:self action:@selector(defaultGamma) forControlEvents:UIControlEventTouchUpInside];
+    for (UIView *v in @[[self label:[self t:@"Screen" zh:@"画面"] size:13 color:rgb(0xF5C21B)], _wide,
+                        _scaleLabel, _scale,
+                        [self label:[self t:@"Graphics detail" zh:@"画质"] size:13 color:rgb(0xF5C21B)], _detail,
+                        [self label:[self t:@"Frame rate cap" zh:@"帧率上限"] size:13 color:rgb(0xF5C21B)], _fps,
+                        _gammaLabel, _gamma, defGamma]) [st addArrangedSubview:v];
+    [self showValues];
+
+    UIScrollView *sc = [[UIScrollView alloc] init];
+    for (UIView *v in @[sc, st]) v.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:sc]; [sc addSubview:st];
+    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [sc.leadingAnchor constraintEqualToAnchor:g.leadingAnchor], [sc.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+        [sc.topAnchor constraintEqualToAnchor:g.topAnchor], [sc.bottomAnchor constraintEqualToAnchor:g.bottomAnchor],
+        [st.topAnchor constraintEqualToAnchor:sc.topAnchor constant:12], [st.bottomAnchor constraintEqualToAnchor:sc.bottomAnchor constant:-16],
+        [st.centerXAnchor constraintEqualToAnchor:sc.centerXAnchor], [st.widthAnchor constraintLessThanOrEqualToConstant:520],
+        [st.widthAnchor constraintLessThanOrEqualToAnchor:sc.widthAnchor constant:-32]]];
+    NSLayoutConstraint *w = [st.widthAnchor constraintEqualToConstant:520];
+    w.priority = UILayoutPriorityDefaultHigh; w.active = YES;
+}
+- (void)showValues {
+    int pc = (int)(lroundf(_scale.value / 5.0f) * 5);                  // 50 .. 100 in 5 % steps, as Android
+    _scaleLabel.text = [NSString stringWithFormat:@"%@%d%%%@", [self t:@"Render quality  " zh:@"渲染质量  "], pc,
+                        pc < 100 ? [self t:@"  (faster, softer 3D)" zh:@"  （更流畅，3D 较模糊）"] : @""];
+    _gammaLabel.text = [NSString stringWithFormat:@"%@  %.1f", [self t:@"Gamma" zh:@"亮度"], roundf(_gamma.value * 10) / 10];
+}
+- (void)defaultGamma { _gamma.value = 1.0f; [self showValues]; }
+- (void)done {
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    [d setBool:_wide.selectedSegmentIndex == 0 forKey:@"wide"];
+    [d setInteger:(NSInteger)(lroundf(_scale.value / 5.0f) * 5) forKey:@"scale"];
+    [d setInteger:_detail.selectedSegmentIndex forKey:@"detail"];
+    [d setInteger:GFX_FPS[_fps.selectedSegmentIndex] forKey:@"fps"];
+    [d setFloat:roundf(_gamma.value * 10) / 10 forKey:@"gamma"];
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (BOOL)prefersStatusBarHidden { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+@end
+
 @interface LoginVC : UIViewController <UITextFieldDelegate>
 @end
 @implementation LoginVC {
@@ -1047,7 +1152,15 @@ static UIImage *hud_rgba(NSData *d) {
     ctl.layer.borderWidth = 1; ctl.layer.borderColor = hud.layer.borderColor;
     [ctl.heightAnchor constraintEqualToConstant:40].active = YES;
     [ctl addTarget:self action:@selector(openControls) forControlEvents:UIControlEventTouchUpInside];
-    UIStackView *tools = [[UIStackView alloc] initWithArrangedSubviews:@[hud, ctl]];
+    UIButton *gfx = [UIButton buttonWithType:UIButtonTypeSystem];        // graphics (Android's Settings)
+    [gfx setTitle:@"Settings" forState:UIControlStateNormal];
+    gfx.titleLabel.font = hud.titleLabel.font;
+    [gfx setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    gfx.backgroundColor = hud.backgroundColor; gfx.layer.cornerRadius = 20;
+    gfx.layer.borderWidth = 1; gfx.layer.borderColor = hud.layer.borderColor;
+    [gfx.heightAnchor constraintEqualToConstant:40].active = YES;
+    [gfx addTarget:self action:@selector(openSettings) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *tools = [[UIStackView alloc] initWithArrangedSubviews:@[hud, ctl, gfx]];
     tools.spacing = 8; tools.distribution = UIStackViewDistributionFillEqually;
     [st addArrangedSubview:tools];
     // patch notes (the PC launcher's list, site patchnotes.json): a card on the key art's right, last copy kept offline
@@ -1106,6 +1219,12 @@ static BOOL has_cjk(NSString *s) {
                 add([@"•  " stringByAppendingString:line], [UIFont systemFontOfSize:12], rgb(0xDDE4F7), 3);
     }
     _notesText.attributedText = t;
+}
+- (void)openSettings {
+    SettingsVC *vc = [[SettingsVC alloc] init];
+    vc.zh = _lang.selectedSegmentIndex == 1;
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:vc animated:YES completion:nil];
 }
 - (void)openControls {
     ControlsVC *vc = [[ControlsVC alloc] init];
@@ -1170,15 +1289,20 @@ static BOOL has_cjk(NSString *s) {
         // the phone's settings file (the patch leaves UserSetting.bin out): windowed 1280x720 (0x04 = 0, 0x10 = 4)
         NSString *usf = [game stringByAppendingPathComponent:@"UserSetting.bin"];
         NSMutableData *us = [NSMutableData dataWithContentsOfFile:usf] ?: [NSMutableData dataWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"UserSetting.bin"]];
+        NSUserDefaults *gd = NSUserDefaults.standardUserDefaults;        // the Settings screen (SettingsVC)
         if (us.length >= 0x20) {
             uint32_t win = 0, res = 4;
             [us replaceBytesInRange:NSMakeRange(0x04, 4) withBytes:&win];
             [us replaceBytesInRange:NSMakeRange(0x10, 4) withBytes:&res];
+            if ([gd objectForKey:@"detail"]) { uint32_t det = (uint32_t)MIN(1, MAX(0, [gd integerForKey:@"detail"])); [us replaceBytesInRange:NSMakeRange(0x18, 4) withBytes:&det]; }
+            if ([gd objectForKey:@"gamma"]) { float gm = MIN(3.0f, MAX(0.5f, [gd floatForKey:@"gamma"])); [us replaceBytesInRange:NSMakeRange(0x1c, 4) withBytes:&gm]; }
             [us writeToFile:usf atomically:YES];
         }
         NSString *inif = [game stringByAppendingPathComponent:@"CrazyKart.ini"];
         NSString *ini = [NSString stringWithContentsOfFile:inif encoding:NSUTF8StringEncoding error:nil] ?: @"";
-        if (![ini containsString:@"VSync="]) { ini = ini_set(ini, @"VSync", 1); ini = ini_set(ini, @"MaxFps", 0); ini = ini_set(ini, @"HighRefresh", 1); }
+        int capfps = (int)[gd integerForKey:@"fps"];                     // 0 = Auto (VSync)
+        if ([gd objectForKey:@"fps"]) { ini = ini_set(ini, @"VSync", capfps == 0); ini = ini_set(ini, @"MaxFps", capfps); ini = ini_set(ini, @"HighRefresh", 1); }
+        else if (![ini containsString:@"VSync="]) { ini = ini_set(ini, @"VSync", 1); ini = ini_set(ini, @"MaxFps", 0); ini = ini_set(ini, @"HighRefresh", 1); }
         ini = ini_set(ini, @"Language", zh ? 1 : 0);
         [ini writeToFile:inif atomically:YES encoding:NSUTF8StringEncoding error:nil];
         [self say:@"Loading the shop..." error:NO];
@@ -1202,7 +1326,11 @@ static BOOL has_cjk(NSString *s) {
         snprintf(g_files_s, sizeof g_files_s, "%s", docs().UTF8String);
         write_controls(docs());
         input_controls_load(g_files_s);
-        setenv("CK_VSYNC", "1", 1); setenv("CK_WIDE", "1", 1);
+        setenv("CK_VSYNC", capfps == 0 ? "1" : "0", 1);
+        setenv("CK_WIDE", ([gd objectForKey:@"wide"] ? [gd boolForKey:@"wide"] : YES) ? "1" : "0", 1);
+        char scale_s[8];
+        snprintf(scale_s, sizeof scale_s, "%d", [gd objectForKey:@"scale"] ? (int)MIN(100, MAX(50, [gd integerForKey:@"scale"])) : 100);
+        setenv("CK_SCALE", scale_s, 1);
         g_screen_hz = (int)UIScreen.mainScreen.maximumFramesPerSecond;
         freopen([game stringByAppendingPathComponent:@"stderr.txt"].UTF8String, "w", stderr);
         dispatch_async(dispatch_get_main_queue(), ^{

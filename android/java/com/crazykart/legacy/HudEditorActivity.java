@@ -102,7 +102,7 @@ public class HudEditorActivity extends Activity {
         bar.addView(size, new LinearLayout.LayoutParams(dp(110), -2));
         bar.addView(label("  Buttons ", MUTED));
         SeekBar ob = slider(100, (int) (opacity * 100), new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int v, boolean u) { opacity = Math.max(0.1f, v / 100f); view.invalidate(); }
+            public void onProgressChanged(SeekBar s, int v, boolean u) { opacity = Math.max(0f, v / 100f); view.invalidate(); }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) {}
         });

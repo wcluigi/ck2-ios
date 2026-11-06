@@ -284,7 +284,7 @@ void tui_draw_pointer(float x, float y) {
 // Called at Present with the back buffer as the target.
 void tui_draw(void) {
     if (!tui_active()) return;
-    float a = clampf(hud_touch_opacity() / 0.6f * 0.8f, 0.1f, 1);     // the editor's opacity; 0.6 (default) = 80 %
+    float a = clampf(hud_touch_opacity() / 0.6f * 0.8f, 0, 1);     // the editor's opacity; 0.6 (default) = 80 %
     for (int i = 0; i < NB; i++) {
         float cx, cy, r;
         geom(i, &cx, &cy, &r);
