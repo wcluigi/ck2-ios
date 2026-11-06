@@ -212,7 +212,7 @@ void rt_st80(u32 a, double v) {
 }
 void rt_fldcw(CPU *c) {}
 
-typedef struct { u32 buf, ebx, esi, edi, ebp, esp; jmp_buf hb; } SJ;
+typedef struct { u32 buf, ebx, esi, edi, ebp, esp, seq; jmp_buf hb; } SJ;
 #define NSJ 64
 u32 rt_setjmp(CPU *c, u32 buf, u32 ebx, u32 esi, u32 edi, u32 ebp, u32 esp, void **hostbuf) {
     SJ *t = c->sj;
@@ -220,7 +220,16 @@ u32 rt_setjmp(CPU *c, u32 buf, u32 ebx, u32 esi, u32 edi, u32 ebp, u32 esp, void
     SJ *s = 0;
     for (int i = 0; i < NSJ && !s; i++) if (t[i].buf == buf) s = &t[i];
     for (int i = 0; i < NSJ && !s; i++) if (!t[i].buf) s = &t[i];
+    // Slots were never freed, and every image load's new heap jmp_buf took one: "setjmp table full" after a
+    // while of play (19 of 23 phone crashes, 6 Nov 2026). A slot set deeper than this call (lower esp) is a
+    // returned function's: dead. Failing that, the oldest at this same depth -- an earlier call from here.
+    for (int i = 0; i < NSJ && !s; i++) if (t[i].esp < esp) s = &t[i];
+    SJ *old = 0;
+    for (int i = 0; i < NSJ; i++) if (t[i].esp == esp && (!old || t[i].seq < old->seq)) old = &t[i];
+    if (!s) s = old;
     if (!s) rt_fatal("setjmp table full");
+    static u32 seq;
+    s->seq = ++seq;
     s->buf = buf; s->ebx = ebx; s->esi = esi; s->edi = edi; s->ebp = ebp; s->esp = esp;
     *hostbuf = &s->hb;
     return 0;
