@@ -378,7 +378,7 @@ static void write_controls(NSString *dir) {
     [t writeToFile:[dir stringByAppendingPathComponent:@"controls.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
-@interface LoginVC : UIViewController
+@interface LoginVC : UIViewController <UITextFieldDelegate>
 @end
 @implementation LoginVC {
     UITextField *_user, *_pass;
@@ -396,6 +396,7 @@ static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255)
     f.backgroundColor = [UIColor colorWithWhite:0 alpha:0.25]; f.layer.cornerRadius = 22; f.layer.borderWidth = 1;
     f.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
     f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 16, 1)]; f.leftViewMode = UITextFieldViewModeAlways;
+    f.delegate = self; f.returnKeyType = sec ? UIReturnKeyGo : UIReturnKeyNext;
     f.autocapitalizationType = UITextAutocapitalizationTypeNone; f.autocorrectionType = UITextAutocorrectionTypeNo;
     [f.heightAnchor constraintEqualToConstant:44].active = YES;
     return f;
@@ -458,6 +459,18 @@ static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255)
     [_play addTarget:self action:@selector(go) forControlEvents:UIControlEventTouchUpInside];
     for (UIView *v in @[[self label:@"Username"], _user, [self label:@"Password"], _pass, [self label:@"Server"], _server,
                         [self label:@"Language"], _lang, rem, _status, _play]) [st addArrangedSubview:v];
+}
+- (BOOL)textFieldShouldReturn:(UITextField *)f {        // Return: username -> password, password -> keyboard down + Play
+    if (f == _user) { [_pass becomeFirstResponder]; return NO; }
+    [f resignFirstResponder];
+    if (_play.enabled) [self go];
+    return NO;
+}
+- (void)viewDidAppear:(BOOL)a {
+    [super viewDidAppear:a];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self.view action:@selector(endEditing:)];
+    tap.cancelsTouchesInView = NO;                           // a tap outside the fields closes the keyboard; buttons still work
+    if (!self.view.gestureRecognizers.count) [self.view addGestureRecognizer:tap];
 }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 - (BOOL)prefersStatusBarHidden { return YES; }
