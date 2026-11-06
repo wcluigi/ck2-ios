@@ -378,6 +378,262 @@ static void write_controls(NSString *dir) {
     [t writeToFile:[dir stringByAppendingPathComponent:@"controls.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
+static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255) / 255.0 green:((v >> 8) & 255) / 255.0 blue:(v & 255) / 255.0 alpha:1]; }
+// ---- race HUD layout editor (HudEditorActivity.java on Android): every HUD element and touch button on a plain screen,
+// drawn with the game's own pictures (<game>/hudshots/<name>.rgba, taken by the game in the first race, hud.c; touch
+// buttons: image/touch_<name>.png). Tap an item, then slide it; two fingers or the Size slider resize it.
+// Elements: image/hud_elements.txt (shared with hud.c). Result: <game>/hud_layout.txt "name x y scale" (1280x720 pixels).
+static const CGFloat HGW = 1280, HGH = 720;
+
+@interface HudElem : NSObject
+@property (copy) NSString *name, *label;
+@property CGFloat sx, sy, sw, sh, x, y, s;
+@property BOOL touch;
+@property (strong) UIImage *pic;
+@end
+@implementation HudElem
+@end
+
+// <u32 w><u32 h> premultiplied RGBA rows (hud.c shot_save)
+static UIImage *hud_rgba(NSData *d) {
+    if (d.length < 8) return nil;
+    const uint32_t *h = d.bytes;
+    size_t w = h[0], ht = h[1];
+    if (!w || !ht || w > 4096 || ht > 4096 || d.length < 8 + w * ht * 4) return nil;
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGDataProviderRef dp = CGDataProviderCreateWithCFData((__bridge CFDataRef)[d subdataWithRange:NSMakeRange(8, w * ht * 4)]);
+    CGImageRef img = CGImageCreate(w, ht, 8, 32, w * 4, cs, (CGBitmapInfo)kCGImageAlphaPremultipliedLast, dp, NULL, YES, kCGRenderingIntentDefault);
+    UIImage *u = img ? [UIImage imageWithCGImage:img] : nil;
+    if (img) CGImageRelease(img);
+    CGDataProviderRelease(dp); CGColorSpaceRelease(cs);
+    return u;
+}
+
+@class HudEditorVC;
+@interface HudCanvas : UIView
+@property (weak) HudEditorVC *vc;
+@end
+
+@interface HudEditorVC : UIViewController
+@property (strong) NSMutableArray<HudElem *> *elems;
+@property CGFloat opacity;
+@property (strong) HudElem *active;
+@property (strong) HudCanvas *canvas;
+@property (strong) UILabel *info;
+@property (strong) UISlider *size;
+- (void)showInfo;
+@end
+
+@implementation HudCanvas {
+    HudElem *_tapped;
+    BOOL _dragging;
+    CGPoint _last, _down;
+    CGFloat _startDist, _startScale;
+    NSMutableArray<UITouch *> *_live;           // fingers down, in order
+}
+- (instancetype)initWithFrame:(CGRect)f {
+    if ((self = [super initWithFrame:f])) { self.multipleTouchEnabled = YES; self.backgroundColor = rgb(0x0A0E18); _live = [NSMutableArray array]; }
+    return self;
+}
+- (CGFloat)scale { return MIN(self.bounds.size.width / HGW, self.bounds.size.height / HGH); }
+- (CGPoint)origin { CGFloat k = self.scale; return CGPointMake((self.bounds.size.width - HGW * k) / 2, (self.bounds.size.height - HGH * k) / 2); }
+- (CGRect)rect:(HudElem *)e {
+    CGFloat k = self.scale; CGPoint o = self.origin;
+    return CGRectMake(o.x + e.x * k, o.y + e.y * k, e.sw * e.s * k, e.sh * e.s * k);
+}
+- (void)drawRect:(CGRect)dirty {
+    CGFloat k = self.scale; CGPoint o = self.origin;
+    CGRect screen = CGRectMake(o.x, o.y, HGW * k, HGH * k);
+    [rgb(0x111827) setFill]; UIRectFill(screen);                  // the race screen: plain
+    [rgb(0x2A3A6E) setStroke]; UIRectFrame(screen);
+    NSShadow *sh = [[NSShadow alloc] init]; sh.shadowColor = UIColor.blackColor; sh.shadowBlurRadius = 2; sh.shadowOffset = CGSizeMake(0.5, 0.5);
+    NSDictionary *ta = @{NSFontAttributeName: [UIFont boldSystemFontOfSize:13], NSForegroundColorAttributeName: UIColor.whiteColor, NSShadowAttributeName: sh};
+    HudEditorVC *vc = self.vc;
+    for (HudElem *e in vc.elems) {
+        CGRect r = [self rect:e];
+        UIBezierPath *shape = e.touch ? [UIBezierPath bezierPathWithOvalInRect:r] : [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:4];
+        if (e.pic) [e.pic drawInRect:r blendMode:kCGBlendModeNormal alpha:e.touch ? MIN(1, vc.opacity / 0.6 * 0.8) : 1];
+        else {                                                     // no picture yet: a labelled box
+            [[UIColor colorWithWhite:1 alpha:0.19] setFill]; [shape fill];
+            [e.label drawAtPoint:CGPointMake(r.origin.x + 4, r.origin.y + 4) withAttributes:ta];
+        }
+        if (e == vc.active) {
+            [rgb(0xF5C21B) setStroke]; shape.lineWidth = 2; [shape stroke];
+            CGFloat ly = r.origin.y - 18 < o.y + 2 ? CGRectGetMaxY(r) + 2 : r.origin.y - 18;
+            [e.label drawAtPoint:CGPointMake(r.origin.x, ly) withAttributes:ta];
+        } else if (!e.touch) {
+            [[UIColor colorWithWhite:1 alpha:0.25] setStroke];
+            CGFloat dash[] = {5, 4}; [shape setLineDash:dash count:2 phase:0]; shape.lineWidth = 1; [shape stroke];
+        }
+    }
+}
+- (HudElem *)hit:(CGPoint)p {
+    HudElem *best = nil; CGFloat area = CGFLOAT_MAX;
+    for (HudElem *e in self.vc.elems) {
+        CGRect r = CGRectInset([self rect:e], -8, -8);
+        if (CGRectContainsPoint(r, p) && r.size.width * r.size.height < area) { best = e; area = r.size.width * r.size.height; }
+    }
+    return best;
+}
+- (CGFloat)pinch { CGPoint a = [_live[0] locationInView:self], b = [_live[1] locationInView:self]; return hypot(a.x - b.x, a.y - b.y); }
+// Tap to pick an item, then slide it: a drag only moves the item already picked (no accidental drags of the wrong
+// item); a tap elsewhere picks another, on nothing drops the pick.
+- (void)touchesBegan:(NSSet *)ts withEvent:(UIEvent *)ev {
+    for (UITouch *t in ts) {
+        [_live addObject:t];
+        if (_live.count == 1) {
+            _down = _last = [t locationInView:self];
+            _tapped = [self hit:_down];
+            _dragging = _tapped && _tapped == self.vc.active;
+        } else if (_live.count == 2 && self.vc.active) { _startDist = self.pinch; _startScale = self.vc.active.s; _dragging = YES; }
+    }
+}
+- (void)touchesMoved:(NSSet *)ts withEvent:(UIEvent *)ev {
+    HudElem *a = self.vc.active;
+    if (!a || !_dragging || !_live.count) return;
+    CGPoint p = [_live[0] locationInView:self];
+    if (_live.count >= 2 && _startDist > 0) {
+        CGFloat cx = a.x + a.sw * a.s / 2, cy = a.y + a.sh * a.s / 2;
+        a.s = MAX(0.4, MIN(3, _startScale * self.pinch / _startDist));
+        a.x = cx - a.sw * a.s / 2; a.y = cy - a.sh * a.s / 2;      // grow around the centre
+    } else {
+        a.x += (p.x - _last.x) / self.scale; a.y += (p.y - _last.y) / self.scale;
+    }
+    a.x = MAX(-a.sw * a.s / 2, MIN(HGW - a.sw * a.s / 2, a.x));
+    a.y = MAX(-a.sh * a.s / 2, MIN(HGH - a.sh * a.s / 2, a.y));
+    _last = p;
+    [self.vc showInfo];
+    [self setNeedsDisplay];
+}
+- (void)touchesEnded:(NSSet *)ts withEvent:(UIEvent *)ev {
+    for (UITouch *t in ts) [_live removeObject:t];
+    if (_live.count) {                                             // keep dragging with the finger that stays
+        _startDist = 0;
+        _last = [_live[0] locationInView:self];
+        return;
+    }
+    CGPoint p = [ts.anyObject locationInView:self];
+    if (!_dragging && hypot(p.x - _down.x, p.y - _down.y) < 12) { self.vc.active = _tapped; [self.vc showInfo]; [self setNeedsDisplay]; }
+    _dragging = NO;
+}
+- (void)touchesCancelled:(NSSet *)ts withEvent:(UIEvent *)ev { for (UITouch *t in ts) [_live removeObject:t]; if (!_live.count) _dragging = NO; }
+@end
+
+@implementation HudEditorVC
+- (NSString *)layoutPath { return [[docs() stringByAppendingPathComponent:@"game"] stringByAppendingPathComponent:@"hud_layout.txt"]; }
+- (void)load {
+    self.elems = [NSMutableArray array];
+    self.opacity = 0.6;
+    NSString *list = [NSString stringWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"hud_elements.txt"] encoding:NSUTF8StringEncoding error:nil];
+    for (NSString *raw in [list componentsSeparatedByString:@"\n"]) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (!line.length || [line hasPrefix:@"#"]) continue;
+        NSScanner *sc = [NSScanner scannerWithString:line];
+        NSString *name; double v[4];
+        if (![sc scanUpToCharactersFromSet:NSCharacterSet.whitespaceCharacterSet intoString:&name]) continue;
+        if (![sc scanDouble:&v[0]] || ![sc scanDouble:&v[1]] || ![sc scanDouble:&v[2]] || ![sc scanDouble:&v[3]]) continue;
+        HudElem *e = [[HudElem alloc] init];
+        e.name = name; e.sx = e.x = v[0]; e.sy = e.y = v[1]; e.sw = v[2]; e.sh = v[3]; e.s = 1;
+        e.label = [[line substringFromIndex:sc.scanLocation] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        e.touch = [name hasPrefix:@"touch_"];
+        NSString *shot = [[[docs() stringByAppendingPathComponent:@"game/hudshots"] stringByAppendingPathComponent:name] stringByAppendingString:@".rgba"];
+        e.pic = e.touch ? [UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:[name stringByAppendingString:@".png"]]]
+                        : hud_rgba([NSData dataWithContentsOfFile:shot]);
+        [self.elems addObject:e];
+    }
+    NSString *saved = [NSString stringWithContentsOfFile:self.layoutPath encoding:NSUTF8StringEncoding error:nil];
+    for (NSString *line in [saved componentsSeparatedByString:@"\n"]) {
+        NSArray *p = [[line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (p.count == 2 && [p[0] isEqualToString:@"touch_opacity"]) { self.opacity = [p[1] doubleValue]; continue; }
+        if (p.count < 4) continue;
+        for (HudElem *e in self.elems) if ([e.name isEqualToString:p[0]]) { e.x = [p[1] doubleValue]; e.y = [p[2] doubleValue]; e.s = [p[3] doubleValue]; }
+    }
+}
+- (UILabel *)label:(NSString *)t color:(UIColor *)c {
+    UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:13]; return l;
+}
+- (UIButton *)button:(NSString *)t primary:(BOOL)pri action:(SEL)a {
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    [b setTitle:t forState:UIControlStateNormal];
+    b.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [b setTitleColor:pri ? rgb(0x131A2E) : UIColor.whiteColor forState:UIControlStateNormal];
+    b.backgroundColor = pri ? rgb(0xF5C21B) : rgb(0x0E1F5C); b.layer.cornerRadius = 18;
+    b.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
+    [b.heightAnchor constraintEqualToConstant:36].active = YES;
+    [b.widthAnchor constraintGreaterThanOrEqualToConstant:64].active = YES;
+    [b addTarget:self action:a forControlEvents:UIControlEventTouchUpInside];
+    return b;
+}
+- (UISlider *)slider:(float)lo hi:(float)hi value:(float)v action:(SEL)a width:(CGFloat)w {
+    UISlider *s = [[UISlider alloc] init];
+    s.minimumValue = lo; s.maximumValue = hi; s.value = v; s.minimumTrackTintColor = rgb(0xF5C21B);
+    [s addTarget:self action:a forControlEvents:UIControlEventValueChanged];
+    [s.widthAnchor constraintEqualToConstant:w].active = YES;
+    return s;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    [self load];
+    self.canvas = [[HudCanvas alloc] initWithFrame:self.view.bounds];
+    self.canvas.vc = self;
+    self.canvas.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.canvas.contentMode = UIViewContentModeRedraw;
+    [self.view addSubview:self.canvas];
+    self.info = [self label:@"Tap an item" color:UIColor.whiteColor];
+    [self.info.widthAnchor constraintGreaterThanOrEqualToConstant:120].active = YES;
+    self.size = [self slider:0.4 hi:3 value:1 action:@selector(sizeChanged) width:110];
+    self.size.enabled = NO;
+    UIStackView *bar = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.info, [self label:@"Size" color:rgb(0xB7C4E8)], self.size,
+        [self label:@"Buttons" color:rgb(0xB7C4E8)], [self slider:0.1 hi:1 value:self.opacity action:@selector(opacityChanged:) width:90],
+        [self button:@"Reset" primary:NO action:@selector(reset)], [self button:@"Back" primary:NO action:@selector(close)],
+        [self button:@"Save" primary:YES action:@selector(save)]]];
+    bar.spacing = 8; bar.alignment = UIStackViewAlignmentCenter;
+    bar.layoutMargins = UIEdgeInsetsMake(4, 10, 4, 10); bar.layoutMarginsRelativeArrangement = YES;
+    bar.backgroundColor = [rgb(0x131A2E) colorWithAlphaComponent:0.9]; bar.layer.cornerRadius = 14;
+    bar.layer.borderWidth = 1; bar.layer.borderColor = rgb(0x2A3A6E).CGColor;
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:bar];
+    [NSLayoutConstraint activateConstraints:@[                         // bottom centre: the race HUD has nothing there
+        [bar.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [bar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-6]]];
+    [self showInfo];
+}
+- (void)showInfo {
+    HudElem *e = self.active;
+    self.info.text = e ? [NSString stringWithFormat:@"%@  %.0f%%", e.label, e.s * 100] : @"Tap an item, then slide it";
+    self.size.enabled = e != nil;
+    if (e) self.size.value = e.s;
+}
+- (void)sizeChanged {
+    HudElem *e = self.active;
+    if (!e) return;
+    CGFloat cx = e.x + e.sw * e.s / 2, cy = e.y + e.sh * e.s / 2;
+    e.s = self.size.value;
+    e.x = cx - e.sw * e.s / 2; e.y = cy - e.sh * e.s / 2;
+    [self showInfo]; [self.canvas setNeedsDisplay];
+}
+- (void)opacityChanged:(UISlider *)s { self.opacity = s.value; [self.canvas setNeedsDisplay]; }
+- (void)reset {
+    for (HudElem *e in self.elems) { e.x = e.sx; e.y = e.sy; e.s = 1; }
+    self.opacity = 0.6;
+    [self showInfo]; [self.canvas setNeedsDisplay];
+}
+- (void)save {
+    NSMutableString *t = [NSMutableString stringWithString:@"# HUD layout from the editor: name x y scale (game pixels 1280x720, top-left)\n"];
+    for (HudElem *e in self.elems)
+        if (e.x != e.sx || e.y != e.sy || e.s != 1) [t appendFormat:@"%@ %.1f %.1f %.3f\n", e.name, e.x, e.y, e.s];
+    [t appendFormat:@"touch_opacity %.2f\n", self.opacity];
+    [NSFileManager.defaultManager createDirectoryAtPath:[self.layoutPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+    [t writeToFile:self.layoutPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [self close];
+}
+- (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (BOOL)prefersStatusBarHidden { return YES; }
+- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+@end
+
 @interface LoginVC : UIViewController <UITextFieldDelegate>
 @end
 @implementation LoginVC {
@@ -388,7 +644,6 @@ static void write_controls(NSString *dir) {
     UILabel *_status;
     NSUserDefaults *_prefs;
 }
-static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255) / 255.0 green:((v >> 8) & 255) / 255.0 blue:(v & 255) / 255.0 alpha:1]; }
 - (UITextField *)field:(NSString *)ph secure:(BOOL)sec {
     UITextField *f = [[UITextField alloc] init];
     f.placeholder = ph; f.secureTextEntry = sec; f.textColor = UIColor.whiteColor;
@@ -459,6 +714,20 @@ static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255)
     [_play addTarget:self action:@selector(go) forControlEvents:UIControlEventTouchUpInside];
     for (UIView *v in @[[self label:@"Username"], _user, [self label:@"Password"], _pass, [self label:@"Server"], _server,
                         [self label:@"Language"], _lang, rem, _status, _play]) [st addArrangedSubview:v];
+    UIButton *hud = [UIButton buttonWithType:UIButtonTypeSystem];        // race HUD layout editor
+    [hud setTitle:@"HUD layout" forState:UIControlStateNormal];
+    hud.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
+    [hud setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    hud.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08]; hud.layer.cornerRadius = 20;
+    hud.layer.borderWidth = 1; hud.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+    [hud.heightAnchor constraintEqualToConstant:40].active = YES;
+    [hud addTarget:self action:@selector(openHud) forControlEvents:UIControlEventTouchUpInside];
+    [st addArrangedSubview:hud];
+}
+- (void)openHud {
+    HudEditorVC *vc = [[HudEditorVC alloc] init];
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:vc animated:YES completion:nil];
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)f {        // Return: username -> password, password -> keyboard down + Play
     if (f == _user) { [_pass becomeFirstResponder]; return NO; }
@@ -500,8 +769,14 @@ static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255)
             [self say:@"Preparing the game files (first start only)..." error:NO];
             NSString *src = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"gamedata"];
             NSError *e = nil;
-            [fm removeItemAtPath:game error:nil];
-            if (![fm copyItemAtPath:src toPath:game error:&e]) { [self fail:[NSString stringWithFormat:@"Could not prepare the game files (%@).", e.localizedDescription] badLogin:NO]; return; }
+            [fm createDirectoryAtPath:game withIntermediateDirectories:YES attributes:nil error:nil];
+            for (NSString *item in [fm contentsOfDirectoryAtPath:src error:nil]) {     // item by item: a saved hud_layout.txt stays
+                NSString *to = [game stringByAppendingPathComponent:item];
+                [fm removeItemAtPath:to error:nil];
+                if (![fm copyItemAtPath:[src stringByAppendingPathComponent:item] toPath:to error:&e]) {
+                    [self fail:[NSString stringWithFormat:@"Could not prepare the game files (%@).", e.localizedDescription] badLogin:NO]; return;
+                }
+            }
         }
         // the phone's settings file (the patch leaves UserSetting.bin out): windowed 1280x720 (0x04 = 0, 0x10 = 4)
         NSString *usf = [game stringByAppendingPathComponent:@"UserSetting.bin"];
