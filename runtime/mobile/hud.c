@@ -43,7 +43,7 @@ static void load(void) {
         while (fgets(line, sizeof line, f)) {
             char name[32]; float x, y, s;
             if (line[0] == '#') continue;
-            if (sscanf(line, "touch_opacity %f", &x) == 1) { g_touch_opacity = x < 0 ? 0 : x > 1 ? 1 : x;   // 0 = invisible, still touchable (the user, 6 Nov) continue; }
+            if (sscanf(line, "touch_opacity %f", &x) == 1) { g_touch_opacity = x < 0 ? 0 : x > 1 ? 1 : x; continue; }   // 0 = invisible, still touchable (the user, 6 Nov)
             if (sscanf(line, "%31s %f %f %f", name, &x, &y, &s) != 4 || s <= 0) continue;
             for (int i = 0; i < g_nel; i++)
                 if (!strcmp(g_el[i].name, name)) { g_el[i].x = x; g_el[i].y = y; g_el[i].s = s; g_el[i].moved = 1; moved++; }
