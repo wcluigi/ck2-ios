@@ -155,7 +155,13 @@ static int android_to_vk(int c) {
     CGFloat s = self.contentScaleFactor;
     g_pw = (int)(self.bounds.size.width * s); g_ph = (int)(self.bounds.size.height * s);
     g_layer.drawableSize = CGSizeMake(g_pw, g_ph);
+    // the lobby / room button rail keeps clear of the notch / Dynamic Island (hud.c chan_layout): the safe inset
+    // in game pixels (the game is 720 high and fills the screen)
+    extern float hud_safe_inset;
+    UIEdgeInsets in = self.window ? self.window.safeAreaInsets : self.safeAreaInsets;
+    if (self.bounds.size.height > 0) hud_safe_inset = (float)(MAX(in.left, in.right) * 720 / self.bounds.size.height);
 }
+- (void)safeAreaInsetsDidChange { [super safeAreaInsetsDidChange]; [self setNeedsLayout]; }
 - (int)slot:(UITouch *)t add:(BOOL)add {
     for (int i = 0; i < 9; i++) if (_touches[i] == t) return i;
     if (!add) return -1;

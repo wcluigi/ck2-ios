@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build the phone app for a release: the dev client (the one the release ships) with the phone patches, lifted and
-# built for Android, signed with ~/.ck2/mobile_signing.keystore, into build/android/release/:
+# built for Android, signed with ~/.ck2/mobile_release.keystore (package_apk.sh), into build/android/release/:
 # CrazyKartLegacy.apk + mobile.json {versionCode, version}. ck2server/release/build_release.py then lists it in the
 # signed patch manifest ("mobile") and publish_patch.py uploads it; phones install it themselves (LoginActivity).
 # Run it AFTER the dev client is stamped with the release's build (the servers' CLIENT_BUILD) and BEFORE build_release.
@@ -9,7 +9,7 @@ set -e
 cd "$(dirname "$0")"
 NAME="${1:?usage: ./release_apk.sh <release name, e.g. OBT 1.4.4>}"
 G=../CrazyKart2
-[ -f "$HOME/.ck2/mobile_signing.keystore" ] || { echo "missing ~/.ck2/mobile_signing.keystore (phones only take updates signed with it)"; exit 1; }
+[ -f "$HOME/.ck2/mobile_release.keystore" ] || { echo "missing ~/.ck2/mobile_release.keystore (phones only take updates signed with it)"; exit 1; }
 R=build/android/release
 mkdir -p $R
 # version code from the release name, the same on every PC and always growing (a counter kept in build/ restarted
