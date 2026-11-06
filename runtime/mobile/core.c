@@ -228,6 +228,10 @@ u32 rt_setjmp(CPU *c, u32 buf, u32 ebx, u32 esi, u32 edi, u32 ebp, u32 esp, void
     for (int i = 0; i < NSJ; i++) if (t[i].esp == esp && (!old || t[i].seq < old->seq)) old = &t[i];
     if (!s) s = old;
     if (!s) rt_fatal("setjmp table full");
+    if (s->buf && s->buf != buf) {                  // the fix at work (shown once per run)
+        static int told;
+        if (!told++) rt_log("setjmp: table of %d full, reusing a dead slot\n", NSJ);
+    }
     static u32 seq;
     s->seq = ++seq;
     s->buf = buf; s->ebx = ebx; s->esi = esi; s->edi = edi; s->ebp = ebp; s->esp = esp;
