@@ -231,6 +231,7 @@ public class LoginActivity extends Activity {
             public void onCheckedChanged(RadioGroup g, int id) { online.setVisibility(View.GONE); refreshOnline(); }
         });
         ui.post(onlineTick);
+        patchNotes(hero);
         setContentView(root);
         if (!prefs.contains("lang")) askLanguage();
     }
@@ -239,6 +240,79 @@ public class LoginActivity extends Activity {
     protected void onDestroy() {
         ui.removeCallbacksAndMessages(null);
         super.onDestroy();
+    }
+
+    // ---- patch notes: the PC launcher's list (site patchnotes.json, newest first), last copy kept for offline starts;
+    // a card on the key art's right, items in the launcher language (the file has each line in English and Chinese)
+    static final String NOTES_URL = "https://crazykartlegacy.com/patchnotes.json";
+    View notes;
+    void patchNotes(final FrameLayout hero) {
+        final String cached = prefs.getString("notes", null);
+        if (cached != null) showNotes(hero, cached);
+        new Thread(new Runnable() { public void run() {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(NOTES_URL).openConnection();
+                c.setConnectTimeout(6000); c.setReadTimeout(8000);
+                if (c.getResponseCode() != 200) return;
+                final String j = new String(ShopSync.readAll(c.getInputStream()), StandardCharsets.UTF_8);
+                new org.json.JSONArray(j);                               // only a list that parses replaces the copy
+                if (j.equals(cached)) return;
+                prefs.edit().putString("notes", j).apply();
+                runOnUiThread(new Runnable() { public void run() { showNotes(hero, j); } });
+            } catch (Exception ignored) { }
+        } }).start();
+    }
+    static boolean cjk(String s) {
+        for (int i = 0; i < s.length(); i++) { char ch = s.charAt(i); if (ch >= 0x3000 && ch <= 0x9fff || ch >= 0xff00 && ch <= 0xffef) return true; }
+        return false;
+    }
+    void showNotes(FrameLayout hero, String json) {
+        org.json.JSONArray a;
+        try { a = new org.json.JSONArray(json); } catch (Exception e) { return; }
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(16), dp(12), dp(16), dp(14));
+        TextView head = new TextView(this);
+        head.setText(t("PATCH NOTES", "更新公告"));
+        head.setTextColor(YELLOW); head.setTypeface(baloo800); head.setTextSize(16); head.setLetterSpacing(0.06f);
+        list.addView(head);
+        for (int i = 0; i < Math.min(a.length(), 8); i++) {
+            org.json.JSONObject n = a.optJSONObject(i);
+            if (n == null) continue;
+            TextView v = new TextView(this);
+            v.setText(n.optString("version") + "  ·  " + n.optString("date"));
+            v.setTextColor(MUTED); v.setTypeface(baloo); v.setTextSize(11);
+            v.setPadding(0, dp(i == 0 ? 6 : 14), 0, 0);
+            list.addView(v);
+            TextView ti = new TextView(this);
+            ti.setText(n.optString("title"));
+            ti.setTextColor(Color.WHITE); ti.setTypeface(baloo800); ti.setTextSize(14);
+            list.addView(ti);
+            org.json.JSONArray it = n.optJSONArray("items");
+            StringBuilder b = new StringBuilder();
+            for (int k = 0; it != null && k < it.length(); k++) {
+                String line = it.optString(k);
+                if (cjk(line) != zh) continue;
+                if (b.length() > 0) b.append('\n');
+                b.append("•  ").append(line);
+            }
+            if (b.length() == 0) continue;
+            TextView body = new TextView(this);
+            body.setText(b);
+            body.setTextColor(0xFFDDE4F7); body.setTypeface(nunito); body.setTextSize(12); body.setLineSpacing(dp(2), 1);
+            body.setPadding(0, dp(3), 0, 0);
+            list.addView(body);
+        }
+        ScrollView sv = new ScrollView(this);
+        sv.setBackground(round(0xB0131A2E, GLASS_LINE, 16));
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(300), -1, Gravity.END | Gravity.TOP);
+        lp.setMargins(dp(16), dp(16), dp(16), dp(16));
+        if (notes != null) hero.removeView(notes);
+        hero.addView(sv, lp);
+        notes = sv;
+        if (gfxPanel != null) { sv.setVisibility(View.GONE); gfxPanel.bringToFront(); }
     }
 
     // ---- players online: <server API>/launcher/online {"online": n}, every 30 s; hidden while Settings is open
@@ -398,6 +472,7 @@ public class LoginActivity extends Activity {
             heroView.removeView(gfxPanel);
             gfxPanel = null;
             if (online.getText().length() > 0) online.setVisibility(View.VISIBLE);
+            if (notes != null) notes.setVisibility(View.VISIBLE);
         } });
         head.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
         card.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -594,6 +669,7 @@ public class LoginActivity extends Activity {
             heroView.removeView(gfxPanel);
             gfxPanel = null;
             if (online.getText().length() > 0) online.setVisibility(View.VISIBLE);
+            if (notes != null) notes.setVisibility(View.VISIBLE);
             if ((lang.getCheckedRadioButtonId() == 201) != zh) setLanguage(lang.getCheckedRadioButtonId() == 201);
         } });
 
@@ -603,6 +679,7 @@ public class LoginActivity extends Activity {
         heroView.addView(sv, lp);
         gfxPanel = sv;
         online.setVisibility(View.GONE);
+        if (notes != null) notes.setVisibility(View.GONE);
     }
 
     Button bindButton(String text) {

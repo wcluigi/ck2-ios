@@ -958,6 +958,8 @@ static UIImage *hud_rgba(NSData *d) {
     UIButton *_play;
     UILabel *_status;
     NSUserDefaults *_prefs;
+    UIScrollView *_notesView;
+    UILabel *_notesText;
 }
 - (UITextField *)field:(NSString *)ph secure:(BOOL)sec {
     UITextField *f = [[UITextField alloc] init];
@@ -1048,6 +1050,62 @@ static UIImage *hud_rgba(NSData *d) {
     UIStackView *tools = [[UIStackView alloc] initWithArrangedSubviews:@[hud, ctl]];
     tools.spacing = 8; tools.distribution = UIStackViewDistributionFillEqually;
     [st addArrangedSubview:tools];
+    // patch notes (the PC launcher's list, site patchnotes.json): a card on the key art's right, last copy kept offline
+    _notesView = [[UIScrollView alloc] init];
+    _notesView.translatesAutoresizingMaskIntoConstraints = NO; _notesView.showsVerticalScrollIndicator = NO;
+    _notesView.backgroundColor = [rgb(0x131A2E) colorWithAlphaComponent:0.7]; _notesView.layer.cornerRadius = 16;
+    _notesView.layer.borderWidth = 1; _notesView.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+    _notesText = [[UILabel alloc] init];
+    _notesText.numberOfLines = 0; _notesText.translatesAutoresizingMaskIntoConstraints = NO;
+    [_notesView addSubview:_notesText]; [self.view addSubview:_notesView];
+    UILayoutGuide *sa = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [_notesView.trailingAnchor constraintEqualToAnchor:side.leadingAnchor constant:-16],
+        [_notesView.topAnchor constraintEqualToAnchor:sa.topAnchor constant:16], [_notesView.bottomAnchor constraintEqualToAnchor:sa.bottomAnchor constant:-16],
+        [_notesView.widthAnchor constraintEqualToConstant:300],
+        [_notesView.leadingAnchor constraintGreaterThanOrEqualToAnchor:sa.leadingAnchor constant:16],
+        [_notesText.leadingAnchor constraintEqualToAnchor:_notesView.leadingAnchor constant:16],
+        [_notesText.topAnchor constraintEqualToAnchor:_notesView.topAnchor constant:12],
+        [_notesText.bottomAnchor constraintEqualToAnchor:_notesView.bottomAnchor constant:-14],
+        [_notesText.widthAnchor constraintEqualToAnchor:_notesView.widthAnchor constant:-32]]];
+    [_lang addTarget:self action:@selector(showNotes) forControlEvents:UIControlEventValueChanged];
+    [self showNotes];
+    NSURLRequest *rq = [NSURLRequest requestWithURL:[NSURL URLWithString:@"https://crazykartlegacy.com/patchnotes.json"]
+                                        cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:8];
+    [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        if (!d || [(NSHTTPURLResponse *)r statusCode] != 200) return;
+        if (![[NSJSONSerialization JSONObjectWithData:d options:0 error:nil] isKindOfClass:NSArray.class]) return;
+        dispatch_async(dispatch_get_main_queue(), ^{ [self->_prefs setObject:d forKey:@"notes"]; [self showNotes]; });
+    }] resume];
+}
+static BOOL has_cjk(NSString *s) {
+    for (NSUInteger i = 0; i < s.length; i++) { unichar c = [s characterAtIndex:i]; if ((c >= 0x3000 && c <= 0x9fff) || (c >= 0xff00 && c <= 0xffef)) return YES; }
+    return NO;
+}
+- (void)showNotes {                     // each line of the file is in English or Chinese: the launcher language's
+    NSData *d = [_prefs dataForKey:@"notes"];
+    NSArray *a = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+    _notesView.hidden = ![a isKindOfClass:NSArray.class] || !a.count;
+    if (_notesView.hidden) return;
+    BOOL zh = _lang.selectedSegmentIndex == 1;
+    NSMutableAttributedString *t = [[NSMutableAttributedString alloc] init];
+    void (^add)(NSString *, UIFont *, UIColor *, CGFloat) = ^(NSString *x, UIFont *f, UIColor *c, CGFloat before) {
+        NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+        ps.paragraphSpacingBefore = before; ps.lineSpacing = 2;
+        [t appendAttributedString:[[NSAttributedString alloc] initWithString:[x stringByAppendingString:@"\n"]
+            attributes:@{NSFontAttributeName: f, NSForegroundColorAttributeName: c, NSParagraphStyleAttributeName: ps}]];
+    };
+    add(zh ? @"更新公告" : @"PATCH NOTES", [UIFont systemFontOfSize:16 weight:UIFontWeightHeavy], rgb(0xF5C21B), 0);
+    for (NSUInteger i = 0; i < MIN(a.count, 8); i++) {
+        NSDictionary *n = a[i];
+        if (![n isKindOfClass:NSDictionary.class]) continue;
+        add([NSString stringWithFormat:@"%@  ·  %@", n[@"version"] ?: @"", n[@"date"] ?: @""], [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold], rgb(0xB7C4E8), i ? 12 : 6);
+        if ([n[@"title"] isKindOfClass:NSString.class]) add(n[@"title"], [UIFont systemFontOfSize:14 weight:UIFontWeightBold], UIColor.whiteColor, 0);
+        for (id line in ([n[@"items"] isKindOfClass:NSArray.class] ? n[@"items"] : @[]))
+            if ([line isKindOfClass:NSString.class] && has_cjk(line) == zh)
+                add([@"•  " stringByAppendingString:line], [UIFont systemFontOfSize:12], rgb(0xDDE4F7), 3);
+    }
+    _notesText.attributedText = t;
 }
 - (void)openControls {
     ControlsVC *vc = [[ControlsVC alloc] init];
