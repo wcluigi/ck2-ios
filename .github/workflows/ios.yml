@@ -11,6 +11,7 @@ on:
 jobs:
   ipa:
     runs-on: macos-15
+    permissions: { contents: write }
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
@@ -28,9 +29,9 @@ jobs:
           VERSION: ${{ inputs.version || '1.0' }}
           BUILD: ${{ github.run_number }}
         run: sh ios/build_ios.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: CrazyKartLegacy-iOS
-          path: build/ios/CrazyKartLegacy-iOS.ipa
-          compression-level: 0
-          retention-days: 14
+      # a release file, not an artifact: the artifact store downloads at ~20 KB/s from the user's network
+      - name: release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release view ios -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create ios -R "$GITHUB_REPOSITORY" --title "iOS build" --notes "Unsigned .ipa for sideloading."
+          gh release upload ios build/ios/CrazyKartLegacy-iOS.ipa -R "$GITHUB_REPOSITORY" --clobber

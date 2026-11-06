@@ -35,6 +35,7 @@ cp ios/assets/latin*.ttf ios/assets/latin_OFL.txt $APP/image/
 cp ios/assets/AppIcon*.png $APP/
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" ios/Info.plist > $APP/Info.plist
 plutil -convert binary1 $APP/Info.plist
+ls -la $O | tail -3; ls $O | wc -l; ls -la $APP/CK2
 mkdir -p $APP/gamedata
 unzip -q "$GAMEDATA" -d $APP/gamedata
 # ad-hoc signature carrying the entitlements (sideloaders re-sign and keep what the Apple ID may have)
