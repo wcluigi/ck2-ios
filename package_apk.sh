@@ -21,7 +21,7 @@ if [ "$BUNDLE" = 1 ]; then
 fi
 rm -rf $OUT/res.zip && "$BT/aapt2.exe" compile --dir android/res -o $OUT/res.zip     # app icon (android/res)
 "$BT/aapt2.exe" link $OUT/res.zip --manifest android/AndroidManifest.xml -I "$SDK/platforms/android-34/android.jar" -A $OUT/assets \
-  -o $OUT/unsigned.apk --min-sdk-version 26 --target-sdk-version 34   ${VERSION_CODE:+--version-code $VERSION_CODE} ${VERSION_NAME:+--version-name "$VERSION_NAME"}
+  -o $OUT/unsigned.apk --min-sdk-version 26 --target-sdk-version 34   ${VERSION_CODE:+--replace-version --version-code $VERSION_CODE} ${VERSION_NAME:+--version-name "$VERSION_NAME"}
 # login screen (Java) -> classes.dex
 rm -rf $OUT/classes && mkdir -p $OUT/classes $OUT/dex
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -bootclasspath "$SDK/platforms/android-34/android.jar" -d $OUT/classes android/java/com/crazykart/legacy/*.java 2>&1 | grep -v "warning: \[options\]" || true
