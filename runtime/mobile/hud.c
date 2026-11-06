@@ -20,6 +20,7 @@ extern char g_image_dir[512];
 typedef struct { char name[32]; float sx, sy, sw, sh, x, y, s; int moved; } HudElem;
 static HudElem g_el[48];
 static int g_nel, g_loaded;
+float hud_safe_inset;                // screen-edge keep-out in game pixels (iOS notch / Dynamic Island; 0 on Android)
 static float g_touch_opacity = 0.6f;
 
 static void load(void) {
@@ -240,7 +241,8 @@ static int chan_on(void) { return g_frame_no && g_chan_seen + 1 >= g_frame_no; }
 static void chan_layout(void) {
     int gw, rw, ox;
     gpu_wide(&gw, &rw, &ox);
-    float L = (float)-ox + 8, R = (float)(gw + ox) - 8, rail = 76;
+    // both sides: the notch is on the left or the right depending on how the phone is turned
+    float L = (float)-ox + 8 + hud_safe_inset, R = (float)(gw + ox) - 8 - hud_safe_inset, rail = 76;
     Part *u = &g_part[UPPER], *c = &g_part[CHAT];
     *u = (Part){150, 0, 980, 556};
     *c = (Part){150, 556, 980, 164};

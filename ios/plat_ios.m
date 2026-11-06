@@ -196,11 +196,21 @@ static int android_to_vk(int c) {
 @end
 
 // controllers (Xbox, PlayStation, MFi): buttons -> Android key codes, sticks / triggers / d-pad -> Android axes
+static void (^g_capture)(int code, int down);      // the Controls screen's "press a key or button" (nil: to the game)
 static int g_padheld[256];
+static signed char g_capaxis[64];
 static void pad_button(int code, BOOL pressed) {
     if (g_padheld[code] == (int)pressed) return;
     g_padheld[code] = pressed;
-    input_code(code, pressed);
+    if (g_capture) g_capture(code, pressed); else input_code(code, pressed);
+}
+static void pad_axis(int axis, float v) {                  // a stick / trigger direction past 0.6 counts as a button
+    if (!g_capture) { input_axis(axis, v); return; }
+    int s = v > 0.6f ? 1 : v < -0.6f ? -1 : 0;
+    if (s == g_capaxis[axis]) return;
+    if (g_capaxis[axis]) g_capture(1000 + axis * 2 + (g_capaxis[axis] > 0), 0);
+    g_capaxis[axis] = (signed char)s;
+    if (s) g_capture(1000 + axis * 2 + (s > 0), 1);
 }
 static void pad_attach(GCController *c) {
     GCExtendedGamepad *g = c.extendedGamepad;
@@ -214,10 +224,10 @@ static void pad_attach(GCController *c) {
         pad_button(106, p.leftThumbstickButton.pressed); pad_button(107, p.rightThumbstickButton.pressed);
         float lx = p.leftThumbstick.xAxis.value, ly = -p.leftThumbstick.yAxis.value;      // Android: y down = +
         float rx = p.rightThumbstick.xAxis.value, ry = -p.rightThumbstick.yAxis.value;
-        input_sticks(lx, ly, ry);
-        input_axis(0, lx); input_axis(1, ly); input_axis(11, rx); input_axis(14, ry);
-        input_axis(15, p.dpad.xAxis.value); input_axis(16, -p.dpad.yAxis.value);         // d-pad as the hat
-        input_axis(17, p.leftTrigger.value); input_axis(18, p.rightTrigger.value);
+        if (!g_capture) input_sticks(lx, ly, ry);
+        pad_axis(0, lx); pad_axis(1, ly); pad_axis(11, rx); pad_axis(14, ry);
+        pad_axis(15, p.dpad.xAxis.value); pad_axis(16, -p.dpad.yAxis.value);             // d-pad as the hat
+        pad_axis(17, p.leftTrigger.value); pad_axis(18, p.rightTrigger.value);
     };
 }
 
@@ -370,13 +380,83 @@ static void shop_sync(NSString *game, NSString *api) {
     }
 }
 
-// default keyboard + controller bindings (Controls.java defaults; a Settings panel comes later)
-static void write_controls(NSString *dir) {
-    NSString *t = @"bind 19 38\nbind 20 40\nbind 21 37\nbind 22 39\nbind 113 17\nbind 62 32\nbind 59 16\nbind 66 13\nbind 111 27\n"
-                   "bind 96 38\nbind 97 40\nbind 1000 37\nbind 1001 39\nbind 99 17\nbind 100 32\nbind 103 16\nbind 109 -1\nbind 108 27\n"
-                   "bind 1037 38\nbind 1045 38\nbind 1035 40\nbind 1047 40\nbind 1030 37\nbind 1031 39\nbind 1032 38\nbind 1033 40\n";
-    [t writeToFile:[dir stringByAppendingPathComponent:@"controls.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+// ---- keyboards and controllers: bindings + chat macros (Controls.java on Android, same prefs names and file). Each game
+// action has one keyboard key and one controller button (or stick / trigger direction); each of the 9 chat macros
+// a key or a two-button combination. Codes: Android key codes; a stick / d-pad / trigger direction is
+// 1000 + axis * 2 + (1 if positive). Written to <Documents>/controls.txt at every Play (input.c reads it).
+#define CT_N 9
+#define CT_MACROS 9
+static NSString *const CT_ID[CT_N] = {@"throttle", @"reverse", @"left", @"right", @"item", @"switch", @"drift", @"chat", @"menu"};
+static NSString *const CT_EN[CT_N] = {@"Accelerate", @"Brake / reverse", @"Steer left", @"Steer right", @"Use item", @"Switch item", @"Drift", @"Chat", @"Menu (Esc)"};
+static NSString *const CT_ZH[CT_N] = {@"加速", @"刹车 / 倒车", @"左转", @"右转", @"使用道具", @"切换道具", @"漂移", @"聊天", @"菜单 (Esc)"};
+static const int CT_VK[CT_N] = {0x26, 0x28, 0x25, 0x27, 0x11, 0x20, 0x10, 0x0d, 0x1b};
+static const int CT_KB[CT_N] = {19, 20, 21, 22, 113, 62, 59, 66, 111};             // arrows, Ctrl, Space, Shift, Enter, Esc
+static const int CT_PAD[CT_N] = {96, 97, 1000, 1001, 99, 100, 103, 109, 108};       // A, B, L stick, X, Y, RB, Select, Start
+// always on besides the player's choice: d-pad steers, the triggers drive (any controller works out of the box)
+static const int CT_EXTRA[][2] = {{1037, 0}, {1045, 0}, {1035, 1}, {1047, 1}, {1030, 2}, {1031, 3}, {1032, 0}, {1033, 1}};
+
+static int ct_kb(int i) { id v = [NSUserDefaults.standardUserDefaults objectForKey:[@"kb_" stringByAppendingString:CT_ID[i]]]; return v ? [v intValue] : CT_KB[i]; }
+static int ct_pad(int i) { id v = [NSUserDefaults.standardUserDefaults objectForKey:[@"pad_" stringByAppendingString:CT_ID[i]]]; return v ? [v intValue] : CT_PAD[i]; }
+static NSArray<NSNumber *> *ct_macro(int slot) {
+    NSString *s = [NSUserDefaults.standardUserDefaults stringForKey:[NSString stringWithFormat:@"macro_%d", slot]];
+    NSMutableArray *r = [NSMutableArray array];
+    for (NSString *f in [s componentsSeparatedByString:@"+"]) if (f.intValue > 0 && r.count < 2) [r addObject:@(f.intValue)];
+    return r;
 }
+
+static void write_controls(NSString *dir) {
+    NSMutableString *b = [NSMutableString stringWithString:@"# Controls (plat_ios.m ControlsVC)\n"];
+    for (int i = 0; i < CT_N; i++) {
+        if (ct_kb(i) > 0) [b appendFormat:@"bind %d %d\n", ct_kb(i), CT_VK[i]];
+        if (ct_pad(i) > 0) [b appendFormat:@"bind %d %d\n", ct_pad(i), i == 7 ? -1 : CT_VK[i]];   // chat on a controller: + text box
+    }
+    for (unsigned i = 0; i < sizeof CT_EXTRA / sizeof CT_EXTRA[0]; i++) [b appendFormat:@"bind %d %d\n", CT_EXTRA[i][0], CT_VK[CT_EXTRA[i][1]]];
+    for (int s = 0; s < CT_MACROS; s++) {
+        NSArray *m = ct_macro(s);
+        if (!m.count) continue;
+        [b appendFormat:@"macro %d", s];
+        for (NSNumber *c in m) [b appendFormat:@" %d", c.intValue];
+        [b appendString:@"\n"];
+    }
+    [b writeToFile:[dir stringByAppendingPathComponent:@"controls.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
+static NSString *ct_name(int code, BOOL zh) {
+    if (code <= 0) return zh ? @"无" : @"None";
+    if (code >= 1000) {
+        int a = (code - 1000) / 2; BOOL pos = code & 1;
+        switch (a) {
+        case 0: return [(zh ? @"左摇杆 " : @"L stick ") stringByAppendingString:pos ? @"→" : @"←"];
+        case 1: return [(zh ? @"左摇杆 " : @"L stick ") stringByAppendingString:pos ? @"↓" : @"↑"];
+        case 11: return [(zh ? @"右摇杆 " : @"R stick ") stringByAppendingString:pos ? @"→" : @"←"];
+        case 14: return [(zh ? @"右摇杆 " : @"R stick ") stringByAppendingString:pos ? @"↓" : @"↑"];
+        case 15: return [(zh ? @"方向键 " : @"D-pad ") stringByAppendingString:pos ? @"→" : @"←"];
+        case 16: return [(zh ? @"方向键 " : @"D-pad ") stringByAppendingString:pos ? @"↓" : @"↑"];
+        case 17: case 23: return @"LT";
+        case 18: case 22: return @"RT";
+        }
+        return [NSString stringWithFormat:@"Axis %d%@", a, pos ? @"+" : @"-"];
+    }
+    if (code >= 29 && code <= 54) return [NSString stringWithFormat:@"%c", 'A' + code - 29];
+    if (code >= 7 && code <= 16) return [NSString stringWithFormat:@"%c", '0' + code - 7];
+    if (code >= 131 && code <= 142) return [NSString stringWithFormat:@"F%d", code - 130];
+    switch (code) {
+    case 19: return @"↑"; case 20: return @"↓"; case 21: return @"←"; case 22: return @"→";
+    case 96: return @"Ⓐ"; case 97: return @"Ⓑ"; case 99: return @"Ⓧ"; case 100: return @"Ⓨ";
+    case 102: return @"LB"; case 103: return @"RB"; case 104: return @"LT"; case 105: return @"RT";
+    case 106: return @"L3"; case 107: return @"R3"; case 108: return @"Start"; case 109: return @"Select";
+    case 113: case 114: return @"Ctrl"; case 59: case 60: return @"Shift"; case 111: return @"Esc";
+    case 66: return @"Enter"; case 62: return @"Space"; case 67: return @"Backspace"; case 61: return @"Tab";
+    }
+    return [NSString stringWithFormat:@"Key %d", code];
+}
+static NSString *ct_combo(NSArray<NSNumber *> *c, BOOL zh) {
+    if (!c.count) return zh ? @"无按键" : @"No key";
+    NSMutableArray *n = [NSMutableArray array];
+    for (NSNumber *x in c) [n addObject:ct_name(x.intValue, zh)];
+    return [n componentsJoinedByString:@" + "];
+}
+
 
 static UIColor *rgb(unsigned v) { return [UIColor colorWithRed:((v >> 16) & 255) / 255.0 green:((v >> 8) & 255) / 255.0 blue:(v & 255) / 255.0 alpha:1]; }
 // ---- race HUD layout editor (HudEditorActivity.java on Android): every HUD element and touch button on a plain screen,
@@ -634,6 +714,235 @@ static UIImage *hud_rgba(NSData *d) {
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
 
+// ---- "Press a key or button": keyboards, controllers, sticks and triggers; combo = up to two held together ----------
+@interface CaptureVC : UIViewController
+@property BOOL combo, zh;
+@property (copy) void (^got)(NSArray<NSNumber *> *codes);       // empty = cleared; not called on Cancel
+@end
+@implementation CaptureVC {
+    NSMutableOrderedSet<NSNumber *> *_held, *_seen;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    _held = [NSMutableOrderedSet orderedSet]; _seen = [NSMutableOrderedSet orderedSet];
+    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+    UILabel *t = [[UILabel alloc] init];
+    t.text = self.combo ? (self.zh ? @"按下一个键，或同时按下两个键" : @"Press a key or button, or two together")
+                        : (self.zh ? @"按下一个键或手柄按钮（或推动摇杆）" : @"Press a key or controller button (or move a stick)");
+    t.textColor = UIColor.whiteColor; t.font = [UIFont boldSystemFontOfSize:17]; t.numberOfLines = 0; t.textAlignment = NSTextAlignmentCenter;
+    UIButton *clear = [UIButton buttonWithType:UIButtonTypeSystem], *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    [clear setTitle:self.zh ? @"清除" : @"Clear" forState:UIControlStateNormal];
+    [cancel setTitle:self.zh ? @"取消" : @"Cancel" forState:UIControlStateNormal];
+    for (UIButton *b in @[clear, cancel]) { [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; b.titleLabel.font = [UIFont boldSystemFontOfSize:15]; }
+    [clear addTarget:self action:@selector(clear) forControlEvents:UIControlEventTouchUpInside];
+    [cancel addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[clear, cancel]];
+    row.spacing = 40;
+    UIStackView *card = [[UIStackView alloc] initWithArrangedSubviews:@[t, row]];
+    card.axis = UILayoutConstraintAxisVertical; card.alignment = UIStackViewAlignmentCenter; card.spacing = 18;
+    card.layoutMargins = UIEdgeInsetsMake(24, 30, 16, 30); card.layoutMarginsRelativeArrangement = YES;
+    card.backgroundColor = [rgb(0x131A2E) colorWithAlphaComponent:0.95]; card.layer.cornerRadius = 20;
+    card.layer.borderWidth = 1; card.layer.borderColor = rgb(0xF5C21B).CGColor;
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:card];
+    [NSLayoutConstraint activateConstraints:@[[card.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [card.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor], [card.widthAnchor constraintLessThanOrEqualToConstant:460]]];
+}
+- (void)viewDidAppear:(BOOL)a {
+    [super viewDidAppear:a];
+    [self becomeFirstResponder];
+    __weak CaptureVC *me = self;
+    g_capture = ^(int code, int down) { [me code:code down:down]; };
+}
+- (void)viewWillDisappear:(BOOL)a { [super viewWillDisappear:a]; g_capture = nil; }
+- (BOOL)canBecomeFirstResponder { return YES; }
+- (void)code:(int)c down:(int)down {
+    if (down) { [_held addObject:@(c)]; [_seen addObject:@(c)]; return; }
+    [_held removeObject:@(c)];
+    if (_held.count || !_seen.count) return;
+    NSUInteger n = MIN(self.combo ? 2 : 1, _seen.count);
+    NSArray *r = [_seen.array subarrayWithRange:NSMakeRange(0, n)];
+    void (^got)(NSArray *) = self.got;
+    [self close];
+    got(r);
+}
+- (void)keys:(NSSet<UIPress *> *)presses down:(int)down {
+    for (UIPress *p in presses) {
+        if (@available(iOS 13.4, *)) { int c = hid_to_android(p.key.keyCode); if (c) [self code:c down:down]; }
+    }
+}
+- (void)pressesBegan:(NSSet<UIPress *> *)p withEvent:(UIPressesEvent *)e { [self keys:p down:1]; }
+- (void)pressesEnded:(NSSet<UIPress *> *)p withEvent:(UIPressesEvent *)e { [self keys:p down:0]; }
+- (void)clear { void (^got)(NSArray *) = self.got; [self close]; got(@[]); }
+- (void)close { g_capture = nil; [self dismissViewControllerAnimated:NO completion:nil]; }
+@end
+
+// ---- Controls screen: bindings + chat macros (the Settings > Controls / Chat macros sections on Android) --------------
+@interface ControlsVC : UIViewController <UITextFieldDelegate>
+@property BOOL zh;
+@end
+@implementation ControlsVC {
+    UIButton *_kb[CT_N], *_pad[CT_N], *_combo[CT_MACROS];
+    UITextField *_text[CT_MACROS];
+    NSMutableData *_us;                    // UserSetting.bin: the chat macro texts (0x58 + slot * 0x400, UTF-16LE)
+}
+- (NSString *)t:(NSString *)en zh:(NSString *)zh { return self.zh ? zh : en; }
+- (NSString *)usPath { return [docs() stringByAppendingPathComponent:@"game/UserSetting.bin"]; }
+- (NSString *)macroText:(int)slot {
+    NSUInteger o = 0x58 + slot * 0x400, n = 0;
+    if (_us.length < o + 0x400) return @"";
+    const uint8_t *b = (const uint8_t *)_us.bytes + o;
+    while (n < 0x3fe && (b[n] || b[n + 1])) n += 2;
+    return [[NSString alloc] initWithBytes:b length:n encoding:NSUTF16LittleEndianStringEncoding] ?: @"";
+}
+- (UIButton *)bindButton:(NSString *)title {
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    [b setTitle:title forState:UIControlStateNormal];
+    b.titleLabel.font = [UIFont boldSystemFontOfSize:13]; b.titleLabel.adjustsFontSizeToFitWidth = YES;
+    [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    b.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08]; b.layer.cornerRadius = 10;
+    b.layer.borderWidth = 1; b.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+    [b.heightAnchor constraintEqualToConstant:34].active = YES;
+    return b;
+}
+- (UILabel *)label:(NSString *)t size:(CGFloat)s color:(UIColor *)c {
+    UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:s]; return l;
+}
+- (UIStackView *)row:(NSArray *)views {
+    UIStackView *r = [[UIStackView alloc] initWithArrangedSubviews:views];
+    r.spacing = 6; r.alignment = UIStackViewAlignmentCenter;
+    return r;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = rgb(0x0E1F5C);
+    _us = [NSMutableData dataWithContentsOfFile:self.usPath] ?: [NSMutableData dataWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"UserSetting.bin"]];
+    UIStackView *st = [[UIStackView alloc] init];
+    st.axis = UILayoutConstraintAxisVertical; st.spacing = 6;
+    UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
+    [done setTitle:[self t:@"Done" zh:@"完成"] forState:UIControlStateNormal];
+    done.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightHeavy];
+    [done setTitleColor:rgb(0x131A2E) forState:UIControlStateNormal];
+    done.backgroundColor = rgb(0xF5C21B); done.layer.cornerRadius = 19;
+    [done.widthAnchor constraintEqualToConstant:110].active = YES; [done.heightAnchor constraintEqualToConstant:38].active = YES;
+    [done addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside];
+    UIView *gap = [[UIView alloc] init];
+    [st addArrangedSubview:[self row:@[[self label:[self t:@"CONTROLS" zh:@"按键设置"] size:20 color:UIColor.whiteColor], gap, done]]];
+
+    [st addArrangedSubview:[self label:[self t:@"Controls  (keyboard · controller)" zh:@"按键  （键盘 · 手柄）"] size:13 color:rgb(0xF5C21B)]];
+    for (int i = 0; i < CT_N; i++) {
+        UILabel *name = [self label:self.zh ? CT_ZH[i] : CT_EN[i] size:13 color:rgb(0xB7C4E8)];
+        _kb[i] = [self bindButton:ct_name(ct_kb(i), self.zh)]; _kb[i].tag = i;
+        _pad[i] = [self bindButton:ct_name(ct_pad(i), self.zh)]; _pad[i].tag = i;
+        [_kb[i] addTarget:self action:@selector(bindKb:) forControlEvents:UIControlEventTouchUpInside];
+        [_pad[i] addTarget:self action:@selector(bindPad:) forControlEvents:UIControlEventTouchUpInside];
+        UIStackView *r = [self row:@[name, _kb[i], _pad[i]]];
+        [name.widthAnchor constraintEqualToAnchor:_kb[i].widthAnchor multiplier:1.25].active = YES;
+        [_pad[i].widthAnchor constraintEqualToAnchor:_kb[i].widthAnchor].active = YES;
+        [st addArrangedSubview:r];
+    }
+    UIButton *reset = [self bindButton:[self t:@"Reset controls" zh:@"恢复默认按键"]];
+    [reset addTarget:self action:@selector(resetControls) forControlEvents:UIControlEventTouchUpInside];
+    [st addArrangedSubview:reset];
+
+    // Chat macros: the game's 9 quick-chat lines (UserSetting.bin, as the PC launcher edits them) + a key or
+    // two-button combination that sends each one
+    UILabel *mh = [self label:[self t:@"Chat macros  (text · key or combo)" zh:@"快捷聊天  （内容 · 按键或组合键）"] size:13 color:rgb(0xF5C21B)];
+    [st addArrangedSubview:mh];
+    [st setCustomSpacing:14 afterView:reset];
+    for (int s = 0; s < CT_MACROS; s++) {
+        UILabel *num = [self label:[NSString stringWithFormat:@"%d", s + 1] size:14 color:rgb(0xB7C4E8)];
+        [num.widthAnchor constraintEqualToConstant:18].active = YES;
+        UITextField *f = [[UITextField alloc] init];
+        f.text = [self macroText:s]; f.textColor = UIColor.whiteColor; f.font = [UIFont systemFontOfSize:13];
+        f.backgroundColor = [UIColor colorWithWhite:0 alpha:0.25]; f.layer.cornerRadius = 10;
+        f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 1)]; f.leftViewMode = UITextFieldViewModeAlways;
+        f.returnKeyType = UIReturnKeyDone; f.delegate = self; f.autocorrectionType = UITextAutocorrectionTypeNo;
+        [f.heightAnchor constraintEqualToConstant:34].active = YES;
+        _text[s] = f;
+        _combo[s] = [self bindButton:ct_combo(ct_macro(s), self.zh)]; _combo[s].tag = s;
+        [_combo[s] addTarget:self action:@selector(bindMacro:) forControlEvents:UIControlEventTouchUpInside];
+        [st addArrangedSubview:[self row:@[num, f, _combo[s]]]];
+        [f.widthAnchor constraintEqualToAnchor:_combo[s].widthAnchor multiplier:2.2 / 1.2].active = YES;
+    }
+    UIScrollView *sc = [[UIScrollView alloc] init];
+    sc.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    for (UIView *v in @[sc, st]) v.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:sc]; [sc addSubview:st];
+    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
+    NSLayoutYAxisAnchor *kb = g.bottomAnchor;                     // iOS 15+: stop above the keyboard (macro texts)
+    if (@available(iOS 15.0, *)) kb = self.view.keyboardLayoutGuide.topAnchor;
+    [NSLayoutConstraint activateConstraints:@[
+        [sc.leadingAnchor constraintEqualToAnchor:g.leadingAnchor], [sc.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+        [sc.topAnchor constraintEqualToAnchor:g.topAnchor], [sc.bottomAnchor constraintEqualToAnchor:kb],
+        [st.topAnchor constraintEqualToAnchor:sc.topAnchor constant:12], [st.bottomAnchor constraintEqualToAnchor:sc.bottomAnchor constant:-16],
+        [st.centerXAnchor constraintEqualToAnchor:sc.centerXAnchor], [st.widthAnchor constraintLessThanOrEqualToConstant:620],
+        [st.widthAnchor constraintLessThanOrEqualToAnchor:sc.widthAnchor constant:-32]]];
+    NSLayoutConstraint *wide = [st.widthAnchor constraintEqualToConstant:620];
+    wide.priority = UILayoutPriorityDefaultHigh; wide.active = YES;
+}
+- (void)capture:(BOOL)combo got:(void (^)(NSArray<NSNumber *> *))got {
+    [self.view endEditing:YES];
+    CaptureVC *c = [[CaptureVC alloc] init];
+    c.combo = combo; c.zh = self.zh; c.got = got;
+    c.modalPresentationStyle = UIModalPresentationOverFullScreen;
+    [self presentViewController:c animated:NO completion:nil];
+}
+- (void)bindKb:(UIButton *)b {
+    int i = (int)b.tag;
+    [self capture:NO got:^(NSArray<NSNumber *> *c) {
+        int code = c.count ? c[0].intValue : 0;
+        [NSUserDefaults.standardUserDefaults setInteger:code forKey:[@"kb_" stringByAppendingString:CT_ID[i]]];
+        [b setTitle:ct_name(code, self.zh) forState:UIControlStateNormal];
+    }];
+}
+- (void)bindPad:(UIButton *)b {
+    int i = (int)b.tag;
+    [self capture:NO got:^(NSArray<NSNumber *> *c) {
+        int code = c.count ? c[0].intValue : 0;
+        [NSUserDefaults.standardUserDefaults setInteger:code forKey:[@"pad_" stringByAppendingString:CT_ID[i]]];
+        [b setTitle:ct_name(code, self.zh) forState:UIControlStateNormal];
+    }];
+}
+- (void)bindMacro:(UIButton *)b {
+    int s = (int)b.tag;
+    [self capture:YES got:^(NSArray<NSNumber *> *c) {
+        [NSUserDefaults.standardUserDefaults setObject:[c componentsJoinedByString:@"+"] forKey:[NSString stringWithFormat:@"macro_%d", s]];
+        [b setTitle:ct_combo(c, self.zh) forState:UIControlStateNormal];
+    }];
+}
+- (void)resetControls {
+    for (int i = 0; i < CT_N; i++) {
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:[@"kb_" stringByAppendingString:CT_ID[i]]];
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:[@"pad_" stringByAppendingString:CT_ID[i]]];
+        [_kb[i] setTitle:ct_name(CT_KB[i], self.zh) forState:UIControlStateNormal];
+        [_pad[i] setTitle:ct_name(CT_PAD[i], self.zh) forState:UIControlStateNormal];
+    }
+}
+- (BOOL)textFieldShouldReturn:(UITextField *)f { [f resignFirstResponder]; return NO; }
+- (void)done {
+    [self.view endEditing:YES];
+    BOOL changed = NO;
+    for (int s = 0; s < CT_MACROS && _us.length >= 0x58 + (s + 1) * 0x400; s++) {     // UTF-16LE, zero padded, 511 chars at most
+        NSString *m = _text[s].text ?: @"";
+        if ([m isEqualToString:[self macroText:s]]) continue;
+        if (m.length > 511) m = [m substringToIndex:511];
+        NSData *u = [m dataUsingEncoding:NSUTF16LittleEndianStringEncoding] ?: [NSData data];
+        NSUInteger o = 0x58 + s * 0x400;
+        [_us resetBytesInRange:NSMakeRange(o, 0x400)];
+        [_us replaceBytesInRange:NSMakeRange(o, MIN(u.length, 0x3fe)) withBytes:u.bytes];
+        changed = YES;
+    }
+    if (changed) {
+        [NSFileManager.defaultManager createDirectoryAtPath:[self.usPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+        [_us writeToFile:self.usPath atomically:YES];
+    }
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (BOOL)prefersStatusBarHidden { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+@end
+
 @interface LoginVC : UIViewController <UITextFieldDelegate>
 @end
 @implementation LoginVC {
@@ -722,7 +1031,23 @@ static UIImage *hud_rgba(NSData *d) {
     hud.layer.borderWidth = 1; hud.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
     [hud.heightAnchor constraintEqualToConstant:40].active = YES;
     [hud addTarget:self action:@selector(openHud) forControlEvents:UIControlEventTouchUpInside];
-    [st addArrangedSubview:hud];
+    UIButton *ctl = [UIButton buttonWithType:UIButtonTypeSystem];        // keyboards + controllers, chat macros
+    [ctl setTitle:@"Controls" forState:UIControlStateNormal];
+    ctl.titleLabel.font = hud.titleLabel.font;
+    [ctl setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    ctl.backgroundColor = hud.backgroundColor; ctl.layer.cornerRadius = 20;
+    ctl.layer.borderWidth = 1; ctl.layer.borderColor = hud.layer.borderColor;
+    [ctl.heightAnchor constraintEqualToConstant:40].active = YES;
+    [ctl addTarget:self action:@selector(openControls) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *tools = [[UIStackView alloc] initWithArrangedSubviews:@[hud, ctl]];
+    tools.spacing = 8; tools.distribution = UIStackViewDistributionFillEqually;
+    [st addArrangedSubview:tools];
+}
+- (void)openControls {
+    ControlsVC *vc = [[ControlsVC alloc] init];
+    vc.zh = _lang.selectedSegmentIndex == 1;
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:vc animated:YES completion:nil];
 }
 - (void)openHud {
     HudEditorVC *vc = [[HudEditorVC alloc] init];

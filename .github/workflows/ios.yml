@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       version: { description: "app version shown in Settings", default: "1.0" }
+      check: { description: "syntax check of ios/plat_ios.m only (no .ipa)", type: boolean, default: false }
   push:
     branches: [main]
     paths: ["ios/**", "runtime/**", "out_m/**", ".github/workflows/ios.yml"]
@@ -19,10 +20,17 @@ jobs:
         run: |
           curl -sSfL -o wgpu.zip https://github.com/gfx-rs/wgpu-native/releases/download/v29.0.1.1/wgpu-ios-aarch64-release.zip
           mkdir -p "$RUNNER_TEMP/wgpu" && unzip -q wgpu.zip -d "$RUNNER_TEMP/wgpu" && rm wgpu.zip
+      - name: syntax check (no .ipa)
+        if: ${{ inputs.check }}
+        run: |
+          INC=$(dirname "$(find "$RUNNER_TEMP/wgpu" -name webgpu.h | head -1)")/..
+          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=14.0 -fsyntax-only -fobjc-arc -Wall -Iruntime -Iruntime/mobile -I"$INC" ios/plat_ios.m
       - name: game data
+        if: ${{ !inputs.check }}
         env: { GH_TOKEN: "${{ github.token }}" }
         run: gh release download gamedata -p gamedata.zip -D "$RUNNER_TEMP"
       - name: build
+        if: ${{ !inputs.check }}
         env:
           WG: ${{ runner.temp }}/wgpu
           GAMEDATA: ${{ runner.temp }}/gamedata.zip
@@ -31,6 +39,7 @@ jobs:
         run: sh ios/build_ios.sh
       # a release file, not an artifact: the artifact store downloads at ~20 KB/s from the user's network
       - name: release
+        if: ${{ !inputs.check }}
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           gh release view ios -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create ios -R "$GITHUB_REPOSITORY" --title "iOS build" --notes "Unsigned .ipa for sideloading."
