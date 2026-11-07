@@ -140,7 +140,7 @@ final class VoiceChat {
                 JSONObject st = new JSONObject(new String(readAll(c.getInputStream()), StandardCharsets.UTF_8));
                 rev = st.optString("rev", "");
                 if (st.optBoolean("on")) act.runOnUiThread(new Runnable() { public void run() { askMic(); } });
-                final String popup = st.optString("popup", "");          // the server asks for a popup (map ban, Rename Card)
+                final String popup = st.optString("popup", "");          // the server asks for a popup (ranked map vote, Rename Card)
                 if (!popup.isEmpty() && act instanceof GameActivity && ((GameActivity) act).web != null) ((GameActivity) act).web.popup(popup);
                 st.put("ice", new JSONArray(ICE));
                 st.put("audio", new JSONObject().put("noise", "standard"));     // RNNoise model not shipped in the APK

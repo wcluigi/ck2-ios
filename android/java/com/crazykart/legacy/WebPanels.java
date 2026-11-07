@@ -58,7 +58,7 @@ final class WebPanels {
     final Map<Integer, Panel> panels = new HashMap<Integer, Panel>();
     PopupWindow board;
     WebView boardSite;
-    PopupWindow popup;                     // a server-asked popup (map ban, Rename Card): one at a time
+    PopupWindow popup;                     // a server-asked popup (ranked map vote, Rename Card): one at a time
     WebView popupWeb;
     int boardOwner;
     String boardUrl;
@@ -310,7 +310,7 @@ final class WebPanels {
     static final Map<String, float[]> POPUP_SIZE = new HashMap<String, float[]>();
     static {
         POPUP_API.put("rename", "/launcher/rename");  POPUP_SIZE.put("rename", new float[]{0.60f, 0.24f});
-        POPUP_API.put("mapban", "/launcher/mapban");  POPUP_SIZE.put("mapban", new float[]{0.70f, 0.80f});
+        POPUP_API.put("mapvote", "/launcher/mapvote");  POPUP_SIZE.put("mapvote", new float[]{0.70f, 0.80f});
     }
 
     void popup(final String name) {
