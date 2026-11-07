@@ -8,6 +8,7 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 #import <GameController/GameController.h>
+#import <WebKit/WebKit.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -34,6 +35,7 @@ void input_axis(int axis, float v);
 
 static CAMetalLayer *g_layer;            // the game view's layer (gpu_wgpu.c make_surface: WGPUSurfaceSourceMetalLayer)
 static int g_pw, g_ph;                   // its size in pixels
+static UIView *g_game_view;              // the game view: web panels go over it (plat_web_panel)
 static char g_game_dir_s[1024], g_image_dir_s[1024], g_files_s[1024], g_args[512];
 
 void *plat_native_window(void) { return (__bridge void *)g_layer; }
@@ -146,6 +148,7 @@ static int android_to_vk(int c) {
         self.multipleTouchEnabled = YES;
         self.contentScaleFactor = UIScreen.mainScreen.nativeScale;
         g_layer = (CAMetalLayer *)self.layer;
+        g_game_view = self;
         g_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     }
     return self;
@@ -265,6 +268,224 @@ static void *game_thread(void *p) {
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // no accidental home swipes in a race
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
+
+// ---- web panels (8 Nov 2026, the user: "i want it to run on mobile also"): ckweb.exe's job on PC, as Android's
+// WebPanels.java (keep the three in step; ck2server/ckweb/ckweb.cs is the reference). hle_user32.c reports a
+// CkWebHelpClass window whose title names a game-folder page; a WKWebView goes over it (invisible and untouchable until
+// the game shows the panel, so the page has drawn by then). The page talks through the window.chrome.webview object
+// WebView2 gives it on PC: ranked / find / cancel -> GET <api>/launcher/ranked[?do=..] with the sign-in; ready ->
+// GetPropA "ckready"; close -> WM_CLOSE; board -> the Leaderboard popup (board.html + the site over its content area).
+void web_ready(uint32_t hwnd);
+void web_close(uint32_t hwnd);
+static NSString *g_web_api, *g_web_user, *g_web_key, *g_web_lang = @"en", *g_web_game;   // set at sign-in (go)
+static NSString *const WEB_SHIM = @"(function(){var L=[];window.chrome=window.chrome||{};window.chrome.webview={"
+    "postMessage:function(m){window.webkit.messageHandlers.ck.postMessage(JSON.stringify(m));},"
+    "addEventListener:function(t,f){if(t==='message')L.push(f);},"
+    "removeEventListener:function(t,f){var i=L.indexOf(f);if(i>=0)L.splice(i,1);}};"
+    "window.__ckweb=function(d){for(var i=0;i<L.length;i++){try{L[i]({data:d});}catch(e){}}};})();";
+static NSString *const BOARD_SITE = @"https://crazykartlegacy.com/";
+
+// game client pixels -> fractions of the game view (to_game backwards)
+static void to_screen(int gx, int gy, float *fx, float *fy) {
+    int ww = g_pw, wh = g_ph, bw, bh, gw, rw, gox;
+    if (ww <= 0 || wh <= 0) { *fx = *fy = 0; return; }
+    gpu_backbuffer_size(&bw, &bh);
+    gpu_wide(&gw, &rw, &gox);
+    if (bw <= 0 || bh <= 0) { bw = 1024; bh = 768; }
+    if (rw > bw) bw = rw; else gox = 0;
+    float scale = (float)ww / bw < (float)wh / bh ? (float)ww / bw : (float)wh / bh;
+    float ox = (ww - bw * scale) / 2, oy = (wh - bh * scale) / 2;
+    *fx = ((gx + gox) * scale + ox) / ww;
+    *fy = (gy * scale + oy) / wh;
+}
+
+static WKWebView *web_new(id<WKScriptMessageHandler> handler) {
+    WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
+    if (handler) {
+        [cfg.userContentController addUserScript:[[WKUserScript alloc] initWithSource:WEB_SHIM
+            injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+        [cfg.userContentController addScriptMessageHandler:handler name:@"ck"];
+    }
+    WKWebView *w = [[WKWebView alloc] initWithFrame:CGRectZero configuration:cfg];
+    w.opaque = NO;
+    w.backgroundColor = [UIColor colorWithRed:0x26 / 255.0 green:0x29 / 255.0 blue:0x2d / 255.0 alpha:1];
+    w.scrollView.scrollEnabled = NO;
+    w.scrollView.bounces = NO;
+    w.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    return w;
+}
+static void web_load_local(WKWebView *w, NSString *page) {      // "web/ranked/index.html?a=.." (query kept)
+    NSRange q = [page rangeOfString:@"?"];
+    NSString *path = [(q.location == NSNotFound ? page : [page substringToIndex:q.location]) stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
+    NSURL *file = [NSURL fileURLWithPath:[g_web_game stringByAppendingPathComponent:path]];
+    NSURL *url = q.location == NSNotFound ? file : [NSURL URLWithString:[file.absoluteString stringByAppendingString:[page substringFromIndex:q.location]]];
+    [w loadFileURL:url ?: file allowingReadAccessToURL:[NSURL fileURLWithPath:g_web_game isDirectory:YES]];
+}
+static NSString *web_ini_css(void) {             // [Web] Css= in the game folder's ckweb.ini (as ckweb.exe reads it)
+    NSString *ini = [NSString stringWithContentsOfFile:[g_web_game stringByAppendingPathComponent:@"ckweb.ini"] encoding:NSUTF8StringEncoding error:nil];
+    BOOL web = NO;
+    for (NSString *line in [ini componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+        NSString *t = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if ([t hasPrefix:@"["]) web = [t caseInsensitiveCompare:@"[Web]"] == NSOrderedSame;
+        NSRange eq = [t rangeOfString:@"="];
+        if (web && eq.location != NSNotFound && [[[t substringToIndex:eq.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]
+                                                    caseInsensitiveCompare:@"Css"] == NSOrderedSame)
+            return [[t substringFromIndex:eq.location + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    }
+    return @"";
+}
+
+@interface CKWebPanel : NSObject <WKScriptMessageHandler, WKNavigationDelegate>
+@property (nonatomic) uint32_t hwnd;
+@property (nonatomic, strong) WKWebView *web;
+@property (nonatomic, copy) NSString *page;
+@property (nonatomic) BOOL ready, shown;
+@end
+static NSMutableDictionary<NSNumber *, CKWebPanel *> *g_panels;
+static UIView *g_board;                          // the Leaderboard popup (frame + site)
+static WKWebView *g_board_site;
+static uint32_t g_board_owner;
+static NSString *g_board_url;
+static id g_board_handler;
+
+@interface CKBoardHandler : NSObject <WKScriptMessageHandler, WKNavigationDelegate>
+@end
+static void board_close(void) {
+    if (!g_board) return;
+    for (UIView *v in g_board.subviews)
+        if ([v isKindOfClass:WKWebView.class]) [((WKWebView *)v).configuration.userContentController removeScriptMessageHandlerForName:@"ck"];
+    [g_board removeFromSuperview];
+    g_board = nil; g_board_site = nil; g_board_handler = nil;
+}
+@implementation CKBoardHandler
+- (void)userContentController:(WKUserContentController *)uc didReceiveScriptMessage:(WKScriptMessage *)msg {
+    NSString *json = [msg.body isKindOfClass:NSString.class] ? msg.body : @"";
+    if ([json containsString:@"\"close\""]) board_close();
+    else if ([json containsString:@"\"home\""] && g_board_site) [g_board_site loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:g_board_url]]];
+}
+- (void)webView:(WKWebView *)w didFinishNavigation:(WKNavigation *)nav {      // the site: ckweb.ini Css (hides its header)
+    NSString *css = web_ini_css();
+    if (!css.length || ![w.URL.scheme hasPrefix:@"http"]) return;
+    NSData *q = [NSJSONSerialization dataWithJSONObject:@[css] options:0 error:nil];
+    NSString *lit = [[NSString alloc] initWithData:q encoding:NSUTF8StringEncoding];       // ["..."]
+    [w evaluateJavaScript:[NSString stringWithFormat:@"(function(){var s=document.createElement('style');s.textContent=%@[0];"
+                                                      "(document.head||document.documentElement).appendChild(s);})()", lit] completionHandler:nil];
+}
+@end
+
+static void board_open(uint32_t owner, NSString *url) {
+    if (g_board || !g_game_view) return;
+    CGSize S = g_game_view.bounds.size;
+    CGFloat w = floor(S.width * 0.72), h = floor(S.height * 0.82);
+    double k = MAX(1.0, MIN(2.5, h / 420.0));                         // points = CSS pixels
+    CGFloat x = 9 * k + 0.05 * w, y = 46 * k + 0.05 * h, bottom = 9 * k + 0.05 * h;
+    CKBoardHandler *hd = [[CKBoardHandler alloc] init];
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake((S.width - w) / 2, (S.height - h) / 2, w, h)];
+    WKWebView *frame = web_new(hd);
+    frame.frame = box.bounds;
+    [box addSubview:frame];
+    WKWebView *site = web_new(nil);
+    site.scrollView.scrollEnabled = YES;
+    site.backgroundColor = [UIColor colorWithRed:0x15 / 255.0 green:0x17 / 255.0 blue:0x1a / 255.0 alpha:1];
+    site.navigationDelegate = hd;
+    site.frame = CGRectMake(x + 1, y + 1, MAX(1, w - 2 * x - 2), MAX(1, h - y - bottom - 2));
+    [box addSubview:site];
+    [g_game_view addSubview:box];
+    NSHTTPCookie *ck = [NSHTTPCookie cookieWithProperties:@{NSHTTPCookieDomain: @"crazykartlegacy.com", NSHTTPCookiePath: @"/",
+                                                           NSHTTPCookieName: @"ck_lang", NSHTTPCookieValue: g_web_lang,
+                                                           NSHTTPCookieExpires: [NSDate dateWithTimeIntervalSinceNow:365 * 86400.0]}];
+    [site.configuration.websiteDataStore.httpCookieStore setCookie:ck completionHandler:^{
+        [site loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
+    }];
+    web_load_local(frame, [NSString stringWithFormat:@"web/ranked/board.html?k=%.2f%@", k, [g_web_lang isEqualToString:@"zh"] ? @"&lang=zh" : @""]);
+    g_board = box; g_board_site = site; g_board_owner = owner; g_board_url = url; g_board_handler = hd;
+}
+
+static void web_reply(CKWebPanel *p, long long rid, long status, NSString *data) {
+    NSString *js = [NSString stringWithFormat:@"window.__ckweb&&window.__ckweb({\"id\":%lld,\"status\":%ld,\"lang\":\"%@\",\"data\":%@})",
+                    rid, status, g_web_lang, data];
+    dispatch_async(dispatch_get_main_queue(), ^{ if (g_panels[@(p.hwnd)] == p) [p.web evaluateJavaScript:js completionHandler:nil]; });
+}
+static void web_ask(CKWebPanel *p, long long rid, NSString *path) {
+    if (!g_web_api || !g_web_user || !g_web_key) { web_reply(p, rid, 1, @"null"); return; }      // 1: not signed in
+    NSMutableURLRequest *rq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[g_web_api stringByAppendingString:path]]];
+    rq.timeoutInterval = 8;
+    [rq setValue:[@"Bearer " stringByAppendingString:g_web_key] forHTTPHeaderField:@"Authorization"];
+    [rq setValue:g_web_user forHTTPHeaderField:@"X-CK-User"];
+    [rq setValue:[g_web_lang isEqualToString:@"zh"] ? @"cn" : @"en" forHTTPHeaderField:@"X-CK-Lang"];
+    [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        long status = [r isKindOfClass:NSHTTPURLResponse.class] ? (long)((NSHTTPURLResponse *)r).statusCode : 0;
+        NSString *body = @"null";
+        if (status && status < 400 && d.length && [NSJSONSerialization JSONObjectWithData:d options:NSJSONReadingFragmentsAllowed error:nil])
+            body = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] ?: @"null";     // only JSON goes into the page
+        web_reply(p, rid, status, body);
+    }] resume];
+}
+
+@implementation CKWebPanel
+- (void)reveal {
+    if (self.ready || g_panels[@(self.hwnd)] != self) return;
+    self.ready = YES;
+    web_ready(self.hwnd);
+}
+- (void)userContentController:(WKUserContentController *)uc didReceiveScriptMessage:(WKScriptMessage *)msg {
+    NSData *d = [msg.body isKindOfClass:NSString.class] ? [(NSString *)msg.body dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    NSDictionary *m = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+    if (![m isKindOfClass:NSDictionary.class]) return;
+    long long rid = [m[@"id"] respondsToSelector:@selector(longLongValue)] ? [m[@"id"] longLongValue] : 0;
+    NSString *op = [m[@"op"] isKindOfClass:NSString.class] ? m[@"op"] : @"";
+    if ([op isEqualToString:@"ready"]) [self reveal];
+    else if ([op isEqualToString:@"close"]) web_close(self.hwnd);
+    else if ([op isEqualToString:@"board"]) {
+        NSString *url = [m[@"url"] isKindOfClass:NSString.class] ? m[@"url"] : @"";
+        if ([url hasPrefix:BOARD_SITE]) board_open(self.hwnd, url); else NSLog(@"leaderboard: refused url %@", url);
+    }
+    else if ([op isEqualToString:@"ranked"]) web_ask(self, rid, @"/launcher/ranked");
+    else if ([op isEqualToString:@"find"]) web_ask(self, rid, @"/launcher/ranked?do=find");
+    else if ([op isEqualToString:@"cancel"]) web_ask(self, rid, @"/launcher/ranked?do=cancel");
+    else web_reply(self, rid, 400, @"null");
+}
+@end
+
+static void web_remove(CKWebPanel *p) {
+    [g_panels removeObjectForKey:@(p.hwnd)];
+    if (g_board && g_board_owner == p.hwnd) board_close();            // the board goes with its panel
+    [p.web.configuration.userContentController removeScriptMessageHandlerForName:@"ck"];
+    [p.web removeFromSuperview];
+}
+
+void plat_web_panel(uint32_t hwnd, const char *page, int x, int y, int w, int h, int visible) {      // game thread
+    float x0, y0, x1, y1;
+    to_screen(x, y, &x0, &y0);
+    to_screen(x + w, y + h, &x1, &y1);
+    NSString *pg = [NSString stringWithUTF8String:page ? page : ""] ?: @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!g_panels) g_panels = [NSMutableDictionary dictionary];
+        CKWebPanel *p = g_panels[@(hwnd)];
+        if (!pg.length) { if (p) web_remove(p); return; }
+        if (!g_game_view || !g_web_game) return;
+        if (!p) {
+            p = [[CKWebPanel alloc] init];
+            p.hwnd = hwnd;
+            p.web = web_new(p);
+            p.web.alpha = 0;
+            p.web.userInteractionEnabled = NO;
+            [g_game_view addSubview:p.web];
+            g_panels[@(hwnd)] = p;
+        }
+        if (![pg isEqualToString:p.page ?: @""]) {
+            p.page = pg; p.ready = NO;
+            web_load_local(p.web, pg);
+            CKWebPanel *pp = p;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [pp reveal]; });   // ckweb's fallback
+        }
+        CGSize S = g_game_view.bounds.size;
+        p.web.frame = CGRectMake(x0 * S.width, y0 * S.height, MAX(1, (x1 - x0) * S.width), MAX(1, (y1 - y0) * S.height));
+        p.web.alpha = visible ? 1 : 0;
+        p.web.userInteractionEnabled = visible != 0;
+        if (g_board) [g_game_view bringSubviewToFront:g_board];
+    });
+}
 
 // ---- the launcher: sign-in like the PC launcher (Launcher/login.js, LoginActivity.java) -------------------------------
 static NSString *const HOSTS[] = {@"201.18.200.6", @"8.210.188.242"};
@@ -1322,6 +1543,7 @@ static BOOL has_cjk(NSString *s) {
         else [self->_prefs removeObjectForKey:@"key"];
         snprintf(g_args, sizeof g_args, "-u %s -password %s -ad %s -port 6910 -wnd 1", account.UTF8String, [p[@"pass"] UTF8String], HOSTS[srv].UTF8String);
         snprintf(g_game_dir_s, sizeof g_game_dir_s, "%s", game.UTF8String);
+        g_web_api = API[srv]; g_web_user = account; g_web_key = key; g_web_lang = zh ? @"zh" : @"en"; g_web_game = game;   // web panels
         snprintf(g_image_dir_s, sizeof g_image_dir_s, "%s", bundle_image().UTF8String);
         snprintf(g_files_s, sizeof g_files_s, "%s", docs().UTF8String);
         write_controls(docs());

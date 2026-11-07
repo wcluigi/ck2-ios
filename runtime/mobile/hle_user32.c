@@ -13,6 +13,8 @@
 #define WM_ACTIVATE 6
 #define WM_SETFOCUS 7
 #define WM_QUIT 0x12
+#define WM_SETTEXT 0x0c
+#define WM_CLOSE 0x10
 #define WM_SHOWWINDOW 0x18
 #define WM_ACTIVATEAPP 0x1c
 #define WM_NCCREATE 0x81
@@ -25,8 +27,10 @@
 
 typedef struct { char name[64]; u32 proc, style, extra, inst, cursor, bg; } WClass;
 typedef struct {
-    int used; u32 hwnd, proc, style, exstyle, parent, id, userdata, inst; int x, y, w, h, visible; char cls[64], title[128];
+    int used; u32 hwnd, proc, style, exstyle, parent, id, userdata, inst; int x, y, w, h, visible; char cls[64], title[256];
     struct { char name[32]; u32 val; } props[16]; u32 extra[32]; GThread *thread;
+    volatile int ckready;                   // web panel: the phone's web view has drawn the page (GetPropA "ckready")
+    int web, wx, wy, ww, wh, wvis; char wpage[256];   // web panel: what the platform layer was last told
 } Win;
 static WClass g_cls[64]; static int g_ncls;
 #define NWIN 256
@@ -40,6 +44,32 @@ u32 user32_main_hwnd(void) { return g_main_hwnd; }
 void user32_set_main_hwnd(u32 hwnd) { if (hwnd) { g_main_hwnd = hwnd; rt_log("main window for input: %08x\n", hwnd); } }
 
 static Win *win_of(u32 h) { u32 i = (h - 0x10010) / 4; return h >= 0x10010 && i < NWIN && g_win[i].used ? &g_win[i] : 0; }
+
+// ---- web panels (8 Nov 2026): the game's CkWebHelpClass windows. On PC ckweb.exe shows a window whose title names a
+// page in the game folder ("web/ranked/index.html?a=.."; the client's display stub sets it with WM_SETTEXT) as that
+// page; on a phone the platform layer puts a web view over the panel instead (plat_web_panel). The game creates the
+// panel hidden and shows it only once GetPropA(hwnd, "ckready") is set (ranked_html.py HOLD), which web_ready does
+// when the page has drawn; the page's Close posts WM_CLOSE (web_close), which DefWindowProcA turns into DestroyWindow
+// as on Windows -- the game sees IsWindow fail and hides its overlay.
+void plat_web_panel(u32 hwnd, const char *page, int x, int y, int w, int h, int visible);    // page "" = gone
+static int web_local(const char *t) {
+    if (!t[0] || strstr(t, "://") || strstr(t, "..")) return 0;
+    size_t n = strcspn(t, "?");
+    return (n > 5 && !strncasecmp(t + n - 5, ".html", 5)) || (n > 4 && !strncasecmp(t + n - 4, ".htm", 4));
+}
+static void web_sync(Win *w) {
+    if (strcasecmp(w->cls, "CkWebHelpClass")) return;
+    if (!web_local(w->title)) {
+        if (w->web) { w->web = 0; plat_web_panel(w->hwnd, "", 0, 0, 0, 0, 0); }
+        return;
+    }
+    if (w->web && w->wx == w->x && w->wy == w->y && w->ww == w->w && w->wh == w->h && w->wvis == w->visible && !strcmp(w->wpage, w->title))
+        return;                                             // the game moves + shows its panels every frame
+    w->web = 1; w->wx = w->x; w->wy = w->y; w->ww = w->w; w->wh = w->h; w->wvis = w->visible;
+    snprintf(w->wpage, sizeof w->wpage, "%s", w->title);
+    plat_web_panel(w->hwnd, w->title, w->x, w->y, w->w, w->h, w->visible);
+}
+void web_ready(u32 hwnd) { Win *w = win_of(hwnd); if (w) w->ckready = 1; }         // platform (UI) thread
 
 // ---- message queue (one per thread) ---------------------------------------------------------
 typedef struct { u32 hwnd, msg, wp, lp, time, x, y; } Msg;
@@ -176,8 +206,25 @@ HLE(u_CreateWindowExA) {
     if (win_of(hwnd) && (win_of(hwnd)->style & 0x10000000u)) win_of(hwnd)->visible = 1;
     return hwnd;
 }
-HLE(u_DefWindowProcA) { return ARG(1) == WM_NCCREATE ? 1 : 0; }
-HLE(u_DestroyWindow) { Win *w = win_of(ARG(0)); if (w) { send(c, ARG(0), WM_DESTROY, 0, 0); w->used = 0; if (g_main_hwnd == ARG(0)) g_main_hwnd = 0; } return 1; }
+static void destroy_window(CPU *c, u32 hwnd) {
+    Win *w = win_of(hwnd);
+    if (!w) return;
+    send(c, hwnd, WM_DESTROY, 0, 0);
+    if (w->web) plat_web_panel(hwnd, "", 0, 0, 0, 0, 0);
+    w->used = 0; w->web = 0;
+    if (g_main_hwnd == hwnd) g_main_hwnd = 0;
+}
+HLE(u_DefWindowProcA) {
+    u32 msg = ARG(1);
+    if (msg == WM_SETTEXT) {                                 // as Windows: the window's text (web panels: the page)
+        Win *w = win_of(ARG(0));
+        if (w) { snprintf(w->title, sizeof w->title, "%s", ARG(3) ? GS(ARG(3)) : ""); web_sync(w); }
+        return 1;
+    }
+    if (msg == WM_CLOSE) { destroy_window(c, ARG(0)); return 0; }      // as Windows: DestroyWindow
+    return msg == WM_NCCREATE ? 1 : 0;
+}
+HLE(u_DestroyWindow) { destroy_window(c, ARG(0)); return 1; }
 HLE(u_ShowWindow) {
     Win *w = win_of(ARG(0));
     if (!w) return 0;
@@ -190,6 +237,7 @@ HLE(u_ShowWindow) {
         send(c, ARG(0), WM_SETFOCUS, 0, 0);
         send(c, ARG(0), WM_SIZE, 0, ((u32)w->h << 16) | (u32)w->w);
     }
+    if ((w = win_of(ARG(0)))) web_sync(w);
     return (u32)was;
 }
 HLE(u_UpdateWindow) { return 1; }
@@ -203,6 +251,7 @@ HLE(u_MapWindowPoints) { return 0; }
 HLE(u_MoveWindow) {
     Win *w = win_of(ARG(0));
     if (w) { w->x = (s32)ARG(1); w->y = (s32)ARG(2); w->w = (s32)ARG(3); w->h = (s32)ARG(4); send(c, ARG(0), WM_SIZE, 0, ((u32)w->h << 16) | (u32)w->w); }
+    if ((w = win_of(ARG(0)))) web_sync(w);
     return 1;
 }
 HLE(u_SetWindowPos) {
@@ -214,6 +263,7 @@ HLE(u_SetWindowPos) {
         if (fl & 0x40) w->visible = 1;
         if (fl & 0x80) w->visible = 0;
     }
+    if ((w = win_of(ARG(0)))) web_sync(w);
     return 1;
 }
 HLE(u_GetWindowLongA) {
@@ -258,7 +308,7 @@ HLE(u_GetPropA) {
     if (!w) return 0;
     char b[16]; const char *n = atom_or_str(ARG(1), b);
     for (int i = 0; i < 16; i++) if (!strcmp(w->props[i].name, n)) return w->props[i].val;
-    return 0;
+    return !strcmp(n, "ckready") && w->ckready;
 }
 HLE(u_FindWindowA) {
     char b[16];
@@ -344,6 +394,7 @@ void user32_post(u32 hwnd, u32 msg, u32 wp, u32 lp) {     // for other replaceme
     Win *w = win_of(hwnd);
     if (w) mq_push(w->thread, hwnd, msg, wp, lp);
 }
+void web_close(u32 hwnd) { user32_post(hwnd, WM_CLOSE, 0, 0); }      // platform (UI) thread: the page's Close
 HLE(u_PostQuitMessage) { mq_push(cur_thread(), 0, WM_QUIT, ARG(0), 0); return 0; }
 HLE(u_SetTimer) {
     u32 hwnd = ARG(0), id = ARG(1);

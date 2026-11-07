@@ -69,12 +69,20 @@ void plat_open_chat(void) {                 // game thread
     if (m) (*env)->CallVoidMethod(env, act, m);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 }
+// ---- web panels (8 Nov 2026): ckweb.exe's job on PC. hle_user32.c reports a CkWebHelpClass window showing a game-folder
+// page; GameActivity.webPanel -> WebPanels.java puts a WebView over it. The page's "ready" / "close" come back here.
+void web_ready(u32 hwnd);
+void web_close(u32 hwnd);
+static void JNICALL native_web_ready(JNIEnv *env, jclass cls, jint hwnd) { (void)env; (void)cls; web_ready((u32)hwnd); }
+static void JNICALL native_web_close(JNIEnv *env, jclass cls, jint hwnd) { (void)env; (void)cls; web_close((u32)hwnd); }
 static void register_natives(struct android_app *app) {
     JNIEnv *env;
     if ((*app->activity->vm)->AttachCurrentThread(app->activity->vm, &env, 0) != JNI_OK) return;
     jclass cls = (*env)->GetObjectClass(env, app->activity->clazz);
-    JNINativeMethod m = {"nativeChat", "(Ljava/lang/String;)V", (void *)native_chat};
-    if ((*env)->RegisterNatives(env, cls, &m, 1) != 0) { (*env)->ExceptionClear(env); LOG("chat: RegisterNatives failed"); }
+    JNINativeMethod m[] = {{"nativeChat", "(Ljava/lang/String;)V", (void *)native_chat},
+                           {"nativeWebReady", "(I)V", (void *)native_web_ready},
+                           {"nativeWebClose", "(I)V", (void *)native_web_close}};
+    if ((*env)->RegisterNatives(env, cls, m, 3) != 0) { (*env)->ExceptionClear(env); LOG("chat / web: RegisterNatives failed"); }
 }
 void plat_fatal_hook(const char *msg) { __android_log_print(ANDROID_LOG_FATAL, "ck2", "%s", msg); }
 
@@ -136,6 +144,46 @@ static void to_game(float sx, float sy, int *gx, int *gy) {      // undo the let
     *gx = (int)((sx - ox) / scale) - gox;
     *gy = (int)((sy - oy) / scale);
 }
+// game client pixels -> fractions of the screen (to_game backwards); the Java side multiplies by its view size
+static void to_screen(int gx, int gy, float *fx, float *fy) {
+    int ww = g_window ? ANativeWindow_getWidth(g_window) : 0, wh = g_window ? ANativeWindow_getHeight(g_window) : 0, bw, bh, gw, rw, gox;
+    if (ww <= 0 || wh <= 0) { *fx = *fy = 0; return; }
+    gpu_backbuffer_size(&bw, &bh);
+    gpu_wide(&gw, &rw, &gox);
+    if (bw <= 0 || bh <= 0) { bw = 1024; bh = 768; }
+    if (rw > bw) bw = rw; else gox = 0;
+    float scale = (float)ww / bw < (float)wh / bh ? (float)ww / bw : (float)wh / bh;
+    float ox = (ww - bw * scale) / 2, oy = (wh - bh * scale) / 2;
+    *fx = ((gx + gox) * scale + ox) / ww;
+    *fy = (gy * scale + oy) / wh;
+}
+static u32 g_web_shown[8];                  // web panels on screen (Back goes to the page)
+static int web_shown(void) { for (int i = 0; i < 8; i++) if (g_web_shown[i]) return 1; return 0; }
+void plat_web_panel(u32 hwnd, const char *page, int x, int y, int w, int h, int visible) {      // game thread
+    for (int i = 0; i < 8; i++) if (g_web_shown[i] == hwnd) g_web_shown[i] = 0;
+    if (page[0] && visible) for (int i = 0; i < 8; i++) if (!g_web_shown[i]) { g_web_shown[i] = hwnd; break; }
+    JavaVM *vm = g_app->activity->vm;
+    JNIEnv *env;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK && (*vm)->AttachCurrentThread(vm, &env, 0) != JNI_OK) return;
+    float x0, y0, x1, y1;
+    to_screen(x, y, &x0, &y0);
+    to_screen(x + w, y + h, &x1, &y1);
+    jobject act = g_app->activity->clazz;
+    jmethodID m = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, act), "webPanel", "(ILjava/lang/String;FFFFZ)V");
+    jstring js = (*env)->NewStringUTF(env, page);
+    if (m && js) (*env)->CallVoidMethod(env, act, m, (jint)hwnd, js, x0, y0, x1 - x0, y1 - y0, (jboolean)(visible != 0));
+    if (js) (*env)->DeleteLocalRef(env, js);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    LOG("web panel %08x '%s' %d,%d %dx%d %s", hwnd, page, x, y, w, h, visible ? "shown" : "hidden");
+}
+static void web_back(void) {                // input thread (attached in register_natives)
+    JNIEnv *env;
+    if ((*g_app->activity->vm)->GetEnv(g_app->activity->vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) return;
+    jobject act = g_app->activity->clazz;
+    jmethodID m = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, act), "webBack", "()V");
+    if (m) (*env)->CallVoidMethod(env, act, m);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
 static char g_game_dir_s[512];
 void plat_open_chat(void);
 // input shared with iOS: runtime/mobile/input.c (event queue, touches, controls, macros, controller pointer)
@@ -185,6 +233,7 @@ static int32_t on_input(struct android_app *app, AInputEvent *e) {
     if (AInputEvent_getType(e) == AINPUT_EVENT_TYPE_KEY) {
         int code = AKeyEvent_getKeyCode(e), down = AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_DOWN;
         if (AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_MULTIPLE) return 0;
+        if (code == AKEYCODE_BACK && web_shown()) { if (!down) web_back(); return 1; }   // a web panel: its Esc, not the game's
         if (input_code(code, down)) return 1;                      // Settings > Controls
         int vk = 0;
         if (code == AKEYCODE_BACK) vk = 0x1b;

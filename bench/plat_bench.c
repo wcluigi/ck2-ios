@@ -35,6 +35,8 @@ void plat_pump_events(void) {
     while (PeekMessageA(&m, 0, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageA(&m); }
 }
 void plat_message_box(const char *title, const char *text) { (void)title; (void)text; }
+void plat_web_panel(unsigned hwnd, const char *page, int x, int y, int w, int h, int visible) {     // web panels: none on the bench
+    (void)hwnd; (void)page; (void)x; (void)y; (void)w; (void)h; (void)visible; }
 void plat_fatal_hook(const char *msg) { MessageBoxA(g_wnd, msg, "ck2mobile bench", MB_ICONERROR); }
 void plat_client_size(int *w, int *h) { *w = g_cw; *h = g_ch; }
 

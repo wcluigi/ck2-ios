@@ -16,7 +16,10 @@ import android.widget.EditText;
 // and the text goes back to the game as typed characters (nativeChat, registered by plat_android.c).
 public class GameActivity extends NativeActivity {
     static native void nativeChat(String text);       // "" = cancelled
+    static native void nativeWebReady(int hwnd);      // web panel drawn: GetPropA "ckready" (hle_user32.c)
+    static native void nativeWebClose(int hwnd);      // the page's Close: WM_CLOSE to the panel
     VoiceChat voice;                                  // room voice chat (VoiceChat.java), the launcher's job on PC
+    WebPanels web;                                    // the game's web panels (WebPanels.java), ckweb.exe's job on PC
 
     @Override
     protected void onCreate(Bundle saved) {
@@ -36,11 +39,15 @@ public class GameActivity extends NativeActivity {
                     getIntent().getBooleanExtra("accessories", true));
             voice.start();
         }
+        java.io.File ext = getExternalFilesDir(null);      // = NativeActivity's externalDataPath (plat_android.c game dir)
+        web = new WebPanels(this, getIntent().getStringExtra("api"), user, key, getIntent().getStringExtra("lang"),
+                new java.io.File(ext != null ? ext : getFilesDir(), "game"));
     }
 
     @Override
     protected void onDestroy() {
         if (voice != null) voice.stop();
+        if (web != null) web.closeAll();
         super.onDestroy();
     }
 
@@ -48,6 +55,13 @@ public class GameActivity extends NativeActivity {
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         if (code == VoiceChat.MIC_REQUEST && voice != null) voice.onMicAnswer(res.length > 0 && res[0] == android.content.pm.PackageManager.PERMISSION_GRANTED);
     }
+
+    // called from the game thread (plat_android.c): a web panel appeared / moved / showed / went (page "")
+    public void webPanel(int hwnd, String page, float x, float y, float w, float h, boolean visible) {
+        if (web != null) web.panel(hwnd, page, x, y, w, h, visible);
+    }
+    // Android's Back while a web panel is up (plat_android.c): the page's Esc
+    public void webBack() { if (web != null) web.back(); }
 
     // called from the game thread (plat_android.c)
     public void openChat() {
