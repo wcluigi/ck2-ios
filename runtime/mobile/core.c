@@ -213,7 +213,7 @@ void rt_st80(u32 a, double v) {
 void rt_fldcw(CPU *c) {}
 
 typedef struct { u32 buf, ebx, esi, edi, ebp, esp, seq; jmp_buf hb; } SJ;
-#define NSJ 64
+#define NSJ 256
 u32 rt_setjmp(CPU *c, u32 buf, u32 ebx, u32 esi, u32 edi, u32 ebp, u32 esp, void **hostbuf) {
     SJ *t = c->sj;
     if (!t) t = c->sj = calloc(NSJ, sizeof(SJ));
@@ -221,13 +221,26 @@ u32 rt_setjmp(CPU *c, u32 buf, u32 ebx, u32 esi, u32 edi, u32 ebp, u32 esp, void
     for (int i = 0; i < NSJ && !s; i++) if (t[i].buf == buf) s = &t[i];
     for (int i = 0; i < NSJ && !s; i++) if (!t[i].buf) s = &t[i];
     // Slots were never freed, and every image load's new heap jmp_buf took one: "setjmp table full" after a
-    // while of play (19 of 23 phone crashes, 6 Nov 2026). A slot set deeper than this call (lower esp) is a
-    // returned function's: dead. Failing that, the oldest at this same depth -- an earlier call from here.
-    for (int i = 0; i < NSJ && !s; i++) if (t[i].esp < esp) s = &t[i];
+    // while of play (6-7 Nov 2026). A slot X is dead once the stack has been above its frame since it was set:
+    // this call, or any setjmp after X, ran at a higher esp (X's function had returned by then). Deeper-only
+    // reuse (176f037) still filled when shallow loads came first and a deeper one followed (7 Nov 13:49).
+    for (int i = 0; i < NSJ && !s; i++) {
+        if (t[i].esp < esp) s = &t[i];
+        for (int j = 0; j < NSJ && !s; j++) if (t[j].buf && t[j].seq > t[i].seq && t[j].esp > t[i].esp) s = &t[i];
+    }
+    // Failing that, a slot whose depth a later setjmp (or this one) re-used: an earlier call from the same place.
+    // The deepest such first (live ones are callers, higher up), then the oldest.
     SJ *old = 0;
-    for (int i = 0; i < NSJ; i++) if (t[i].esp == esp && (!old || t[i].seq < old->seq)) old = &t[i];
+    for (int i = 0; i < NSJ && !s; i++) {
+        int again = t[i].esp == esp;
+        for (int j = 0; j < NSJ && !again; j++) again = t[j].buf && t[j].seq > t[i].seq && t[j].esp == t[i].esp;
+        if (again && (!old || t[i].esp < old->esp || (t[i].esp == old->esp && t[i].seq < old->seq))) old = &t[i];
+    }
     if (!s) s = old;
-    if (!s) rt_fatal("setjmp table full");
+    if (!s) {                                       // what filled it, for the next fix
+        for (int i = 0; i < NSJ; i++) rt_log("setjmp slot %d: buf %08x esp %08x seq %u\n", i, t[i].buf, t[i].esp, t[i].seq);
+        rt_fatal("setjmp table full (new buf %08x esp %08x)", buf, esp);
+    }
     if (s->buf && s->buf != buf) {                  // the fix at work (shown once per run)
         static int told;
         if (!told++) rt_log("setjmp: table of %d full, reusing a dead slot\n", NSJ);
