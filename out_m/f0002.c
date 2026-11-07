@@ -10759,7 +10759,7 @@ L_004122e6:;
 L_0041232d:;
   /* 0041232d jmp 0x9c4156 */ goto L_009c4156;
 L_00412333:;
-  /* 00412333 call 0x5084b0 */ esp -= 4; M32(esp) = 0x412338u; SAVEALL; F_005084b0(c); ABI_CHECK(0x5084b0u, 0x412333u); RETCHK(0x412338u, 0x412333u); LOADALL;
+  /* 00412333 call 0x9dfe6d */ esp -= 4; M32(esp) = 0x412338u; SAVEALL; F_009dfe6d(c); ABI_CHECK(0x9dfe6du, 0x412333u); RETCHK(0x412338u, 0x412333u); LOADALL;
   /* 00412338 test al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
   /* 0041233a je 0x4127dc */ if (ZF_) goto L_004127dc;
   /* 00412340 mov eax, dword ptr [ebx + 0xcc] */ { const u32 m_ = (u32)(ebx + 0xccu); eax = (u32)(M32(m_)); }
