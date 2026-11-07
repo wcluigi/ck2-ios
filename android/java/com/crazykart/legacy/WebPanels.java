@@ -58,6 +58,8 @@ final class WebPanels {
     final Map<Integer, Panel> panels = new HashMap<Integer, Panel>();
     PopupWindow board;
     WebView boardSite;
+    PopupWindow popup;                     // a server-asked popup (map ban, Rename Card): one at a time
+    WebView popupWeb;
     int boardOwner;
     String boardUrl;
 
@@ -166,6 +168,7 @@ final class WebPanels {
     void closeAll() {
         for (Panel p : panels.values().toArray(new Panel[0])) remove(p);
         closeBoard();
+        closePopup();
         net.shutdownNow();
     }
 
@@ -192,8 +195,12 @@ final class WebPanels {
         }
     }
 
-    void ask(final Panel p, final int id, final String path) {
-        if (api == null || user == null || key == null) { reply(p, id, 1, "null"); return; }      // 1: not signed in
+    void ask(final Panel p, int id, String path) { get(p.web, id, path); }
+
+    // GET <api><path> with the sign-in; the answer goes into `web` as the bridge reply {id, status, lang, data}
+    // (status 1: not signed in, 0: unreachable; only JSON goes into the page). Panels and popups alike.
+    void get(final WebView web, final int id, final String path) {
+        if (api == null || user == null || key == null) { reply(web, id, 1, "null"); return; }
         net.execute(new Runnable() { public void run() {
             int status = 0;
             String body = "null";
@@ -212,15 +219,23 @@ final class WebPanels {
             } finally {
                 if (c != null) c.disconnect();
             }
-            try { new JSONTokener(body).nextValue(); } catch (Exception e) { body = "null"; }    // only JSON goes into the page
+            try { new JSONTokener(body).nextValue(); } catch (Exception e) { body = "null"; }
             if (body.trim().isEmpty()) body = "null";
-            reply(p, id, status, body);
+            reply(web, id, status, body);
         } });
     }
 
-    void reply(final Panel p, int id, int status, String data) {
+    void reply(Panel p, int id, int status, String data) { reply(p.web, id, status, data); }
+
+    void reply(final WebView web, int id, int status, String data) {
         final String js = "window.__ckweb&&window.__ckweb({\"id\":" + id + ",\"status\":" + status + ",\"lang\":\"" + lang + "\",\"data\":" + data + "})";
-        ui.post(new Runnable() { public void run() { if (panels.get(p.hwnd) == p) p.web.evaluateJavascript(js, null); } });
+        ui.post(new Runnable() { public void run() { if (live(web)) web.evaluateJavascript(js, null); } });
+    }
+
+    boolean live(WebView web) {                        // still on screen (not closed meanwhile)
+        if (web == popupWeb) return true;
+        for (Panel p : panels.values()) if (p.web == web) return true;
+        return false;
     }
 
     // ---- the Leaderboard popup: board.html draws the frame, header, Leaderboard (home) and X; the site sits over its
@@ -286,6 +301,66 @@ final class WebPanels {
                 else if (json.contains("\"home\"") && boardSite != null) boardSite.loadUrl(boardUrl);   // header Leaderboard button
             } });
         }
+    }
+
+    // ---- server-asked popups (ckweb --popup <name> on PC): the voice poll's "popup" (VoiceChat.java). web/<name>/index.html
+    // centred at ckweb's size for it, shown once the page says "ready" (or after 2.5 s); "state" / "submit" {name} ask
+    // the popup's API, "close" closes it. Focusable: the Rename Card types a name; Back closes it. ----
+    static final Map<String, String> POPUP_API = new HashMap<String, String>();
+    static final Map<String, float[]> POPUP_SIZE = new HashMap<String, float[]>();
+    static {
+        POPUP_API.put("rename", "/launcher/rename");  POPUP_SIZE.put("rename", new float[]{0.60f, 0.24f});
+        POPUP_API.put("mapban", "/launcher/mapban");  POPUP_SIZE.put("mapban", new float[]{0.70f, 0.80f});
+    }
+
+    void popup(final String name) {
+        ui.post(new Runnable() { public void run() { openPopup(name); } });
+    }
+
+    void openPopup(final String name) {
+        if (!POPUP_API.containsKey(name) || popup != null) return;
+        File f = new File(game, "web/" + name + "/index.html");
+        View decor = act.getWindow().getDecorView();
+        if (!f.isFile() || decor.getWidth() == 0) return;
+        String html;
+        try { html = new String(readAll(new FileInputStream(f)), StandardCharsets.UTF_8); }
+        catch (Exception e) { Log.w(TAG, "popup " + name + ": " + e); return; }
+        int head = html.toLowerCase(Locale.ROOT).indexOf("<head>");
+        html = head < 0 ? SHIM + html : html.substring(0, head + 6) + SHIM + html.substring(head + 6);
+        float[] size = POPUP_SIZE.get(name);
+        final int W = decor.getWidth(), H = decor.getHeight(), w = (int) (W * size[0]), h = (int) (H * size[1]);
+        final WebView web = newWeb();
+        final String path = POPUP_API.get(name);
+        web.addJavascriptInterface(new Object() {
+            @JavascriptInterface public void post(String json) {
+                JSONObject m;
+                try { m = new JSONObject(json); } catch (Exception e) { return; }
+                int id = m.optInt("id", 0);
+                String op = m.optString("op", ""), arg = m.optString("name", null);
+                if (op.equals("ready")) ui.post(new Runnable() { public void run() { showPopup(web); } });
+                else if (op.equals("close")) ui.post(new Runnable() { public void run() { if (popupWeb == web) closePopup(); } });
+                else if (op.equals("state")) get(web, id, path);
+                else if (op.equals("submit") && arg != null && arg.length() <= 40) get(web, id, path + "?name=" + Uri.encode(arg));
+            }
+        }, "CKWeb");
+        web.setAlpha(0f);
+        web.loadDataWithBaseURL(Uri.fromFile(f).toString() + (lang.equals("zh") ? "?lang=zh" : ""), html, "text/html", "utf-8", null);
+        popup = new PopupWindow(web, w, h, true);
+        popup.setClippingEnabled(false);
+        popup.setOnDismissListener(new PopupWindow.OnDismissListener() {
+            public void onDismiss() { if (popupWeb == web) { popup = null; popupWeb = null; web.destroy(); } }
+        });
+        popup.showAtLocation(decor, Gravity.TOP | Gravity.START, (W - w) / 2, (H - h) / 2);
+        popupWeb = web;
+        ui.postDelayed(new Runnable() { public void run() { showPopup(web); } }, 2500);
+    }
+
+    void showPopup(WebView web) { if (popupWeb == web) web.setAlpha(1f); }
+
+    void closePopup() {
+        if (popup == null) return;
+        PopupWindow p = popup;
+        p.dismiss();                                   // onDismiss destroys the view
     }
 
     // [Web] Css= in the game folder's ckweb.ini (the same file ckweb.exe reads on PC)
