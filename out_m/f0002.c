@@ -11841,11 +11841,21 @@ L_009c4156:;
   /* 009c41b6 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
   /* 009c41b8 je 0x9c41d4 */ if (ZF_) goto L_009c41d4;
   /* 009c41ba mov esi, eax */ { esi = (u32)(eax); }
-  /* 009c41bc mov edi, 0x9c4ee5 */ { edi = (u32)(0x9c4ee5u); }
-  /* 009c41c1 cmp dword ptr [0x9c7400], 2 */ { const u32 m_ = (u32)(0x9c7400u); u32 a_ = M32(m_), b_ = 0x2u; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 009c41c8 jne 0x9c41cf */ if (!ZF_) goto L_009c41cf;
-  /* 009c41ca mov edi, 0x9c4ef3 */ { edi = (u32)(0x9c4ef3u); }
-L_009c41cf:;
+  /* 009c41bc call 0x9de720 */ esp -= 4; M32(esp) = 0x9c41c1u; SAVEALL; F_009de720(c); ABI_CHECK(0x9de720u, 0x9c41bcu); RETCHK(0x9c41c1u, 0x9c41bcu); LOADALL;
+  /* 009c41c1 nop */ ;
+  /* 009c41c2 nop */ ;
+  /* 009c41c3 nop */ ;
+  /* 009c41c4 nop */ ;
+  /* 009c41c5 nop */ ;
+  /* 009c41c6 nop */ ;
+  /* 009c41c7 nop */ ;
+  /* 009c41c8 nop */ ;
+  /* 009c41c9 nop */ ;
+  /* 009c41ca nop */ ;
+  /* 009c41cb nop */ ;
+  /* 009c41cc nop */ ;
+  /* 009c41cd nop */ ;
+  /* 009c41ce nop */ ;
   /* 009c41cf call 0x9c4107 */ esp -= 4; M32(esp) = 0x9c41d4u; SAVEALL; F_009c4107(c); ABI_CHECK(0x9c4107u, 0x9c41cfu); RETCHK(0x9c41d4u, 0x9c41cfu); LOADALL;
 L_009c41d4:;
   /* 009c41d4 mov edi, ebp */ { edi = (u32)(ebp); }

@@ -1,4 +1,4 @@
-module client_mobile.dat 00400000 005de000 005feba2 1
+module client_mobile.dat 00400000 005e0000 005feba2 1
 module KartRes.dll 10000000 00010000 10006f48 0
 export 1 10001210 ?FreeXmlFile@@YG_NPAD@Z
 export 2 10001d00 ?GetString@@YGPBDPBDH@Z
