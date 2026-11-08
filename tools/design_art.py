@@ -29,12 +29,13 @@ STATE_CSS = {                     # the four cells of a game button strip
 
 
 class Piece:
-    def __init__(self, key, w, h, html, states=1, cn=None, on=None, on_cn=None, vertical=False):
+    def __init__(self, key, w, h, html, states=1, cn=None, on=None, on_cn=None, vertical=False, onset=(2,)):
         """html: markup filling a w x h box (design px = phone px / K are applied for you). cn: the same markup
         with the Chinese label. on / on_cn: markup for the checked cell (CheckBtn 'on' look) instead of pressed."""
         self.key, self.w, self.h, self.html, self.states = key, round(w), round(h), html, states
         self.cn, self.on, self.on_cn = cn, on, on_cn if on_cn is not None else on
-        self.vertical = vertical          # RoomButton rows: the four cells stacked
+        self.vertical = vertical          # RoomButton rows, MenuItems: the cells stacked
+        self.onset = set(onset)           # cells drawn with the 'on' markup (MenuItem strips: 1, 2, 4, 5)
 
 
 _css = None
@@ -77,9 +78,9 @@ def render(pieces):
             if html is None:
                 continue
             for s in range(p.states):
-                checked = on is not None and s == 2
-                jobs.append((p.key + lang, s, on if checked else html, p.w / K, p.h / K,
-                             STATE_CSS[s] if p.states == 4 and not checked else ""))
+                checked = on is not None and s in p.onset
+                css = STATE_CSS.get(s, "") if p.states == 4 else (STATE_CSS[3] if s == 3 else "")
+                jobs.append((p.key + lang, s, on if checked else html, p.w / K, p.h / K, "" if checked else css))
     # shelf-pack the cells on one page (CSS px)
     G = 36                                             # gap: glows and shadows must not reach the next cell
     W, x, y, row, cells, where = 1600, G, G, 0, [], []

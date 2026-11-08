@@ -55,9 +55,9 @@ class Renderer:
             return None
         tw, th = im.size
         if c.tag in BUTTONS or cells == 4:
-            rx, ry = tw / w, th / (h if cells == 1 else h * 4)
-            vert = c.tag == "RoomButton" or cells == 4 or ry / rx > 3
-            n = 4 if (vert and ry / rx > 3) or (not vert and rx / ry > 3) else 1
+            hh = h if cells == 1 else h * 4
+            vert = c.tag in ("RoomButton", "MenuItem") or cells == 4 or (th / hh) / (tw / w) > 2.5
+            n = max(1, round((th / tw) / (hh / w))) if vert else max(1, round((tw / th) / (w / hh)))   # 4, 5 or 6 cells
             box = (0, 0, tw, th // n) if vert else (0, 0, tw // n, th)
         else:
             u = [float(v) for v in c.a.get("uv", "0,0,0,0").split(",")]
@@ -106,6 +106,7 @@ SCREENS = [
     ("server", [("GUILogin.xml", "ChooseAreaFrame")]),
     ("login", [("GUILogin.xml", "LoginFrame")], ("OnePLoginFrame",)),
     ("channel", [("GUIChooseChannel.xml", "ChooseChannelDesktop")]),
+    ("zones", [("GUIChooseChannel.xml", "ChooseChannelDesktop")], ("NewComerFrame",)),
     ("lobby", [("GUI.xml", "GameChannelFrame"), ("GUI.xml", "GameRoomFrame")]),
     ("friends", [("GUI.xml", "GameChannelFrame"), ("GUI.xml", "GameRoomFrame")], ("MyFriendFrame",)),
     ("createroom", [("GUI.xml", "GameChannelFrame"), ("GUI.xml", "CreateRoomFrame")]),

@@ -509,12 +509,10 @@ def build(game):
             continue                                  # the Claude design (design_ui.py)
         elif any(k.id.lower().startswith("rightkuang") and k.orig and abs(k.orig[0] - 626) <= 4 for k in f.kids):
             channel_screen(f)
-    shop(gui)
-    design_ui.build(gui, game)
     log = Layout(os.path.join(cfg, "GUILogin.xml"))
     login(log)
     ch = Layout(os.path.join(cfg, "GUIChooseChannel.xml"))
-    choose_channel(ch)
+    design_ui.build(gui, game, ch)
     return {"GUI.xml": gui, "GUILogin.xml": log, "GUIChooseChannel.xml": ch}
 
 
@@ -586,8 +584,15 @@ def write_textures(game, out):
         open(dst, "wb").write(png_encode(buf.getvalue()))
         n += 1
     import design_ui
-    for name, (en, cn) in design_ui.draw().items():    # the Claude design's art (EN, and CN for CN/data/...)
-        rel = name.replace("\\", "/")
+    import design_generic
+    art = design_ui.draw()                             # the Claude design's art (EN, and CN for CN/data/...)
+    cfg = os.path.join(game, "data", "config")
+    lays = [Layout(os.path.join(cfg, n)) for n in ("GUI.xml", "Dialogs.xml")]
+    for name, pair in design_generic.run(lays, game, design_ui.HAND_LAID, list(art)).items():
+        art.setdefault(name, pair)                     # every other screen and dialog: relabelled / recoloured
+    for name, (en, cn) in art.items():
+        p = find_texture(game, name)
+        rel = os.path.relpath(p, os.path.join(game, "data", "GUI", "IMAGE")).replace(os.sep, "/") if p else name.replace("\\", "/")
         for base, im in (("data", en), ("CN/data", cn)):
             if im is None:
                 continue

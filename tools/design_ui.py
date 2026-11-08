@@ -16,6 +16,7 @@ X0, X1 = L + 6, R - 6            # safe content edges
 S = 1.2                           # design px -> phone px
 GAME = None                       # game folder (for icons taken from the game's own textures)
 
+HAND_LAID = {"GameChannelFrame", "GameRoomFrame", "WaitingRoomFrame", "ShoppingBtnFrame", "ItemShopFrame", "ItemShopFrameCar"}
 PIECES = []                       # Piece list for this run
 ASSIGN = []                       # (texture name, piece key)
 
@@ -25,12 +26,12 @@ def css(v):
     return round(v * S / K, 2)
 
 
-def art(c, key, html, states=1, cn=None, on=None, on_cn=None, name=None, vertical=False, size=None):
+def art(c, key, html, states=1, cn=None, on=None, on_cn=None, name=None, vertical=False, size=None, onset=(2,)):
     """Give control c a new texture drawn from design markup, sized to its (new) rect."""
     w, h = size or (c.cur[2], c.cur[3])
     name = name or "Mobile\\D\\" + key + ".png"
     if not any(p.key == key for p in PIECES):
-        PIECES.append(Piece(key, w * S, h * S, html, states, cn, on, on_cn, vertical))
+        PIECES.append(Piece(key, w * S, h * S, html, states, cn, on, on_cn, vertical, onset))
         ASSIGN.append((name, key))
     c.texnew = name
     return name
@@ -266,7 +267,7 @@ def ibtn(path, lit=False):
     """A square icon button of the design (.ibtn), stroke icon; lit = the green 'on' look (.rtog .on)."""
     on = "background:rgba(71,224,106,.25);box-shadow:inset 0 0 0 1px rgba(71,224,106,.6);" if lit else ""
     return (f'<button class="ibtn" style="border-radius:8px;width:100%;height:100%;{on}">'
-            f'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" '
+            f'<svg style="width:min(22px,70%);height:min(22px,70%)" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" '
             f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{path}</svg></button>')
 
 
@@ -317,9 +318,221 @@ def room(f):
     override("WaitRoom\\zwait.png", "go_wait", gw, gh, play("WAITING", "for the host"), cn=play("等待中", "等待房主开始"))
 
 
-def build(gui, game):
+# ---------------------------------------------------------------- art shared by many screens and dialogs, by file name
+ICO_X = '<path d="M6 6l12 12M18 6L6 18"/>'
+ICO_L = '<path d="M15 5l-7 7 7 7"/>'
+ICO_R = '<path d="M9 5l7 7-7 7"/>'
+
+
+def small_btn(label, kind):
+    return btn(label, kind).replace('style="', 'style="font-size:12px;', 1)
+
+
+def shared():
+    """Textures the game uses all over (arrows, close, OK / Cancel / Close / Back, the message box frame, the right
+    column backing): drawn once in the design, every screen and dialog picks them up."""
+    for name, key, w, h, html, cn in [
+            ("commonpic\\zjiantouR.png", "g_right", 18, 17, ibtn(ICO_R), None),
+            ("commonpic\\zjiantouL.png", "g_left", 18, 17, ibtn(ICO_L), None),
+            ("commonpic\\quit.png", "g_quit", 24, 23, ibtn(ICO_X), None),
+            ("commonpic\\btnOK.png", "g_ok", 96, 24, small_btn("OK", "gold"), small_btn("确定", "gold")),
+            ("commonpic\\zcancel.png", "g_cancel", 96, 24, small_btn("Cancel", "dark"), small_btn("取消", "dark")),
+            ("commonpic\\Close.png", "g_close", 96, 24, small_btn("Close", "dark"), small_btn("关闭", "dark")),
+            ("commonpic\\zBackBtn.png", "g_back", 159, 32, btn("Back", "dark"), btn("返回", "dark")),
+            ("commonpic\\CancelImage.png", "g_cancelbig", 159, 32, btn("Cancel", "dark"), btn("取消", "dark")),
+            ("commonpic\\zQuickEnterBtn.png", "g_quick", 159, 32, btn("Quick Join", "red"), btn("快速加入", "red"))]:
+        override(name, key, w, h, html, 4, cn)
+    # single images: the message box frame (the design's modal: glass, red-gold line on top), column backing, help bg
+    for name, key, w, h, html in [
+            ("commonpic\\MsgBoxBorder.png", "g_msgbox", 454, 226, layer(
+                box(0, 0, 454, 226, "border-radius:12px;background:linear-gradient(180deg,rgba(28,31,42,.97),rgba(10,12,18,.97));"
+                    "box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)"),
+                box(0, 0, 454, 3, "border-radius:12px 12px 0 0;background:linear-gradient(90deg,transparent,var(--red),"
+                    "var(--gold),var(--red),transparent)"))),
+            ("commonpic\\nav.png", "g_nav", 163, 600, layer(box(0, 0, 163, 600, GLASS))),
+            ("commonpic\\helpbg.png", "g_helpbg", 800, 461, layer(box(0, 0, 800, 461, GLASS + ";background:rgba(10,12,18,.92)")))]:
+        override(name, key, w, h, html, 1)
+
+
+# ---------------------------------------------------------------- zone / channel pick (GUIChooseChannel.xml)
+GROUPS = [("BeginnerChannelBtn", "Practise", "实习频道"), ("NewComerBtn", "Beginner", "新手频道"),
+          ("FreeChannelBtn", "Semi-Pro", "进阶频道"), ("ZhongJiChannelBtn", "Pro", "中级频道"),
+          ("AdvanceChannelBtn", "Channel VIP", "VIP 频道"), ("VIPChannelBtn", "General", None),
+          ("EventChannelBtn", "Tournament", None)]
+
+
+def vtab(label, on=False):
+    """The design's vertical tab (.vtab), red when chosen."""
+    return (f'<button class="vtab{" on" if on else ""}" style="justify-content:center;font-size:13px">'
+            f'<span>{label}</span></button>')
+
+
+def channel(ch):
+    top = ids(ch.frame("ChooseChannelDesktop"))
+    c = dict(top, **ids(top["ChooseChannelFrame"]))          # both pages have a "logo": the group page's here
+    for n in ("backbg1", "backbg2"):
+        rect(c[n], L, 0, R - L, 600)
+        art(c[n], "bg", "")                              # the same dark stage as the lobby (drawn by base())
+    for n in ("backbgg1", "backbgg2"):
+        c[n].vis = "0"
+    # groups: the back plate, a tab rail on the left, the game's help picture in a panel beside it
+    put(c["BackBtn"], X0, 6, 220, 46)
+    art(c["BackBtn"], "hdr_channels", back("Channels"), 4, cn=back("频道"))
+    rk = c["rightkuang1"]
+    rect(rk, X0, 60, 200, 7 * 58)
+    art(rk, "none", "<div></div>")
+    for i, (n, en, zh) in enumerate(GROUPS):
+        put(c[n], X0, 60 + i * 58, 200, 52)
+        art(c[n], "grp_" + n, vtab(en), 4, cn=vtab(zh) if zh else None, on=vtab(en, True), on_cn=vtab(zh, True) if zh else None)
+    put(c["logo"], X1 - 150, 6, 150, 47)
+    for k in c.values():
+        if k.id.startswith("zBg"):
+            k.vis = "0"
+    bg = c["ChooseChannelBG"]
+    move_group(bg.kids, (X0 + 210) - c["techImg"].cur[0] + 8, 60 - c["techImg"].cur[1] + 8)
+    rect(bg, X0 + 210, 60, X1 - (X0 + 210), 536)
+    art(bg, "chpanel", panel(10))
+    # zones: back plate, the announcements panel left, zone buttons as cards in two columns, ENTER (Quick Join)
+    c = dict(top, **ids(top["NewComerFrame"]))
+    c["logo"].vis = "0"
+    put(c["NewComerBackBtn"], X0, 6, 220, 46)
+    art(c["NewComerBackBtn"], "hdr_zones", back("Zones"), 4, cn=back("选择服务器"))
+    rk = c["rightkuang2"]
+    rect(rk, COL, 0, X1 - COL, 600)
+    art(rk, "none", "<div></div>")
+    zw, zh_ = (X1 - COL - 8) / 2, 56
+    for i in range(11):
+        k = c[f"Ser{i + 1}Btn"]
+        put(k, COL + (i % 2) * (zw + 8), 60 + (i // 2) * (zh_ + 6), zw, zh_)
+        art(k, "zone", layer(box(0, 0, zw, zh_, CARD)), 4, on=layer(box(0, 0, zw, zh_, CARD + ";box-shadow:inset 0 0 0 2px var(--gold)")),
+            size=(zw, zh_))
+    put(c["SerLBtn"], COL + 120, 438, 22, 21)
+    put(c["SerRBtn"], X1 - 142, 438, 22, 21)
+    put(c["serverPage"], COL + 150, 436, X1 - COL - 300, 25)
+    put(c["QuickEnterBtn"], COL, 466, X1 - COL, 130)
+    art(c["QuickEnterBtn"], "ch_enter", play("ENTER"), 4, cn=play("进入"))
+    nb = c["NewComerBG"]
+    put(nb, X0 - 4, 56, COL - 10 - (X0 - 4), 540)
+    art(nb, "zonepanel", panel(10))
+
+
+# ---------------------------------------------------------------- shop (ShoppingBtnFrame + ItemShopFrame / ItemShopFrameCar)
+MENU = [("HotGoodsMenu", "Hot", "推荐商品"), ("CarStoreMenu", "Kart Shop", "XTORM车行"), ("CarDecMenu", "Paint Shop", "赛车装饰"),
+        ("ClothShopMenu", "Avatar", "造型屋"), ("ItemShopMenu", "Item Shop", "道具店"), ("MySpaceMenu", "My Inventory", "个人空间"),
+        ("PayMenu", "Top-Up", "充值"), ("GiftMenu", "Gift", "礼品"), ("PackageMenu", "Combo Items", "礼包")]
+SUBMENU = {"CarStoreMenu": [("BuyCarMenu", "Buy Karts", "购买车辆"), ("CarRetreadMenu", "Repair Kart", "翻新车辆"),
+                            ("CarRecycleMenu", "Sell Kart", "回收车辆"), ("CarParkMenu", "Kart Park", "车库")],
+           "CarDecMenu": [("CarSuitMenu", "Buy Paint", "购买彩装"), ("CarAfterbodyMenu", "Tail Accessories", "车辆装饰")],
+           "GiftMenu": [("GiftSeqMenu", "Accept Gift", "领取礼品"), ("GiftItemMenu", "Gift Box", "礼品仓库")]}
+MONEY = [("CountNumber", "Cash", "点券", "var(--ink2)"), ("MoneyNumber", "Gold", "金币", "var(--gold)"),
+         ("TokenDepositNumber", "Tickets", "抵用券", "var(--cyan)")]
+STAGE = ('background:radial-gradient(ellipse 60% 70% at 32% 62%,rgba(255,43,56,.18),transparent 70%),'
+         'radial-gradient(ellipse 50% 60% at 85% 20%,rgba(62,224,255,.07),transparent 70%),#090a0e')
+SHOP_X = X0 + 162                 # content left (after the rail)
+
+
+def money_bar(f, x, y, w, cn=False):
+    """The Cash / Gold / Tickets row: labels drawn, the game writes the numbers. Returns its markup (frame coords)."""
+    c = ids(f)
+    sw = w / 3
+    parts = []
+    for i, (n, en, zh, col) in enumerate(MONEY):
+        sx = x + i * sw
+        parts.append(box(sx - f.cur[0] + 2, y - f.cur[1], sw - 4, 26, "border-radius:6px;background:rgba(0,0,0,.45);"
+                         "box-shadow:inset 0 0 0 1px rgba(255,255,255,.09)"))
+        parts.append(caps(zh if cn else en, sx - f.cur[0] + 10, y - f.cur[1] + 7, 10, col))
+        if not cn:
+            put(c[n], sx + 70, y + 2, sw - 80, 22)
+    return parts
+
+
+def shop_menu(gui):
+    m = ids(gui.frame("ShoppingBtnFrame"))
+    root = m["ShoppingBtnFrame"]
+    rect(root, L, 0, R - L, 600)
+    art(root, "shop_stage", f'<div style="{STAGE}"></div>')            # covers the chat, as the PC shop does
+    put(m["btnCommonBack"], X0, 6, 220, 46)
+    rect(m["frmCommonBack"], X0, 6, 220, 46)
+    art(m["btnCommonBack"], "hdr_shop", back("Shop"), 4, cn=back("商城"))
+    put(m["btnBack"], X1 - 30, 10, 30, 30)
+    rect(m["frmSmallBtns"], X1 - 30, 10, 30, 30)
+    rect(m["BtnsFrame"], X0, 56, 150, 9 * 48)
+    m["ShoppingBackMenu"].vis = "0"                      # parked left of the 4:3 screen; the X top right leaves
+    for i, (n, en, zh) in enumerate(MENU):
+        y = 56 + i * 48
+        put(m[n], X0, y, 150, 44)
+        art(m[n], "menu_" + n, vtab(en), 6, cn=vtab(zh), on=vtab(en, True), on_cn=vtab(zh, True), vertical=True, onset=(1, 2, 4, 5))
+        for j, (sn, sen, szh) in enumerate(SUBMENU.get(n, [])):
+            put(m[sn], X0 + 154, y + j * 30, 118, 28)
+            art(m[sn], "sub_" + sn, chip(sen), 5, cn=chip(szh), on=chip(sen, True), on_cn=chip(szh, True), vertical=True,
+                onset=(1, 2, 4))
+
+
+def item_shop(gui):
+    f = gui.frame("ItemShopFrame")
+    c = ids(f)
+    rect(f, SHOP_X, 56, X1 - SHOP_X, 542)
+    lx, ly = X1 - 363, 64
+    move_group([c["ItemList"]], lx - c["ItemList"].cur[0], ly - c["ItemList"].cur[1])
+    put(c["ItemListLeftbtn"], lx, ly + 482, 22, 21)
+    put(c["ItemListRightbtn"], X1 - 22, ly + 482, 22, 21)
+    put(c["ItemPage"], lx + 120, ly + 480, 123, 25)
+    mw = lx - 10 - SHOP_X
+    m3 = c["ItemModel"]
+    dx, dy = SHOP_X + (mw - 447) / 2 - m3.cur[0], 60 - m3.cur[1]
+    move_group([m3, c["ImgRecommendedProp"]], dx, dy)
+    put(c["ItemTitle"], SHOP_X + 10, 494, mw - 20, 25)
+    put(c["ItemUseageText"], SHOP_X + 10, 518, mw - 20, 50)
+    c["shopname"].vis = "0"
+
+    def bg(cn):
+        p = [box(0, 0, mw, 542, CARD), box(lx - f.cur[0] - 4, 4, 371, 534, GLASS)]
+        for j in range(3):
+            for i in range(3):
+                x, y = lx - f.cur[0] + i * 122, ly - f.cur[1] + j * 158
+                p.append(box(x, y, 119, 153, CARD))
+                p.append(box(x + 1, y + 127, 117, 25, "border-radius:0 0 8px 8px;background:rgba(0,0,0,.5)"))
+        return layer(*p, *money_bar(f, SHOP_X + 6, 572, mw - 12, cn))
+    art(f, "shop_items", bg(False), cn=bg(True))
+
+
+def kart_shop(gui):
+    f = gui.frame("ItemShopFrameCar")
+    c = ids(f)
+    rect(f, SHOP_X, 56, X1 - SHOP_X, 542)
+    W = X1 - SHOP_X
+    m3 = c["ItemModel"]
+    ox, oy = m3.cur[0], m3.cur[1]
+    put(m3, SHOP_X + 8, 60, W - 16, 320)
+    move_group([c[n] for n in ("ItemTitle", "ItemUseageText", "txtCarHint")], SHOP_X + 8 - ox, 60 - oy)
+    for n in ("clockwise", "rotateAuto", "anticlockwise"):
+        k = c[n]
+        put(k, k.cur[0] + (X1 - 8 - 768), 340 + (k.cur[1] - 345))
+    sy = 386                                                   # search row
+    move_group([c[n] for n in ("shopsearchbg", "strCategory", "btnChangeCategory", "strPayRange", "btnChangePayRange",
+                               "btnSearch", "frmCategory", "frmPayRange")],
+               (SHOP_X + 8) - c["shopsearchbg"].cur[0], sy - c["shopsearchbg"].cur[1])
+    lst = c["ItemList"]
+    lx = SHOP_X + (W - 673) / 2
+    move_group([lst, c["txtNoResult"]], lx - lst.cur[0], 418 - lst.cur[1])
+    put(c["ItemListLeftbtn"], lx - 28, 476, 22, 21)
+    put(c["ItemListRightbtn"], lx + 679, 476, 22, 21)
+    c["shopname2"].vis = "0"
+
+    def bg(cn):
+        p = [box(0, 0, W, 330, CARD), box(lx - f.cur[0] - 4, 418 - f.cur[1] - 4, 681, 145, GLASS)]
+        for i in range(5):
+            x = lx - f.cur[0] + i * 134.6
+            p.append(box(x + 2, 418 - f.cur[1], 130, 137, CARD))
+            p.append(box(x + 3, 418 - f.cur[1] + 110, 128, 26, "border-radius:0 0 8px 8px;background:rgba(0,0,0,.5)"))
+        return layer(*p, *money_bar(f, SHOP_X + 6, 572, W - 12, cn))
+    art(f, "kshop_items", bg(False), cn=bg(True))
+
+
+def build(gui, game, ch=None):
     global GAME
     GAME = game
+    shared()
     for _sec, f in gui.screens():
         if f.id == "GameChannelFrame":
             base(f)
@@ -327,6 +540,11 @@ def build(gui, game):
             lobby(f)
         elif f.id == "WaitingRoomFrame":
             room(f)
+    if ch is not None:
+        channel(ch)                                       # after base(): it reuses the stage background
+    shop_menu(gui)
+    item_shop(gui)
+    kart_shop(gui)
 
 
 def draw():
