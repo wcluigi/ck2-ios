@@ -12,6 +12,9 @@ mkdir -p $OUT/assets
 cp out_m/image.bin out_m/imports.txt out_m/modules.txt $OUT/assets/
 rm -f $OUT/assets/gamedata.zip $OUT/assets/gamedata.json
 cp android/assets/* $OUT/assets/ 2>/dev/null || true     # HUD editor element list, button art, fonts, voice page
+# the phone's menus (the Claude design, tools/mobile_ui.py -> mobile_overlay/): one zip, unpacked by LoginActivity.phoneUi
+rm -f $OUT/assets/mobile_ui.zip
+if [ -d mobile_overlay/data ]; then python -I -c "import shutil; shutil.make_archive('$OUT/assets/mobile_ui', 'zip', 'mobile_overlay')"; fi
 # The release's game files inside the APK (tools/bundle_data.py; ~600 MB): ALWAYS (the user, 5 Nov 2026: "always pack
 # with the data, not only apk"). BUNDLE=0 only for the lean automatic update in the patch (release_apk.sh).
 BUNDLE=${BUNDLE:-1}

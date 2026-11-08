@@ -487,6 +487,114 @@ void plat_web_panel(uint32_t hwnd, const char *page, int x, int y, int w, int h,
     });
 }
 
+// ---- server-asked popups (9 Nov 2026, the user: "renaming should open that rename we did"): ckweb --popup <name> on PC,
+// WebPanels.openPopup on Android. The server asks through the launcher's voice poll ("popup"); this app has no voice, so
+// it polls with X-CK-Voice: none (popups only, never a voice peer). web/<name>/index.html centred at ckweb's size for
+// it, shown at "ready" (or after 2.5 s); "state" / "submit" {name} ask the popup's API, "close" closes it. ----
+@interface CKPopup : NSObject <WKScriptMessageHandler>
+@property (nonatomic, copy) NSString *api;
+@property (nonatomic, strong) WKWebView *web;
+@end
+static CKPopup *g_popup;                         // one at a time
+
+static void popup_close(void) {
+    if (!g_popup) return;
+    [g_popup.web.configuration.userContentController removeScriptMessageHandlerForName:@"ck"];
+    [g_popup.web removeFromSuperview];
+    g_popup = nil;
+}
+static void popup_reply(CKPopup *p, long long rid, long status, NSString *data) {
+    NSString *js = [NSString stringWithFormat:@"window.__ckweb&&window.__ckweb({\"id\":%lld,\"status\":%ld,\"lang\":\"%@\",\"data\":%@})",
+                    rid, status, g_web_lang, data];
+    dispatch_async(dispatch_get_main_queue(), ^{ if (g_popup == p) [p.web evaluateJavaScript:js completionHandler:nil]; });
+}
+static void popup_ask(CKPopup *p, long long rid, NSString *path) {
+    if (!g_web_api || !g_web_user || !g_web_key) { popup_reply(p, rid, 1, @"null"); return; }
+    NSMutableURLRequest *rq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[g_web_api stringByAppendingString:path]]];
+    rq.timeoutInterval = 8;
+    [rq setValue:[@"Bearer " stringByAppendingString:g_web_key] forHTTPHeaderField:@"Authorization"];
+    [rq setValue:g_web_user forHTTPHeaderField:@"X-CK-User"];
+    [rq setValue:[g_web_lang isEqualToString:@"zh"] ? @"cn" : @"en" forHTTPHeaderField:@"X-CK-Lang"];
+    [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        long status = [r isKindOfClass:NSHTTPURLResponse.class] ? (long)((NSHTTPURLResponse *)r).statusCode : 0;
+        NSString *body = @"null";
+        if (status && status < 400 && d.length && [NSJSONSerialization JSONObjectWithData:d options:NSJSONReadingFragmentsAllowed error:nil])
+            body = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] ?: @"null";
+        popup_reply(p, rid, status, body);
+    }] resume];
+}
+@implementation CKPopup
+- (void)userContentController:(WKUserContentController *)uc didReceiveScriptMessage:(WKScriptMessage *)msg {
+    NSData *d = [msg.body isKindOfClass:NSString.class] ? [(NSString *)msg.body dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    NSDictionary *m = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+    if (![m isKindOfClass:NSDictionary.class] || g_popup != self) return;
+    long long rid = [m[@"id"] respondsToSelector:@selector(longLongValue)] ? [m[@"id"] longLongValue] : 0;
+    NSString *op = [m[@"op"] isKindOfClass:NSString.class] ? m[@"op"] : @"";
+    NSString *arg = [m[@"name"] isKindOfClass:NSString.class] ? m[@"name"] : nil;
+    if ([op isEqualToString:@"ready"]) self.web.alpha = 1;
+    else if ([op isEqualToString:@"close"]) popup_close();
+    else if ([op isEqualToString:@"state"]) popup_ask(self, rid, self.api);
+    else if ([op isEqualToString:@"submit"] && arg && arg.length <= 40)
+        popup_ask(self, rid, [self.api stringByAppendingFormat:@"?name=%@",
+                              [arg stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.alphanumericCharacterSet]]);
+    else popup_reply(self, rid, 400, @"null");
+}
+@end
+
+static void popup_open(NSString *name) {        // main thread
+    NSDictionary *api = @{@"rename": @"/launcher/rename", @"mapvote": @"/launcher/mapvote"};
+    NSDictionary *size = @{@"rename": @[@0.60, @0.24], @"mapvote": @[@0.70, @0.80]};      // as ckweb.cs / WebPanels.java
+    if (!api[name] || g_popup || !g_game_view || !g_web_game) return;
+    if (![NSFileManager.defaultManager fileExistsAtPath:[g_web_game stringByAppendingFormat:@"/web/%@/index.html", name]]) return;
+    CKPopup *p = [[CKPopup alloc] init];
+    p.api = api[name];
+    p.web = web_new(p);
+    p.web.alpha = 0;
+    CGSize S = g_game_view.bounds.size;
+    CGFloat w = floor(S.width * [size[name][0] doubleValue]), h = floor(S.height * [size[name][1] doubleValue]);
+    p.web.frame = CGRectMake((S.width - w) / 2, (S.height - h) / 2, w, h);
+    [g_game_view addSubview:p.web];
+    g_popup = p;
+    web_load_local(p.web, [NSString stringWithFormat:@"web/%@/index.html%@", name, [g_web_lang isEqualToString:@"zh"] ? @"?lang=zh" : @""]);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (g_popup == p) p.web.alpha = 1; });
+}
+
+static void popup_poll(void) {                   // its own thread, for the whole game
+    NSString *rev = @"";
+    for (;;) {
+        if (!g_web_api || !g_web_user || !g_web_key) { sleep(5); continue; }
+        NSString *q = [rev stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.alphanumericCharacterSet] ?: @"";
+        NSMutableURLRequest *rq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[g_web_api stringByAppendingFormat:@"/launcher/voice?since=%@", q]]];
+        rq.timeoutInterval = 45;                 // the server answers within 25 s
+        [rq setValue:[@"Bearer " stringByAppendingString:g_web_key] forHTTPHeaderField:@"Authorization"];
+        [rq setValue:g_web_user forHTTPHeaderField:@"X-CK-User"];
+        [rq setValue:[g_web_lang isEqualToString:@"zh"] ? @"cn" : @"en" forHTTPHeaderField:@"X-CK-Lang"];
+        [rq setValue:@"none" forHTTPHeaderField:@"X-CK-Voice"];
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        __block long status = 0;
+        __block NSData *body = nil;
+        [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+            status = [r isKindOfClass:NSHTTPURLResponse.class] ? (long)((NSHTTPURLResponse *)r).statusCode : 0;
+            body = d;
+            dispatch_semaphore_signal(done);
+        }] resume];
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        if (status == 401) { sleep(30); continue; }            // sign in again
+        if (status == 404) { sleep(60); continue; }            // a server without the poll
+        NSDictionary *st = status == 200 && body ? [NSJSONSerialization JSONObjectWithData:body options:0 error:nil] : nil;
+        if (![st isKindOfClass:NSDictionary.class]) { sleep(3); continue; }      // restarting, connection lost
+        if ([st[@"rev"] isKindOfClass:NSString.class]) rev = st[@"rev"];
+        NSString *name = [st[@"popup"] isKindOfClass:NSString.class] ? st[@"popup"] : nil;
+        if (name.length) dispatch_async(dispatch_get_main_queue(), ^{ popup_open(name); });
+    }
+}
+static void popup_poll_start(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [[[NSThread alloc] initWithBlock:^{ popup_poll(); }] start];
+    });
+}
+
 // ---- the launcher: sign-in like the PC launcher (Launcher/login.js, LoginActivity.java) -------------------------------
 static NSString *const HOSTS[] = {@"201.18.200.6", @"8.210.188.242"};
 static NSString *const API[] = {@"https://api-in.crazykartlegacy.com", @"https://api-hk.crazykartlegacy.com"};
@@ -1555,6 +1663,7 @@ static BOOL has_cjk(NSString *s) {
         setenv("CK_SCALE", scale_s, 1);
         g_screen_hz = (int)UIScreen.mainScreen.maximumFramesPerSecond;
         freopen([game stringByAppendingPathComponent:@"stderr.txt"].UTF8String, "w", stderr);
+        popup_poll_start();                                       // server-asked popups (Rename Card, ranked map vote)
         dispatch_async(dispatch_get_main_queue(), ^{
             GameVC *vc = [[GameVC alloc] init];
             vc.modalPresentationStyle = UIModalPresentationFullScreen;

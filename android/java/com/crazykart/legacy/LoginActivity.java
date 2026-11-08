@@ -858,6 +858,7 @@ public class LoginActivity extends Activity {
                 if (remember.isChecked()) ed.putString("key", key).putInt("keyServer", srv); else ed.remove("key");
                 ed.apply();
                 phoneDisplay();
+                phoneUi();
                 Controls.write(prefs, getFilesDir());          // keyboards + controllers (plat_android.c)
                 final String fkey = key;
                 String args = "-u " + account + " -password " + p.pass + " -ad " + HOSTS[srv] + " -port " + LOGIN_PORT + " -wnd 1";
@@ -920,6 +921,42 @@ public class LoginActivity extends Activity {
                 : r.status.equals("refused") ? t("The update was refused (it is not signed by Crazy Kart Legacy).", "更新被拒绝（不是 Crazy Kart Legacy 的签名）。")
                 : t("Cannot reach the update servers. Check your internet and press Play again.", "无法连接更新服务器，请检查网络后再次点击开始。"), false);
         return false;
+    }
+
+    // The phone's menus (the Claude design, tools/mobile_ui.py): assets/mobile_ui.zip -> <files>/image/mobile, where
+    // runtime/mobile/plat.c reads data/... and CN/data/... first. Unpacked again whenever this app was installed or
+    // updated since the last time (lastUpdateTime), so app updates carry the UI; no zip in the app = no overlay.
+    void phoneUi() {
+        File dir = new File(new File(getFilesDir(), "image"), "mobile");
+        File stamp = new File(getFilesDir(), "mobile_ui.stamp");
+        String want;
+        try { want = Long.toString(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime); } catch (Exception e) { want = "?"; }
+        byte[] have = readAll(stamp);
+        if (have != null && want.equals(new String(have, StandardCharsets.UTF_8)) && dir.isDirectory()) return;
+        deleteTree(dir);
+        try (java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(getAssets().open("mobile_ui.zip"), 1 << 16))) {
+            byte[] b = new byte[1 << 16];
+            for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+                File out = new File(dir, e.getName());
+                if (!out.getCanonicalPath().startsWith(dir.getCanonicalPath() + File.separator)) continue;   // no ../ escapes
+                if (e.isDirectory()) { out.mkdirs(); continue; }
+                out.getParentFile().mkdirs();
+                try (FileOutputStream o = new FileOutputStream(out)) { for (int n; (n = z.read(b)) > 0; ) o.write(b, 0, n); }
+            }
+        } catch (java.io.FileNotFoundException e) {
+            return;                                              // this build has no phone UI overlay
+        } catch (Exception e) {
+            Log.w("ck2", "phone UI overlay: " + e);
+            deleteTree(dir);                                     // half a UI is worse than the stock one
+            return;
+        }
+        try (FileOutputStream o = new FileOutputStream(stamp)) { o.write(want.getBytes(StandardCharsets.UTF_8)); } catch (Exception ignored) { }
+    }
+
+    static void deleteTree(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        f.delete();
     }
 
     // The phone runs the game windowed at 1280x720 (the HUD layout, touch controls and widescreen fill are built for

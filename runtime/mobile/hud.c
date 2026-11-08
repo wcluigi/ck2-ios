@@ -389,8 +389,18 @@ void hud_draw(GVert *v, u32 n, const void *tex, HudXf *xf) {
         }
         return;
     }
+    // phone UI overlay (plat.c: <image dir>/mobile/data/config/GUI.xml): the menus are laid out for the phone by the
+    // game's own XML, so the lobby / room remap below stays off
+    static int phone_ui = -1;
+    if (phone_ui < 0) {
+        char p[700];
+        const char *ov = plat_overlay_root();
+        snprintf(p, sizeof p, "%s/data/config/GUI.xml", ov ? ov : "");
+        phone_ui = ov && access(p, F_OK) == 0;
+        rt_log("hud: phone UI layouts %s\n", phone_ui ? "present: lobby/room remap off" : "absent");
+    }
     // the lobby / room: the chat strip (959x39 at 159,557) is drawn on both -> their layout from the next frame
-    if (x0 > 156 && x0 < 162 && y0 > 554 && y0 < 560 && w > 954 && w < 964 && h > 34 && h < 44) g_chan_seen = g_frame_no;
+    if (!phone_ui && x0 > 156 && x0 < 162 && y0 > 554 && y0 < 560 && w > 954 && w < 964 && h > 34 && h < 44) g_chan_seen = g_frame_no;
     if (chan_on()) {
         int k = chan_part(x0, y0, x1, y1, 1);
         if (k == -2) { for (u32 i = 1; i < n; i++) v[i] = v[0]; return; }      // the chat strip, sheet closed

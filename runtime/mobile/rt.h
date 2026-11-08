@@ -87,7 +87,8 @@ const char *module_path(u32 mod);
 // ---- files -------------------------------------------------------------------------------
 // Windows paths (backslashes, any case, "C:\..." under the fake game dir) -> host path.
 int host_path(const char *winpath, char *out, int outsz);
-extern char g_game_dir[512];                       // host directory holding the game data
+const char *plat_overlay_root(void);               // phone UI overlay (<image dir>/mobile, tools/mobile_ui.py) or 0
+extern char g_game_dir[512];                      // host directory holding the game data
 extern const char *g_fake_dir;                     // what the game sees as its install dir
 
 // ---- text --------------------------------------------------------------------------------

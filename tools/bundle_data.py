@@ -37,6 +37,7 @@ def main():
             total += len(data)
             if i % 2000 == 0:
                 print(f"  {i}/{len(files)} files")
+    # (the phone UI overlay is not game data: it ships in the app, package_apk.sh -> assets/mobile_ui.zip)
     os.replace(tmp, os.path.join(OUT, "gamedata.zip"))
     meta = {"version": man["version"], "md5": hashlib.md5(body).hexdigest(), "time": man.get("time", 0), "bytes": total,
             "files": files}

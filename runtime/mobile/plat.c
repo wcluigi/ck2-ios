@@ -149,6 +149,44 @@ static int scan_dir(const char *realdir) {
     return 1;
 }
 
+// the overlay's directories, cached like the game's with keys "\003<lowercase path>"
+static void scan_ov(const char *root, const char *realdir) {
+    char abs[1100], key[1100], val[1100];
+    snprintf(abs, sizeof abs, "%s%s%s", root, realdir[0] ? "/" : "", realdir);
+    DIR *d = opendir(abs);
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            snprintf(val, sizeof val, "%s%s%s", realdir, realdir[0] ? "/" : "", e->d_name);
+            snprintf(key, sizeof key, "\003%s", val);
+            lower(key);
+            pc_put(key, val);
+        }
+        closedir(d);
+    }
+    snprintf(key, sizeof key, "\003%s/\001scanned", realdir);
+    lower(key);
+    pc_put(key, "1");
+}
+extern char g_image_dir[512];
+const char *plat_overlay_root(void) {
+    static char root[600];
+    static int state = -1;                       // -1 not looked yet, 0 none, 1 root[] set
+    if (state < 0) {
+        struct stat st;
+        const char *base[2] = {g_image_dir, g_game_dir};
+        state = 0;
+        for (int i = 0; i < 2 && !state; i++) {
+            char d[700];
+            snprintf(d, sizeof d, "%s/mobile/data", base[i]);
+            if (base[i][0] && !stat(d, &st) && S_ISDIR(st.st_mode)) { snprintf(root, sizeof root, "%s/mobile", base[i]); state = 1; }
+        }
+        rt_log("phone UI overlay: %s\n", state ? root : "none");
+    }
+    return state ? root : 0;
+}
+
 // winpath: "C:\CrazyKart2\data\x.png", "data\\x.png", ".\\x", "/x" ... ; returns 1 if it maps inside the game dir
 int host_path(const char *winpath, char *out, int outsz) {
     char full[1024], rel[1024];
@@ -171,6 +209,31 @@ int host_path(const char *winpath, char *out, int outsz) {
     // must be under the fake install dir (C:\CrazyKart2)
     const char *fd = g_fake_dir + 3;
     if (np == 0 || strcasecmp(parts[0], fd)) { snprintf(out, outsz, "%s/__outside__/%s", g_game_dir, np ? parts[np - 1] : ""); return 0; }
+    // phone UI overlay (tools/mobile_ui.py, the Claude design): <image dir>/mobile/{data,CN/data}/... -- shipped inside
+    // the app, so app updates carry it (<game>/mobile/ when the image has none: testing) -- replaces the game's file
+    // of the same path, for the files it has (phone layouts, the design's textures); the PC release is untouched.
+    const char *ovr = plat_overlay_root();
+    if (ovr && ((np >= 3 && !strcasecmp(parts[1], "data")) ||
+                (np >= 4 && !strcasecmp(parts[1], "CN") && !strcasecmp(parts[2], "data")))) {
+        char ov[1024], ovk[1100];
+        int ok = 1;
+        ov[0] = 0;
+        pthread_mutex_lock(&g_pcmu);
+        for (int i = 1; i < np && ok; i++) {
+            snprintf(ovk, sizeof ovk, "\003%s%s%s", ov, ov[0] ? "/" : "", parts[i]);
+            lower(ovk);
+            const char *hit = pc_get(ovk);
+            if (!hit) {
+                char sk[1100];
+                snprintf(sk, sizeof sk, "\003%s/\001scanned", ov);
+                lower(sk);
+                if (!pc_get(sk)) { scan_ov(ovr, ov); hit = pc_get(ovk); }
+            }
+            if (hit) snprintf(ov, sizeof ov, "%s", hit); else ok = 0;
+        }
+        pthread_mutex_unlock(&g_pcmu);
+        if (ok) { snprintf(out, outsz, "%s/%s", ovr, ov); return 1; }
+    }
     rel[0] = 0;
     char key[1100];
     pthread_mutex_lock(&g_pcmu);
