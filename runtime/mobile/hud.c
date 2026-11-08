@@ -182,7 +182,11 @@ void hud_capture(const GDraw *dr, int textured) {
 static void shot_save(void) {
     char p[600];
     snprintf(p, sizeof p, "%s/hudshots", g_game_dir);
+#ifdef _WIN32
+    mkdir(p);                                        // desktop bench (llvm-mingw)
+#else
     mkdir(p, 0755);
+#endif
     int saved = 0;
     for (int i = 0; i < g_nel; i++) {
         if (!g_cv[i]) continue;

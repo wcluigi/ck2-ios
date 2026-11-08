@@ -3,10 +3,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifndef _WIN32                           // the desktop bench (llvm-mingw) has no BSD sockets: no area pings there
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <fcntl.h>
 #include <poll.h>
+#endif
+#include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
 
@@ -24,6 +26,10 @@ HLE(icmp_create) { return 0x1c3f0001; }
 HLE(icmp_send) {        // (handle, IPAddr dest, data, u16 size, options, reply, reply size, timeout ms) -> replies
     u32 dest = ARG(1), data = ARG(2), size = ARG(3) & 0xffff, reply = ARG(5), rsize = ARG(6), timeout = ARG(7);
     if (!reply || rsize < 28) return 0;
+#ifdef _WIN32
+    (void)dest; (void)data; (void)size; (void)timeout;
+    return 0;                                        // desktop bench: every area "timed out"
+#else
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return 0;
     fcntl(fd, F_SETFL, O_NONBLOCK);
@@ -43,6 +49,7 @@ HLE(icmp_send) {        // (handle, IPAddr dest, data, u16 size, options, reply,
     M32(reply + 8) = rtt;
     if (ok && data && rsize >= 28 + size) { memcpy(GS(reply + 28), GS(data), size); *(u16 *)GS(reply + 12) = (u16)size; M32(reply + 16) = reply + 28; }
     return ok ? 1 : 0;
+#endif
 }
 
 HLE(w_timeGetTime) { return ms_now(); }
