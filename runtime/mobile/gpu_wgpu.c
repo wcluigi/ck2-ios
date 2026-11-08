@@ -716,7 +716,7 @@ static WGPURenderPipeline pipe_create(const GState *s, WGPUPrimitiveTopology top
     ct.blend = s->alpha_blend ? &bs : 0;
     ct.writeMask = s->color_write & 15;
     WGPUFragmentState fs = WGPU_FRAGMENT_STATE_INIT;
-    fs.module = g_shader; fs.entryPoint = g_fs_fast ? SV("fs_fast") : SV("fs"); fs.targetCount = 1; fs.targets = &ct;
+    fs.module = g_shader; fs.entryPoint = g_fs_fast > 0 ? SV("fs_fast") : SV("fs");   // -1 = not checked yet: the warm thread builds before the 1st present fs.targetCount = 1; fs.targets = &ct;
     WGPUDepthStencilState ds = WGPU_DEPTH_STENCIL_STATE_INIT;
     ds.format = WGPUTextureFormat_Depth24Plus;
     ds.depthWriteEnabled = (s->zenable && s->zwrite) ? WGPUOptionalBool_True : WGPUOptionalBool_False;
