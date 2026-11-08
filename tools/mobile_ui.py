@@ -617,7 +617,11 @@ def write_textures(game, out):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    if "--preview" in argv:                         # its value is not the out folder
+        i = argv.index("--preview")
+        argv = argv[:i] + argv[i + 2:]
+    args = [a for a in argv if not a.startswith("--")]
     if not args:
         sys.exit(__doc__)
     game = args[0]
