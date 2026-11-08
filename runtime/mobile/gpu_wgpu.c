@@ -414,7 +414,11 @@ void gpu_init(void *native_window, int width, int height) {
            g_bw, g_bh, g_gw, g_ox, bb_w(), bb_h(), g_rs * 100, (int)g_surf_fmt);
     void *pipe_warm_entry(void *);
     pthread_t wt;
-    if (!pthread_create(&wt, 0, pipe_warm_entry, 0)) pthread_detach(wt);
+    pthread_attr_t wa;
+    pthread_attr_init(&wa);
+    pthread_attr_setstacksize(&wa, 16u << 20);      // the full shader's compile overflowed iOS's 512 KB default (app closed at start)
+    if (!pthread_create(&wt, &wa, pipe_warm_entry, 0)) pthread_detach(wt);
+    pthread_attr_destroy(&wa);
 }
 void gpu_resize(int w, int h) {
     if (w == g_gw && h == g_bh) return;
