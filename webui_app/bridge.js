@@ -22,8 +22,9 @@
   const LOBBY = 'ChatBarFrame+ChatFrame+GameChannelFrame+GameRoomFrame',
         ROOM = 'ChatBarFrame+ChatFrame+GameChannelFrame+WaitingRoomFrame',
         CREATE = 'ChatBarFrame+ChatFrame+GameChannelFrame+frmNewCreateRoom',
-        CHANNEL = 'ChooseChannelDesktop+InfoFrame';
-  const SCREENS = [LOBBY, ROOM, CREATE, CHANNEL];
+        CHANNEL = 'ChooseChannelDesktop+InfoFrame',
+        LOBBY_TIP = LOBBY + '+frmBeginnerMask';               // the lobby with the game's newcomer tip over it
+  const SCREENS = [LOBBY, ROOM, CREATE, CHANNEL, LOBBY_TIP];
   api('support', 's=' + encodeURIComponent(SCREENS.join('|')));
 
   // the design's sample account and fake extras off: no made-up friends, wallet, popups or music
@@ -120,7 +121,12 @@
     if (f === ROOM) {
       if (S.view !== 'room') { hist.length = 0; hist.push('rooms'); S.view = 'room'; rlast = ''; RM.players = []; roomData(); }
       await pollRoom();
-    } else if (f === LOBBY) {
+    } else if (f === LOBBY || f === LOBBY_TIP) {
+      if (f === LOBBY_TIP && !tipUp) {                     // the tip is a picture: its two buttons as a dialog
+        tipUp = true;
+        mb0('Welcome, new racer! Missions show you how to get started.',
+          [['Hide', () => press('btnHideBeginner')], ['Missions', () => press('btnTaskMask'), 'red']], '');
+      } else if (f === LOBBY && tipUp) { tipUp = false; }
       if (S.view === 'room') { S.ranked = false; go('rooms', false); }
       if (S.view === 'channel') { hist.length = 0; go('hub', false); }    // a zone entered: the lobby's hub
       await pollLobby();
@@ -175,7 +181,7 @@
   };
 
   // ---- the game's message boxes ("leave the channel?", errors ...) in the design's dialog; its buttons press the game's ----
-  let boxKey = '[]', boxUp = false;
+  let boxKey = '[]', boxUp = false, tipUp = false;
   function gameBoxes(m) {
     const k = JSON.stringify(m || []);
     if (k === boxKey) return;
