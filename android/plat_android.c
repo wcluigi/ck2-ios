@@ -176,6 +176,19 @@ void plat_web_panel(u32 hwnd, const char *page, int x, int y, int w, int h, int 
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
     LOG("web panel %08x '%s' %d,%d %dx%d %s", hwnd, page, x, y, w, h, visible ? "shown" : "hidden");
 }
+// the phone UI page (runtime/mobile/ui_bridge.c): shown full screen while the game is on a screen it draws
+void plat_ui_show(const char *url, int visible) {      // game thread
+    JavaVM *vm = g_app->activity->vm;
+    JNIEnv *env;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK && (*vm)->AttachCurrentThread(vm, &env, 0) != JNI_OK) return;
+    jobject act = g_app->activity->clazz;
+    jmethodID m = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, act), "uiPage", "(Ljava/lang/String;Z)V");
+    jstring js = (*env)->NewStringUTF(env, url ? url : "");
+    if (m && js) (*env)->CallVoidMethod(env, act, m, js, (jboolean)(visible != 0));
+    if (js) (*env)->DeleteLocalRef(env, js);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    LOG("ui page %s", visible ? "shown" : "hidden");
+}
 static void web_back(void) {                // input thread (attached in register_natives)
     JNIEnv *env;
     if ((*g_app->activity->vm)->GetEnv(g_app->activity->vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) return;
@@ -297,6 +310,13 @@ static void start_game(void) {
     extract_asset(am, "hud_elements.txt", g_image_dir_s);      // HUD layout elements (hud.c)
     extract_asset(am, "cjk_sc.ttf", g_image_dir_s);            // Chinese text on every phone (text.c)
     extract_asset(am, "pipelines_seed.bin", g_image_dir_s);    // GPU pipelines built at start on every install (gpu_wgpu.c)
+    {                                                          // the phone UI page (runtime/mobile/ui_bridge.c serves it)
+        char wd[600];
+        snprintf(wd, sizeof wd, "%s/webui", g_image_dir_s);
+        mkdir(wd, 0755);
+        extract_asset(am, "webui/index.html", g_image_dir_s);
+        extract_asset(am, "webui/bridge.js", g_image_dir_s);
+    }
     // login arguments: written by LoginActivity (one-time pass, deleted once read); game/launch.txt is a test fallback
     snprintf(g_args, sizeof g_args, "-wnd 1");
     char lp[600];

@@ -31,7 +31,7 @@ $CC -arch arm64 -isysroot $SDK -miphoneos-version-min=14.0 -o $APP/CK2 $O/*.o "$
 # the app's files: lifted image + phone assets (as package_apk.sh puts them in the APK) and the game data
 cp out_m/image.bin out_m/imports.txt out_m/modules.txt $APP/image/
 cp android/assets/* $APP/image/
-if [ -d mobile_overlay/data ]; then cp -R mobile_overlay $APP/image/mobile; fi     # the phone's menus (tools/mobile_ui.py)
+mkdir -p $APP/image/webui && cp webui_app/index.html webui_app/bridge.js $APP/image/webui/   # the phone UI page (ui_bridge.c)
 cp ios/assets/latin*.ttf ios/assets/latin_OFL.txt $APP/image/
 cp ios/assets/AppIcon*.png $APP/
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" ios/Info.plist > $APP/Info.plist

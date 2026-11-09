@@ -48,6 +48,7 @@ public class GameActivity extends NativeActivity {
     protected void onDestroy() {
         if (voice != null) voice.stop();
         if (web != null) web.closeAll();
+        if (ui != null) ui.close();
         super.onDestroy();
     }
 
@@ -62,6 +63,13 @@ public class GameActivity extends NativeActivity {
     }
     // Android's Back while a web panel is up (plat_android.c): the page's Esc
     public void webBack() { if (web != null) web.back(); }
+
+    // called from the game thread (plat_android.c plat_ui_show): the phone UI page shown / hidden (UiPage.java)
+    UiPage ui;
+    public void uiPage(String url, boolean visible) {
+        if (ui == null) ui = new UiPage(this);
+        ui.show(url, visible);
+    }
 
     // called from the game thread (plat_android.c)
     public void openChat() {

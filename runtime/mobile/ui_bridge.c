@@ -37,6 +37,7 @@ typedef int socklen_t;
 static u32 g_roots[NROOTS];
 static int g_nroots;
 static char g_token[40];
+const char *ui_page_url(void);
 
 void ui_note_root(u32 self) {                   // from native_gui_find_child: every control the game searches under
     for (int i = 0; i < g_nroots; i++) if (g_roots[i] == self) return;
@@ -92,7 +93,7 @@ static u32 find_in(u32 ctl, const char *nm, u32 nlen, int depth, u32 *budget, in
     }
     return 0;
 }
-static u32 ui_find(const char *nm) {             // a shown control of that name first, else any
+static u32 find_one(const char *nm) {            // a shown control of that name first, else any
     u32 nlen = (u32)strlen(nm);
     for (int pass = 1; pass >= 0; pass--)
         for (int i = 0; i < g_nroots; i++) {
@@ -100,6 +101,23 @@ static u32 ui_find(const char *nm) {             // a shown control of that name
             if (r) return r;
         }
     return 0;
+}
+static u32 ui_find(const char *path) {           // "Name" or "Parent/Child" (the room rows share child names)
+    char p[160];
+    snprintf(p, sizeof p, "%s", path);
+    char *slash = strchr(p, '/');
+    if (!slash) return find_one(p);
+    *slash = 0;
+    u32 parent = find_one(p);
+    if (!parent) return 0;
+    for (char *s = slash + 1; s && *s && parent;) {
+        char *e = strchr(s, '/');
+        if (e) *e = 0;
+        u32 budget = 200000;
+        parent = find_in(parent, s, (u32)strlen(s), 0, &budget, 0);
+        s = e ? e + 1 : 0;
+    }
+    return parent;
 }
 
 // ---- requests (HTTP thread -> game thread) --------------------------------------------------------------------------
@@ -133,8 +151,30 @@ static void put(Buf *o, const char *s, size_t n) {
     o->b[o->n] = 0;
 }
 static void puts_(Buf *o, const char *s) { put(o, s, strlen(s)); }
-static void put_json_str(Buf *o, const char *s) {          // GBK from the game -> UTF-8 JSON string
+static int is_utf8(const u8 *s) {                         // valid UTF-8 with at least one multi-byte character
+    int multi = 0;
+    while (*s) {
+        if (*s < 0x80) { s++; continue; }
+        int n = (*s & 0xe0) == 0xc0 ? 1 : (*s & 0xf0) == 0xe0 ? 2 : (*s & 0xf8) == 0xf0 ? 3 : -1;
+        if (n < 0) return 0;
+        for (int i = 1; i <= n; i++) if ((s[i] & 0xc0) != 0x80) return 0;
+        s += n + 1;
+        multi = 1;
+    }
+    return multi;
+}
+static void put_json_str(Buf *o, const char *s) {          // the game's text (GBK, or UTF-8 names) -> a JSON string
     puts_(o, "\"");
+    if (is_utf8((const u8 *)s)) {                            // player names from the server arrive as UTF-8
+        for (const u8 *p = (const u8 *)s; *p; p++) {
+            char e[8];
+            if (*p == '"' || *p == '\\') { e[0] = '\\'; e[1] = (char)*p; put(o, e, 2); }
+            else if (*p < 32) { snprintf(e, sizeof e, "\\u%04x", *p); puts_(o, e); }
+            else put(o, (const char *)p, 1);
+        }
+        puts_(o, "\"");
+        return;
+    }
     for (const u8 *p = (const u8 *)s; *p; p++) {
         char e[8];
         if (*p == '"' || *p == '\\') { e[0] = '\\'; e[1] = (char)*p; put(o, e, 2); }
@@ -176,6 +216,73 @@ static char *api_state(const char *q) {
     }
     puts_(&o, "}}");
     return o.b;
+}
+
+// the screens up now, sorted and joined with '+': the shown Frame-type controls one and two levels under a "Desktop"
+// root (GameChannelFrame holds the lobby, the room, the shop, the friend list, popups ...). The page is shown only
+// while this matches one of the screens it has drawn.
+static void add_frame(u32 x, char names[][64], int *k) {
+    if (!x || !M8(x + 0x3e) || *k >= 48 || !(is_type(x, "Frame") || is_type(x, "AnimFrame"))) return;
+    gui_name(x, names[*k], 64);
+    for (int j = 0; j < *k; j++) if (!strcmp(names[j], names[*k])) return;
+    (*k)++;
+}
+static int frames_now(char *out, int n) {
+    char names[48][64];
+    int k = 0;
+    for (int i = 0; i < g_nroots; i++) {
+        u32 root = g_roots[i], head = M32(root + 0x64), budget = 8000;
+        if (!head || !is_type(root, "Desktop") || !M8(root + 0x3e)) continue;
+        for (u32 node = M32(head); node && node != head && --budget; node = M32(node)) {
+            u32 c = M32(node + 8);
+            if (!c || !M8(c + 0x3e)) continue;
+            add_frame(c, names, &k);
+            u32 h2 = M32(c + 0x64);
+            if (!h2) continue;
+            for (u32 n2 = M32(h2); n2 && n2 != h2 && --budget; n2 = M32(n2)) add_frame(M32(n2 + 8), names, &k);
+        }
+    }
+    for (int a = 0; a < k; a++) for (int b = a + 1; b < k; b++)
+        if (strcmp(names[a], names[b]) > 0) { char t[64]; memcpy(t, names[a], 64); memcpy(names[a], names[b], 64); memcpy(names[b], t, 64); }
+    int l = 0;
+    out[0] = 0;
+    for (int a = 0; a < k && l < n - 66; a++) l += snprintf(out + l, n - l, "%s%s", a ? "+" : "", names[a]);
+    return l;
+}
+static char *api_frames(void) {
+    char f[3200];
+    Buf o = {0};
+    frames_now(f, sizeof f);
+    puts_(&o, "{\"f\":");
+    put_json_str(&o, f);
+    puts_(&o, "}");
+    return o.b;
+}
+
+// the screens the page draws (it says so at load: /api/support?s=GameChannelFrame+GameRoomFrame|...), and whether the
+// page is up now -- the platform shows or hides its full-screen web view when this changes (plat_ui_show)
+static char g_support[2048];
+void plat_ui_show(const char *url, int visible);
+static char *api_support(const char *q) {
+    qget(q, "s", g_support, sizeof g_support);
+    rt_log("ui: page draws %s\n", g_support);
+    return strdup("{\"ok\":1}");
+}
+static void update_visible(void) {
+    static int vis = -1;
+    char f[3200], *s, *e;
+    frames_now(f, sizeof f);
+    int want = 0;
+    for (s = g_support; *s && !want; s = e ? e + 1 : s + strlen(s)) {
+        e = strchr(s, '|');
+        size_t l = e ? (size_t)(e - s) : strlen(s);
+        if (l && l == strlen(f) && !strncmp(s, f, l)) want = 1;
+    }
+    if (want != vis) {
+        vis = want;
+        rt_log("ui: page %s (%s)\n", want ? "shown" : "hidden", f);
+        plat_ui_show(ui_page_url(), want);
+    }
 }
 
 // a press in progress: move, down, up over a few frames (the game's buttons fire on release)
@@ -235,11 +342,13 @@ void ui_bridge_tick(void) {                      // game thread, once a frame
         Req *r = g_req;
         r->reply = !strcmp(r->path, "/api/state") ? api_state(r->q) : !strcmp(r->path, "/api/click") ? api_click(r->q)
                  : !strcmp(r->path, "/api/char") ? api_char(r->q) : !strcmp(r->path, "/api/key") ? api_key(r->q)
+                 : !strcmp(r->path, "/api/frames") ? api_frames() : !strcmp(r->path, "/api/support") ? api_support(r->q)
                  : strdup("{\"error\":\"unknown\"}");
         r->done = 1;
         pthread_cond_broadcast(&g_cv);
     }
     pthread_mutex_unlock(&g_mu);
+    if (n % 6 == 0) update_visible();            // ~10 times a second
     if (n++ % 60 == 0) dump();
 }
 
@@ -272,8 +381,13 @@ static void serve_file(int fd, const char *rel) {
     const char *root = getenv("CK_WEBUI");
     if (strstr(rel, "..")) { reply(fd, 403, "text/plain", "no", 2); return; }
     if (!*rel || rel[strlen(rel) - 1] == '/') rel = "index.html";
-    if (root) snprintf(p, sizeof p, "%s/%s", root, rel); else snprintf(p, sizeof p, "%s/webui/%s", g_image_dir, rel);
-    FILE *f = fopen(p, "rb");
+    // <game>/webui/ first when it has the file (testing a page without a new app: adb push), then the app's own copy
+    FILE *f = 0;
+    if (!root) { snprintf(p, sizeof p, "%s/webui/%s", g_game_dir, rel); f = fopen(p, "rb"); }
+    if (!f) {
+        if (root) snprintf(p, sizeof p, "%s/%s", root, rel); else snprintf(p, sizeof p, "%s/webui/%s", g_image_dir, rel);
+        f = fopen(p, "rb");
+    }
     if (!f) { reply(fd, 404, "text/plain", "not found", 9); return; }
     fseek(f, 0, SEEK_END);
     long n = ftell(f);
@@ -334,7 +448,7 @@ static void *server(void *arg) {
 }
 const char *ui_page_url(void) {                   // what the platform shows full screen ("" until started)
     static char url[128];
-    if (!url[0] && g_token[0]) snprintf(url, sizeof url, "http://127.0.0.1:%d/ui/index.html?t=%s", PORT, g_token);
+    if (!url[0] && g_token[0]) snprintf(url, sizeof url, "http://127.0.0.1:%d/ui/index.html?t=%s#hub", PORT, g_token);
     return url;
 }
 void ui_bridge_start(void) {

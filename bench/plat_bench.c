@@ -60,3 +60,4 @@ int plat_audio_start(void (*mix)(float *out, int frames), int *rate) { (void)mix
 int plat_pointer(float *x, float *y) { (void)x; (void)y; return 0; }    // the controller pointer is Android's
 void plat_window_released(void) {}         // the bench window never goes away
 void plat_open_chat(void) { }                  // the phone text box: none on the bench (type into the window)
+void plat_ui_show(const char *url, int visible) { (void)url; (void)visible; }   // no web view on the bench: open the URL in a browser

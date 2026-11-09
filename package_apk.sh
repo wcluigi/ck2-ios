@@ -14,7 +14,9 @@ rm -f $OUT/assets/gamedata.zip $OUT/assets/gamedata.json
 cp android/assets/* $OUT/assets/ 2>/dev/null || true     # HUD editor element list, button art, fonts, voice page
 # the phone's menus (the Claude design, tools/mobile_ui.py -> mobile_overlay/): one zip, unpacked by LoginActivity.phoneUi
 rm -f $OUT/assets/mobile_ui.zip
-if [ -d mobile_overlay/data ]; then python -I -c "import shutil; shutil.make_archive('$OUT/assets/mobile_ui', 'zip', 'mobile_overlay')"; fi
+# (the re-skin overlay is not shipped while the HTML UI is the phone UI: plat.c would draw it under the page)
+# the phone UI page (the Claude design + webui_app/bridge.js), served by runtime/mobile/ui_bridge.c
+rm -rf $OUT/assets/webui && mkdir -p $OUT/assets/webui && cp webui_app/index.html webui_app/bridge.js $OUT/assets/webui/
 # The release's game files inside the APK (tools/bundle_data.py; ~600 MB): ALWAYS (the user, 5 Nov 2026: "always pack
 # with the data, not only apk"). BUNDLE=0 only for the lean automatic update in the patch (release_apk.sh).
 BUNDLE=${BUNDLE:-1}
