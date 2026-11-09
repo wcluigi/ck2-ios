@@ -20,8 +20,9 @@
   // the screens this page draws: the lobby (the design's hub + room list over the game's GameRoomFrame) and the
   // waiting room (WaitingRoomFrame)
   const LOBBY = 'ChatBarFrame+ChatFrame+GameChannelFrame+GameRoomFrame',
-        ROOM = 'ChatBarFrame+ChatFrame+GameChannelFrame+WaitingRoomFrame';
-  const SCREENS = [LOBBY, ROOM];
+        ROOM = 'ChatBarFrame+ChatFrame+GameChannelFrame+WaitingRoomFrame',
+        CREATE = 'ChatBarFrame+ChatFrame+GameChannelFrame+frmNewCreateRoom';
+  const SCREENS = [LOBBY, ROOM, CREATE];
   api('support', 's=' + encodeURIComponent(SCREENS.join('|')));
 
   // the design's sample account and fake extras off: no made-up friends, wallet, popups or music
@@ -60,6 +61,7 @@
     if (!b) return;
     const d = b.dataset;
     let game = null;
+    if (cr.open && crClick(d, e)) return;
     if (S.view === 'room') {
       if (d.act && RACT[d.act]) {
         game = RACT[d.act];
@@ -106,9 +108,89 @@
     } else if (f === LOBBY) {
       if (S.view === 'room') { S.ranked = false; go('rooms', false); }
       await pollLobby();
+    } else if (f === CREATE) {
+      if (S.view === 'room') go('rooms', false);
+      if (!cr.open) { cr.open = true; cr.set = false; S.crMode = S.crMode || 'si'; createSheet(); }
+      else if (!document.querySelector('.modal.on') && !cr.busy) { cr.open = false; press('btnCancel'); }   // sheet closed: Cancel
     }
+    if (f && f !== CREATE && cr.open) { cr.open = false; if (document.querySelector('.modal.on')) closeAll(); }
     setTimeout(poll, 350);
   }
+
+  // ---- create room: the design's Create room / Room Setting sheets over the game's frmNewCreateRoom ----
+  const cr = {open: false, set: false, busy: false};
+  const CRMODE = {si: 'btnCreateSiItem', ss: 'btnCreateSiSpeed', ti: 'btnCreateTeItem', ts: 'btnCreateTeSpeed', boss: 'btnCreateBoss'};
+  const enc = encodeURIComponent;
+  // what the game has picked: its selection image sits on the picked button
+  async function crRead() {
+    const opts = {crSize: [2, 3, 4, 5, 6, 7, 8].map(n => ['btnSize' + n, n]), crScore: [['btnAccOpen', 1], ['btnAccClose', 0]],
+      crWager: [['btnWagerClose', 0], ['btnWager1000', 1000], ['btnWager5000', 5000], ['btnWager10000', 10000], ['btnWager20000', 20000]],
+      boost: [['btnBoostOn', 1], ['btnBoostOff', 0]]};
+    const sel = {crSize: 'imgSelSize', crScore: 'imgSelAcc', crWager: 'imgSelWager', boost: 'imgSelBoost'};
+    const n = Object.values(sel).concat(...Object.values(opts).map(o => o.map(x => x[0])));
+    const st = await api('state', 'n=' + n.join(','));
+    if (!st || !st.c) return;
+    const c = st.c;
+    for (const k in sel) {
+      const s = c[sel[k]];
+      const hit = s && opts[k].find(([b]) => c[b] && Math.abs(c[b].r[0] - s.r[0]) < 5 && Math.abs(c[b].r[1] - s.r[1]) < 5);
+      if (hit) S[k] = k === 'boost' ? !!hit[1] : hit[1];
+    }
+  }
+  async function crSetOpen(keep) {
+    cr.busy = true;
+    await crRead();
+    createSetSheet(keep);
+    const nm = document.getElementById('crname');
+    if (nm && !keep) { nm.value = ''; nm.placeholder = 'Room name'; }   // the game names the room when left empty
+    cr.set = true; cr.busy = false;
+  }
+  async function crType(field, text) {                     // replace an edit field's text
+    await press(field);
+    for (let i = 0; i < 24; i++) await api('key', 'vk=8');
+    if (text) await api('char', 's=' + enc(text));
+  }
+  async function crApply() {
+    const name = document.getElementById('crname').value.trim(), pw = document.getElementById('crpw').value;
+    cr.busy = true;
+    if (name) await crType('editRoomName', name);
+    await crType('editRoomPWD', pw);
+    await press('btnSize' + S.crSize);
+    if (S.crMode !== 'boss') {
+      await press(S.crScore ? 'btnAccOpen' : 'btnAccClose');
+      await press(S.crWager ? 'btnWager' + S.crWager : 'btnWagerClose');
+    }
+    await press(S.boost ? 'btnBoostOn' : 'btnBoostOff');
+    await press('btnSubmit');                              // the game creates the room with these settings
+    cr.set = false; cr.busy = false;
+  }
+  async function crCreate() {
+    cr.busy = true;
+    if (S.crMode === 'boss') {                             // Chase Battle: the game asks Easy / Normal / Hard
+      await press('btnCreateBoss');
+      await new Promise(r => setTimeout(r, 400));
+      await press('btnChase' + (S.crBoss || 'Normal'));
+    } else {
+      await press(CRMODE[S.crMode] || 'btnCreateSiItem');
+      await press('btnQuickCreate');
+    }
+    cr.busy = false;
+  }
+  // true = handled here
+  function crClick(d, e) {
+    const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); return true; };
+    if (d.act === 'crquick') { crCreate(); return stop(); }
+    if (d.act === 'crset') { cr.busy = true; press(CRMODE[S.crMode] || 'btnCreateSiItem').then(() => press('btnRoomSet')).then(() => crSetOpen(false)); return stop(); }
+    if (d.act === 'createroom' && cr.set) { cr.set = false; press('btnSetCancel'); createSheet(); return stop(); }   // Room Setting's Back
+    if (d.act === 'crdefault') { press('btnDefault').then(() => crSetOpen(true)); return stop(); }
+    if (d.act === 'close') { cr.busy = true; (cr.set ? press('btnSetCancel') : Promise.resolve()).then(() => press('btnCancel')).then(() => { cr.busy = false; }); return false; }
+    return false;                                          // modes, boss level, chips, Mode Intro: the design's own
+  }
+  document.addEventListener('submit', e => {
+    if (e.target.id !== 'crform' || !cr.open) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    crApply();
+  }, true);
   async function pollLobby() {
     const st = await api('state', 'n=' + names.join(','));
     if (st && st.c) {
@@ -171,6 +253,7 @@
     const d = await native('/launcher/room');
     if (!d) return;
     RM.players = d.players || []; RM.voice = !!d.voice; RM.translate = d.translate !== false; RM.map = d.map_name || '';
+    RM.cap = d.capacity || 8;
     RM.mapPic = d.map != null ? 'map' + d.map : '';
     if (RM.mapPic && !A[RM.mapPic]) A[RM.mapPic] = 'https://crazykartlegacy.com/game-icons/maps/' + d.map + '.webp';
     (RM.players).forEach(p => { pic(p.kart); pic(p.avatar); (p.accessories || []).forEach(pic); });
@@ -211,7 +294,7 @@
       ${p.host ? `<span class="hostb" title="Host">${sico('<path d="M3 11l9-8 9 8v10H3z"/><path d="M9 21v-6h6v6"/>', '#fff', 13)}</span>` : ''}
       ${p.r && !p.host ? `<img class="stamp" src="${A.ready}" alt="Ready">` : ''}
       ${p.chat ? `<span class="sbub">${emoT(esc(p.chat))}</span>` : ''}${p.ping != null && !isNaN(p.ping) ? `<span class="ping" style="color:${p.ping > 120 ? '#ffb21a' : '#8ff5a6'}">${p.ping}ms</span>` : ''}<span class="np">${p.sex ? `<i class="sex ${p.sex}">${p.sex === 'f' ? '♀' : '♂'}</i>` : ''}<b style="${p.vip ? 'color:#ff6b6b' : ''}">${esc(p.n)}</b></span></button>`
-      : `<div class="slot empty" aria-label="Empty slot ${i + 1}"></div>`).join('')}</div>
+      : `<div class="slot empty" aria-label="${i < (RM.cap || 8) ? 'Empty' : 'Closed'} slot ${i + 1}"${i < (RM.cap || 8) ? '' : ' style="opacity:.35"'}></div>`).join('')}</div>
     <button class="rchat glass" data-act="roomchat" aria-label="Room chat">${sico('<path d="M4 5h16v11H9l-5 4z"/>', '#fff', 18)}<span class="ln">Say something to the room...</span><span class="cap">Room</span></button>
    </div>
    <div class="col rcol">
