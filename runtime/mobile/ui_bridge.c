@@ -121,7 +121,7 @@ static u32 ui_find(const char *path) {           // "Name" or "Parent/Child" (th
 }
 
 // ---- requests (HTTP thread -> game thread) --------------------------------------------------------------------------
-typedef struct { char path[64]; char q[2048]; char *reply; int done; } Req;
+typedef struct { char path[64]; char q[4096]; char *reply; int done; } Req;
 static Req *g_req;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cv = PTHREAD_COND_INITIALIZER;
@@ -191,7 +191,7 @@ static void put_json_str(Buf *o, const char *s) {          // the game's text (G
 }
 
 static char *api_state(const char *q) {
-    char names[1600], nm[80], txt[1100], tmp[160];
+    char names[4000], nm[80], txt[1100], tmp[160];
     Buf o = {0};
     puts_(&o, "{\"c\":{");
     if (qget(q, "n", names, sizeof names)) {
@@ -210,7 +210,8 @@ static char *api_state(const char *q) {
             abs_rect(c, r);
             snprintf(tmp, sizeof tmp, ":{\"v\":%d,\"r\":[%.0f,%.0f,%.0f,%.0f]", shown(c), r[0], r[1], r[2], r[3]);
             puts_(&o, tmp);
-            if (is_type(c, "TextBox") && str_at(c + 0x180, txt, sizeof txt) >= 0) { puts_(&o, ",\"t\":"); put_json_str(&o, txt); }
+            int tx = is_type(c, "TextBox") ? 0x180 : is_type(c, "SwitchTextBox") ? 0x2a8 : 0;   // SwitchTextBox: room names
+            if (tx && str_at(c + tx, txt, sizeof txt) >= 0) { puts_(&o, ",\"t\":"); put_json_str(&o, txt); }
             puts_(&o, "}");
         }
     }
