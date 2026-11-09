@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, 0);
     g_wnd = CreateWindowA("ck2bench", "Crazy Kart (Android runtime test bench)", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100,
                           r.right - r.left, r.bottom - r.top, 0, 0, wc.hInstance, 0);
-    g_screen_w = 1024; g_screen_h = 768;       // what the game sees as the desktop
+    g_screen_w = 1280; g_screen_h = 720;       // what the game sees as the desktop (the phones run 1280x720)
     return ck_main(game, image, args);
 }
 

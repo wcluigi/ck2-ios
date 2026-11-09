@@ -44,9 +44,16 @@ static u32 gui_find(u32 self, const u8 *nm, u32 nlen, int depth, u32 *budget) {
     }
     return 0;
 }
+void ui_note_root(u32 self);
 void native_gui_find_child(CPU *c) {
     u32 self = c->ecx, name = M32(c->esp + 4), nlen = M32(name + 0x14), budget = 1u << 20;
+    ui_note_root(self);                // the phone UI bridge walks the same tree (ui_bridge.c)
     c->eax = nlen ? gui_find(self, HP(str_data(name)), nlen, 0, &budget) : 0;
+    static int nmiss;                  // a control the game asks for and the layout does not have (data vs client)
+    if (!c->eax && nlen && nlen < 64 && nmiss < 40) {
+        nmiss++;
+        rt_log("gui: no control '%.*s' (looked up from %08x)\n", (int)nlen, (const char *)HP(str_data(name)), M32(c->esp));
+    }
     c->popped = M32(c->esp);           // ret 4
     c->esp += 8;
 }

@@ -950,8 +950,10 @@ static int follow_window(void) {
     rt_log("gpu_wgpu: new window surface\n");
     return 1;
 }
+void ui_bridge_tick(void);
 void gpu_present(void) {
     static u32 nchk;
+    ui_bridge_tick();                  // the phone UI bridge (ui_bridge.c), once a frame
     if (nchk++ % 240 == 0) {        // GPU-cost test switch, checked live: <game>/gfxtest.txt = simple fragment shader
         char p[600]; snprintf(p, sizeof p, "%s/gfxtest.txt", g_game_dir);
         FILE *tf = fopen(p, "r");

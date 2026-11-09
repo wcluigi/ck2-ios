@@ -96,6 +96,12 @@ HLE(k_ReadFile) {
     if (ARG(3)) M32(ARG(3)) = 0;
     if (!f) { set_last_error(6); return 0; }
     u64 t0 = us_now();
+#ifdef _WIN32
+    // desktop bench: guest memory is committed on first touch (plat.c commit_on_fault), but the kernel writing a read
+    // into an untouched page just fails -- gui.xml came back empty and the lobby crashed. Touch the pages first.
+    for (u32 o = 0; o < ARG(2); o += 4096) { volatile u8 *b = HP(ARG(1) + o); *b = *b; }
+    if (ARG(2)) { volatile u8 *b = HP(ARG(1) + ARG(2) - 1); *b = *b; }
+#endif
     long n = read(f->fd, HP(ARG(1)), ARG(2));
     g_perf.read_us += us_now() - t0;
     if (n < 0) return 0;
