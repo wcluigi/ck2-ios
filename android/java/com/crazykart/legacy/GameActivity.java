@@ -67,7 +67,8 @@ public class GameActivity extends NativeActivity {
     // called from the game thread (plat_android.c plat_ui_show): the phone UI page shown / hidden (UiPage.java)
     UiPage ui;
     public void uiPage(String url, boolean visible) {
-        if (ui == null) ui = new UiPage(this);
+        if (ui == null) ui = new UiPage(this, getIntent().getStringExtra("api"), getIntent().getStringExtra("user"),
+                getIntent().getStringExtra("key"), getIntent().getStringExtra("lang"));
         ui.show(url, visible);
     }
 

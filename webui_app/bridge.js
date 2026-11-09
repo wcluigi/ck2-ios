@@ -109,5 +109,67 @@
     setTimeout(poll, 350);
   }
   poll();
-  window.__ckShown = on => { if (on) { last = ''; } };      // shown again: refresh at once
+  window.__ckShown = on => { if (on) { last = ''; meNow(); } };      // shown again: refresh at once
+
+  // ---- the server's data for this player (/launcher/me through the app, which holds the launcher key) ----
+  const ICON = id => 'https://crazykartlegacy.com/game-icons/items/' + id + '.webp';
+  const pending = {};
+  let rid = 0;
+  window.__ckNative = (id, status, body) => { const f = pending[id]; delete pending[id]; if (f) f(status, body); };
+  const native = path => new Promise(res => {
+    if (!window.CKNative) return res(null);          // not in the app (desktop test): no server data
+    const id = ++rid;
+    pending[id] = (st, body) => res(st === 200 ? body : null);
+    window.CKNative.get(path, id);
+  });
+  const key = id => 'i' + id;
+  const pic = id => { const k = key(id); if (!A[k]) A[k] = ICON(id); return k; };      // the design's img() takes keys
+  // the design's 3D hero only has a few models: a kart it does not have is shown as its real picture, never as
+  // the sample kart
+  const v3 = view3d;
+  view3d = function (k, a, c, st) {
+    if (window.M3 && M3.karts && M3.karts[k]) return v3.apply(this, arguments);
+    const id = String(k).replace(/\D/g, ''), w = S.worn || {};
+    const av = String(a || '').replace(/\D/g, '');
+    const worn = (w.accessories || []).concat(w.items || []).slice(0, 10).map(t =>
+      `<img src="${ICON(t)}" alt="" style="width:40px;height:40px;object-fit:contain;border-radius:8px;background:rgba(0,0,0,.45);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)">`).join('');
+    return `<div class="k3w" style="position:absolute;${st || ''};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">` +
+      `<div style="position:relative;width:62%;height:62%;display:grid;place-items:center">` +
+      `<img src="${ICON(id)}" alt="" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 14px 16px rgba(0,0,0,.8))">` +
+      (av ? `<img src="${ICON(av)}" alt="" style="position:absolute;left:4%;bottom:0;height:46%;object-fit:contain;filter:drop-shadow(0 8px 10px rgba(0,0,0,.8))">` : '') +
+      `</div>${worn ? `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:80%">${worn}</div>` : ''}</div>`;
+  };
+  const STATUS = {offline: 'off', online: 'lobby', 'in-lobby': 'room', 'in-race': 'race'};
+  async function meNow() {
+    let me = await native('/launcher/me');
+    if (!me) {                                         // a server without /launcher/me yet: at least the friends
+      const fr = await native('/launcher/friends');
+      if (!fr) return;
+      me = {friends: fr.friends || [], kart: null};
+    }
+    if (me.kart == null) {                             // friends only
+      FRIENDS.length = 0;
+      (me.friends || []).forEach(f => { const m = /#(\d+)/.exec(f.activity || '');
+        FRIENDS.push({n: f.name, av: f.character ? pic(f.character) : '', st: STATUS[f.status] || 'off', room: m ? +m[1] : undefined, lv: f.level || ''}); });
+      if ((S.view === 'hub' || S.view === 'rooms') && !document.querySelector('.scrim.on,.modal.on')) render();
+      return;
+    }
+    S.me.name = me.nickname || S.me.name;
+    S.me.lv = me.level || S.me.lv;
+    S.cash = me.cash || 0; S.gold = me.gold || 0;
+    S.kart = pic(me.kart); S.avatar = pic(me.avatar);
+    (me.accessories || []).forEach(pic); (me.items || []).forEach(pic);
+    S.acc = me.accessories && me.accessories.length ? key(me.accessories[0]) : '';
+    S.worn = {kart: me.kart, avatar: me.avatar, accessories: me.accessories || [], items: me.items || []};
+    FRIENDS.length = 0;
+    (me.friends || []).forEach(f => {
+      const m = /#(\d+)/.exec(f.activity || '');
+      FRIENDS.push({n: f.name, av: f.character ? pic(f.character) : '', st: STATUS[f.status] || 'off',
+        room: m ? +m[1] : undefined, lv: f.level || 1});
+    });
+    css.textContent = css.textContent.replace('.wallet,.coin{visibility:hidden}', '.wallet .coin:nth-child(3){visibility:hidden}');
+    if ((S.view === 'hub' || S.view === 'rooms') && !document.querySelector('.scrim.on,.modal.on')) render();
+  }
+  meNow();
+  setInterval(meNow, 15000);
 })();
