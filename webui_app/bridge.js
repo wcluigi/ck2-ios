@@ -21,8 +21,9 @@
   // waiting room (WaitingRoomFrame)
   const LOBBY = 'ChatBarFrame+ChatFrame+GameChannelFrame+GameRoomFrame',
         ROOM = 'ChatBarFrame+ChatFrame+GameChannelFrame+WaitingRoomFrame',
-        CREATE = 'ChatBarFrame+ChatFrame+GameChannelFrame+frmNewCreateRoom';
-  const SCREENS = [LOBBY, ROOM, CREATE];
+        CREATE = 'ChatBarFrame+ChatFrame+GameChannelFrame+frmNewCreateRoom',
+        CHANNEL = 'ChooseChannelDesktop+InfoFrame';
+  const SCREENS = [LOBBY, ROOM, CREATE, CHANNEL];
   api('support', 's=' + encodeURIComponent(SCREENS.join('|')));
 
   // the design's sample account and fake extras off: no made-up friends, wallet, popups or music
@@ -34,6 +35,7 @@
   FRIENDS.length = 0; ONLINE.length = 0;
   S.cfg.musicOn = false; S.cfg.sfxOn = false;    // the game plays its own sound
   S.me.name = ''; S.me.gm = false;
+  S.chan = '';                                   // the game does not say which channel group is picked
   chatLog.length = 0; chatLog.push({ch: 'all', u: '', t: ''});   // the sample chat (the game's chat is not read yet)
   NOTICES.length = 0;
   infobar = () => {};                                            // the sample notices / infobar
@@ -62,6 +64,18 @@
     const d = b.dataset;
     let game = null;
     if (cr.open && crClick(d, e)) return;
+    if (S.view === 'channel') {
+      const g = CHG.find(x => x[0] === d.chan);
+      if (g) { S.chan = g[0]; (CH.zonesUp ? press('NewComerBackBtn') : Promise.resolve()).then(() => press(g[1])); render(); }
+      else if (d.zone != null) game = 'Ser' + d.zone + 'Btn';
+      else if (d.act === 'chquick') game = 'QuickEnterBtn';
+      else if (d.act === 'chpage') game = d.dir < 0 ? 'SerLBtn' : 'SerRBtn';
+      else if (d.act === 'back') game = CH.zonesUp ? 'NewComerBackBtn' : 'BackBtn';
+      if (!g && game === null) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (game) press(game);
+      return;
+    }
     if (S.view === 'room') {
       if (d.act && RACT[d.act]) {
         game = RACT[d.act];
@@ -102,12 +116,17 @@
   let last = '';
   async function poll() {
     const fr = await api('frames'), f = fr && fr.f;
+    if (fr) gameBoxes(fr.m);
     if (f === ROOM) {
       if (S.view !== 'room') { hist.length = 0; hist.push('rooms'); S.view = 'room'; rlast = ''; RM.players = []; roomData(); }
       await pollRoom();
     } else if (f === LOBBY) {
       if (S.view === 'room') { S.ranked = false; go('rooms', false); }
+      if (S.view === 'channel') { hist.length = 0; go('hub', false); }    // a zone entered: the lobby's hub
       await pollLobby();
+    } else if (f === CHANNEL) {
+      if (S.view !== 'channel') { hist.length = 0; S.view = 'channel'; chlast = ''; }
+      await pollChannel();
     } else if (f === CREATE) {
       if (S.view === 'room') go('rooms', false);
       if (!cr.open) { cr.open = true; cr.set = false; S.crMode = S.crMode || 'si'; createSheet(); }
@@ -115,6 +134,58 @@
     }
     if (f && f !== CREATE && cr.open) { cr.open = false; if (document.querySelector('.modal.on')) closeAll(); }
     setTimeout(poll, 350);
+  }
+
+  // ---- channel pick: the game's group buttons (labels are pictures; matched by their place on the game's panel) and
+  // its zone list (Ser1Btn..Ser11Btn) ----
+  const CHG = [['Practise', 'BeginnerChannelBtn'], ['Beginner', 'NewComerBtn'], ['Semi-Pro', 'FreeChannelBtn'],
+    ['Pro', 'ZhongJiChannelBtn'], ['Channel VIP', 'AdvanceChannelBtn'], ['General', 'VIPChannelBtn'], ['Tournament', 'EventChannelBtn']];
+  const CH = {zonesUp: false, zones: [], page: ''};
+  const chnames = ['NewComerFrame', 'serverPage', 'SerLBtn', 'SerRBtn'];
+  for (let i = 1; i <= 11; i++) chnames.push('Ser' + i + 'Btn', 'Ser' + i + 'Btn/TextButtonTextBox');
+  let chlast = '';
+  async function pollChannel() {
+    const st = await api('state', 'n=' + chnames.join(','));
+    if (!st || !st.c) return;
+    const c = st.c, on = n => !!(c[n] && c[n].v), txt = n => (c[n] && c[n].t) || '';
+    const zones = [];
+    for (let i = 1; i <= 11; i++) {
+      const nm = txt('Ser' + i + 'Btn/TextButtonTextBox');
+      if (on('Ser' + i + 'Btn') && nm.trim()) zones.push({i, n: nm});
+    }
+    const up = on('NewComerFrame'), key = JSON.stringify([up, zones, txt('serverPage')]);
+    if (key === chlast) return;
+    chlast = key;
+    CH.zonesUp = up; CH.zones = up ? zones : []; CH.page = up ? txt('serverPage') : '';
+    if (S.view === 'channel' && !document.querySelector('.scrim.on,.modal.on')) render();
+  }
+  V.channel = () => `<div class="split">
+   <div class="vtabs scroll">${CHG.map(g => `<button class="vtab ${S.chan === g[0] ? 'on' : ''}" data-chan="${g[0]}" style="height:44px;justify-content:center">${g[0]}</button>`).join('')}</div>
+   <div class="col" style="flex:1;min-width:0">
+    <div class="chan scroll stag" style="flex:1">${CH.zones.map(z => `<button class="zone" data-zone="${z.i}" style="--z:var(--green)">
+      <span class="row"><span class="disp">${esc(z.n)}</span><span class="sp"></span></span></button>`).join('') ||
+      `<div class="cap" style="padding:24px;text-transform:none">${CH.zonesUp ? 'No zones open in this channel.' : 'Pick a channel.'}</div>`}</div>
+    <div class="row" style="justify-content:flex-end;gap:12px">${CH.page && CH.page !== '1/1' ? `<button class="gbtn dark" data-act="chpage" data-dir="-1"><span>‹</span></button><span class="cap">${esc(CH.page)}</span><button class="gbtn dark" data-act="chpage" data-dir="1"><span>›</span></button><span class="sp"></span>` : ''}
+     ${CH.zonesUp ? `<button class="gbtn red shine" style="min-width:230px;height:54px;font-size:18px" data-act="chquick"><span>Quick Join</span></button>` : ''}</div>
+   </div></div>`;
+  const top1 = topbar;
+  topbar = function () {
+    if (S.view !== 'channel') return top1.apply(this, arguments);
+    return `<button class="back sm" data-act="back" aria-label="${t('back')}">${sk(chev(-1))}<span><span class="disp">${t('channel')}</span>${S.chan ? `<small>${esc(S.chan)}</small>` : ''}</span></button><span class="sp"></span>`;
+  };
+
+  // ---- the game's message boxes ("leave the channel?", errors ...) in the design's dialog; its buttons press the game's ----
+  let boxKey = '[]', boxUp = false;
+  function gameBoxes(m) {
+    const k = JSON.stringify(m || []);
+    if (k === boxKey) return;
+    boxKey = k;
+    if (!m || !m.length) { if (boxUp) { mbxClose(); boxUp = false; } return; }
+    const b = m[m.length - 1];                             // the newest box is on top
+    const label = n => /^DlgYes/i.test(n) ? 'Yes' : /^DlgNo/i.test(n) ? 'No' : /^DlgOK|^OK/i.test(n) ? 'OK' : n.replace(/\d+$/, '');
+    const btns = (b.b.length ? b.b : ['']).map(n => [label(n) || 'OK', () => { boxUp = false; if (n) press(n); setTimeout(() => { boxKey = ''; }, 1500); }, /^DlgNo/i.test(n) ? 'ghost' : 'red']);
+    boxUp = true;
+    mb0(esc(b.t).replace(/\n/g, '<br>'), btns, '');
   }
 
   // ---- create room: the design's Create room / Room Setting sheets over the game's frmNewCreateRoom ----

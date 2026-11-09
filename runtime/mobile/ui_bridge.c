@@ -250,13 +250,48 @@ static int frames_now(char *out, int n) {
     for (int a = 0; a < k && l < n - 66; a++) l += snprintf(out + l, n - l, "%s%s", a ? "+" : "", names[a]);
     return l;
 }
+// the game's message boxes up now (they are not Frames, so they never change the screen): the page shows them in
+// its own dialog, text + the box's button names to press. Only shown subtrees are walked.
+static void add_boxes(Buf *o, u32 ctl, int depth, int *n, u32 *budget, u32 *seen) {   // seen[8]: roots share subtrees
+    if (depth > 40 || !--*budget || !M8(ctl + 0x3e)) return;
+    u32 head = M32(ctl + 0x64);
+    if (is_type(ctl, "MessageBox") && head) {
+        for (int j = 0; j < *n; j++) if (seen[j] == ctl) return;
+        if (*n >= 8) return;
+        seen[*n] = ctl;
+        char txt[1100], nm[80];
+        txt[0] = 0;
+        puts_(o, *n ? ",{\"b\":[" : "{\"b\":[");
+        int k = 0;
+        for (u32 node = M32(head); node && node != head; node = M32(node)) {
+            u32 c = M32(node + 8);
+            if (!c || !M8(c + 0x3e)) continue;
+            if (is_type(c, "TextBox") && !txt[0] && str_at(c + 0x180, txt, sizeof txt) < 0) txt[0] = 0;
+            if (is_type(c, "Button")) { gui_name(c, nm, sizeof nm); if (k++) puts_(o, ","); put_json_str(o, nm); }
+        }
+        puts_(o, "],\"t\":");
+        put_json_str(o, txt);
+        puts_(o, "}");
+        (*n)++;
+        return;
+    }
+    if (!head) return;
+    for (u32 node = M32(head); node && node != head && *budget; node = M32(node)) {
+        u32 c = M32(node + 8);
+        if (c) add_boxes(o, c, depth + 1, n, budget, seen);
+    }
+}
 static char *api_frames(void) {
     char f[3200];
     Buf o = {0};
     frames_now(f, sizeof f);
     puts_(&o, "{\"f\":");
     put_json_str(&o, f);
-    puts_(&o, "}");
+    puts_(&o, ",\"m\":[");
+    int n = 0;
+    u32 seen[8];
+    for (int i = 0; i < g_nroots; i++) { u32 budget = 20000; add_boxes(&o, g_roots[i], 0, &n, &budget, seen); }
+    puts_(&o, "]}");
     return o.b;
 }
 
