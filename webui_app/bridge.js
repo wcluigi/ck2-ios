@@ -16,6 +16,15 @@
   const T = new URLSearchParams(location.search).get('t') || '';
   const api = (p, q) => fetch('/api/' + p + '?t=' + T + (q ? '&' + q : '')).then(r => r.json()).catch(() => null);
   const press = n => api('click', 'n=' + encodeURIComponent(n));
+  // press once the control is shown (the game swaps panels a frame or more after the press before it); 2 s at most
+  const pressShown = async n => {
+    for (let i = 0; i < 20; i++) {
+      const st = await api('state', 'n=' + encodeURIComponent(n));
+      if (st && st.c && st.c[n] && st.c[n].v) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return press(n);
+  };
 
   // the screens this page draws: the lobby (the design's hub + room list over the game's GameRoomFrame) and the
   // waiting room (WaitingRoomFrame)
@@ -60,14 +69,14 @@
   back = function () { if (S.view === 'room') return press('RacePrepareBackBtn'); return back0.apply(this, arguments); };
 
   document.addEventListener('click', e => {
-    const b = e.target.closest('[data-go],[data-act],[data-room],[data-filter],[data-player]');
+    const b = e.target.closest('[data-go],[data-act],[data-room],[data-filter],[data-player],[data-chan],[data-zone]');
     if (!b) return;
     const d = b.dataset;
     let game = null;
     if (cr.open && crClick(d, e)) return;
     if (S.view === 'channel') {
       const g = CHG.find(x => x[0] === d.chan);
-      if (g) { S.chan = g[0]; (CH.zonesUp ? press('NewComerBackBtn') : Promise.resolve()).then(() => press(g[1])); render(); }
+      if (g) { S.chan = g[0]; (CH.zonesUp ? press('NewComerBackBtn') : Promise.resolve()).then(() => pressShown(g[1])); render(); }
       else if (d.zone != null) game = 'Ser' + d.zone + 'Btn';
       else if (d.act === 'chquick') game = 'QuickEnterBtn';
       else if (d.act === 'chpage') game = d.dir < 0 ? 'SerLBtn' : 'SerRBtn';
@@ -223,7 +232,7 @@
     cr.set = true; cr.busy = false;
   }
   async function crType(field, text) {                     // replace an edit field's text
-    await press(field);
+    await pressShown(field);
     for (let i = 0; i < 24; i++) await api('key', 'vk=8');
     if (text) await api('char', 's=' + enc(text));
   }
@@ -245,8 +254,7 @@
     cr.busy = true;
     if (S.crMode === 'boss') {                             // Chase Battle: the game asks Easy / Normal / Hard
       await press('btnCreateBoss');
-      await new Promise(r => setTimeout(r, 400));
-      await press('btnChase' + (S.crBoss || 'Normal'));
+      await pressShown('btnChase' + (S.crBoss || 'Normal'));
     } else {
       await press(CRMODE[S.crMode] || 'btnCreateSiItem');
       await press('btnQuickCreate');
