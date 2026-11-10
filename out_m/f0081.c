@@ -1,12 +1,5 @@
 #include "funcs.h"
 
-void F_00623033(CPU *c) {
-  NATIVE_HOOK(0x623033u) REGS; LOADALL;
-L_00623033:;
-  /* 00623033 lea ecx, [ebp - 0x30] */ ecx = (u32)((u32)(ebp + 0xffffffd0u));
-  /* 00623036 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
-}
-
 void F_0062303b(CPU *c) {
   NATIVE_HOOK(0x62303bu) REGS; LOADALL;
 L_0062303b:;
@@ -1108,4 +1101,11 @@ L_005fee2a:;
 L_00623637:;
   /* 00623637 mov eax, 0x66a770 */ { eax = (u32)(0x66a770u); }
   /* 0062363c jmp 0x5fee2a */ goto L_005fee2a;
+}
+
+void F_00623650(CPU *c) {
+  NATIVE_HOOK(0x623650u) REGS; LOADALL;
+L_00623650:;
+  /* 00623650 lea ecx, [ebp - 0x268] */ ecx = (u32)((u32)(ebp + 0xfffffd98u));
+  /* 00623656 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
 }
