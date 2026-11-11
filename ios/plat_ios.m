@@ -1286,7 +1286,7 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
 @property BOOL zh;
 @end
 @implementation SettingsVC {
-    UISegmentedControl *_wide, *_detail, *_fps, *_lean, *_etc2;
+    UISegmentedControl *_wide, *_detail, *_fps, *_lean, *_etc2, *_fx;
     UISlider *_scale, *_gamma;
     UILabel *_scaleLabel, *_gammaLabel;
 }
@@ -1337,7 +1337,11 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     _fps = [self segments:@[[self t:@"Auto" zh:@"自动"], @"30", @"60", @"90", @"120"] selected:fsel];
     // race speed-ups (gpu_wgpu.c), as Android: less vertex data per draw / DXT textures as ETC2
     _lean = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"lean"] ? 0 : 1];
-    _etc2 = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"etc2"] ? 0 : 1];    float gamma = [d objectForKey:@"gamma"] ? [d floatForKey:@"gamma"] : 1.0f;
+    _etc2 = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"etc2"] ? 0 : 1];
+    // Effects (d3d9.c), as Android: Fewer = no additive glows in races
+    _fx = [self segments:@[[self t:@"All" zh:@"全部"], [self t:@"Fewer" zh:@"精简"]]
+                selected:([d objectForKey:@"effects"] ? [d boolForKey:@"effects"] : YES) ? 0 : 1];
+    float gamma = [d objectForKey:@"gamma"] ? [d floatForKey:@"gamma"] : 1.0f;
     _gamma = [self slider:0.5f hi:3.0f value:gamma];
     _gammaLabel = [self label:@"" size:13 color:rgb(0xB7C4E8)];
     UIButton *defGamma = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -1350,6 +1354,7 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
                         [self label:[self t:@"Graphics detail" zh:@"画质"] size:13 color:rgb(0xF5C21B)], _detail,
                         [self label:[self t:@"Compact 3D data" zh:@"精简3D数据"] size:13 color:rgb(0xF5C21B)], _lean,
                         [self label:[self t:@"Compressed textures" zh:@"纹理压缩"] size:13 color:rgb(0xF5C21B)], _etc2,
+                        [self label:[self t:@"Effects" zh:@"特效"] size:13 color:rgb(0xF5C21B)], _fx,
                         [self label:[self t:@"Frame rate cap" zh:@"帧率上限"] size:13 color:rgb(0xF5C21B)], _fps,
                         _gammaLabel, _gamma, defGamma]) [st addArrangedSubview:v];
     [self showValues];
@@ -1382,6 +1387,7 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     [d setInteger:GFX_FPS[_fps.selectedSegmentIndex] forKey:@"fps"];
     [d setBool:_lean.selectedSegmentIndex == 0 forKey:@"lean"];
     [d setBool:_etc2.selectedSegmentIndex == 0 forKey:@"etc2"];
+    [d setBool:_fx.selectedSegmentIndex == 0 forKey:@"effects"];
     [d setFloat:roundf(_gamma.value * 10) / 10 forKey:@"gamma"];
     [self dismissViewControllerAnimated:YES completion:nil];
 }
@@ -1669,6 +1675,7 @@ static BOOL has_cjk(NSString *s) {
         setenv("CK_SCALE", scale_s, 1);
         setenv("CK_LEAN", [gd boolForKey:@"lean"] ? "1" : "0", 1);       // Compact 3D data
         setenv("CK_ETC2", [gd boolForKey:@"etc2"] ? "1" : "0", 1);       // Compressed textures
+        setenv("CK_EFFECTS", ([gd objectForKey:@"effects"] ? [gd boolForKey:@"effects"] : YES) ? "1" : "0", 1);   // Effects
         g_screen_hz = (int)UIScreen.mainScreen.maximumFramesPerSecond;
         freopen([game stringByAppendingPathComponent:@"stderr.txt"].UTF8String, "w", stderr);
         popup_poll_start();                                       // server-asked popups (Rename Card, ranked map vote)

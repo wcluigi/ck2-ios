@@ -1072,6 +1072,12 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
     const float *P = g_st.proj.m;
     // the screen, or a screen-sized off-screen picture (many tracks draw the whole race world into one first)
     int scr = to_bb || (rtr && rtr->w >= (u32)gw && rtr->h >= (u32)g_bb_h);
+    // Effects: Fewer (launcher option, CK_EFFECTS=0; 11 Nov 2026, the user: "disable the effects"): the race world's
+    // additive glows -- item-box halos, sparks, trails, nitro flames, aura glows (src alpha + dst ONE, no depth
+    // write) -- are not drawn, in races and on the room's kart cards. Solid things, item boxes and the HUD stay.
+    static int effects = -1;
+    if (effects < 0) { const char *ev = getenv("CK_EFFECTS"); effects = !ev || *ev != '0'; }
+    if (!effects && !d.pretransformed && scr && g_st.alpha_blend && g_st.dst_blend == 2 && !g_st.zwrite) { g_perf.culled++; return; }   // rooms' kart cards too
     float bs[4];
     int stored = d.geom && gpu_geom_has(d.geom, bs);
     // View culling (11 Nov 2026, the user: "only what is in front is rendered, like GTA"): stored geometry whose
