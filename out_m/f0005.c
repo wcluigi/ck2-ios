@@ -4800,7 +4800,7 @@ L_00430105:;
 L_009c56c1:;
   /* 009c56c1 mov ecx, esi */ { ecx = (u32)(esi); }
   /* 009c56c3 mov eax, ebx */ { eax = (u32)(ebx); }
-  /* 009c56c5 call 0x9c5650 */ esp -= 4; M32(esp) = 0x9c56cau; SAVEALL; F_009c5650(c); ABI_CHECK(0x9c5650u, 0x9c56c5u); RETCHK(0x9c56cau, 0x9c56c5u); LOADALL;
+  /* 009c56c5 call 0x9e0d30 */ esp -= 4; M32(esp) = 0x9c56cau; SAVEALL; F_009e0d30(c); ABI_CHECK(0x9e0d30u, 0x9c56c5u); RETCHK(0x9c56cau, 0x9c56c5u); LOADALL;
   /* 009c56ca jmp 0x42fd3c */ goto L_0042fd3c;
 }
 
@@ -7876,7 +7876,7 @@ L_00432177:;
 L_009c56cf:;
   /* 009c56cf mov ecx, esi */ { ecx = (u32)(esi); }
   /* 009c56d1 mov eax, dword ptr [ebp - 0x24c] */ { const u32 m_ = (u32)(ebp + 0xfffffdb4u); eax = (u32)(M32(m_)); }
-  /* 009c56d7 call 0x9c5650 */ esp -= 4; M32(esp) = 0x9c56dcu; SAVEALL; F_009c5650(c); ABI_CHECK(0x9c5650u, 0x9c56d7u); RETCHK(0x9c56dcu, 0x9c56d7u); LOADALL;
+  /* 009c56d7 call 0x9e0d30 */ esp -= 4; M32(esp) = 0x9c56dcu; SAVEALL; F_009e0d30(c); ABI_CHECK(0x9e0d30u, 0x9c56d7u); RETCHK(0x9c56dcu, 0x9c56d7u); LOADALL;
   /* 009c56dc jmp 0x431fb9 */ goto L_00431fb9;
 }
 

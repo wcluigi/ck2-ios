@@ -13832,7 +13832,7 @@ L_009c5695:;
   /* 009c569b test ecx, ecx */ { u32 a_ = ecx, b_ = ecx; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
   /* 009c569d je 0x9c56a6 */ if (ZF_) goto L_009c56a6;
   /* 009c569f mov eax, ebx */ { eax = (u32)(ebx); }
-  /* 009c56a1 call 0x9c5650 */ esp -= 4; M32(esp) = 0x9c56a6u; SAVEALL; F_009c5650(c); ABI_CHECK(0x9c5650u, 0x9c56a1u); RETCHK(0x9c56a6u, 0x9c56a1u); LOADALL;
+  /* 009c56a1 call 0x9e0d30 */ esp -= 4; M32(esp) = 0x9c56a6u; SAVEALL; F_009e0d30(c); ABI_CHECK(0x9e0d30u, 0x9c56a1u); RETCHK(0x9c56a6u, 0x9c56a1u); LOADALL;
 L_009c56a6:;
   /* 009c56a6 jmp 0x440e6f */ goto L_00440e6f;
 L_009dd1eb:;
