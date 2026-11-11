@@ -4,6 +4,7 @@
 #include <stdint.h>
 typedef uint8_t u8; typedef uint32_t u32;
 void etc2_encode_rgba(const u32 *rgba, int w, int h, u8 *out);
+void etc2_encode_quick(const u32 *rgba, int w, int h, u8 *out);
 int main(int argc, char **argv) {
     if (argc < 3) return 2;
     FILE *f = fopen(argv[1], "rb"); u32 wh[2];
@@ -13,7 +14,7 @@ int main(int argc, char **argv) {
     fclose(f);
     size_t nb = (size_t)((wh[0] + 3) / 4) * ((wh[1] + 3) / 4) * 16;
     u8 *out = malloc(nb);
-    etc2_encode_rgba(px, (int)wh[0], (int)wh[1], out);
+    if (argc > 3) etc2_encode_quick(px, (int)wh[0], (int)wh[1], out); else etc2_encode_rgba(px, (int)wh[0], (int)wh[1], out);   // test_etc2 in out quick
     f = fopen(argv[2], "wb"); fwrite(out, 1, nb, f); fclose(f);
     return 0;
 }

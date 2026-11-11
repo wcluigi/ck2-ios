@@ -110,6 +110,30 @@ static void eac_block(const int a[16], u8 out[8]) {
     for (int i = 0; i < 8; i++) out[i] = (u8)(v >> (56 - 8 * i));
 }
 
+// A stand-in while the real encode runs on a worker (d3d9.c): every block one flat colour + alpha (its average),
+// microseconds a texture. Colour: differential mode, both halves the 5-bit average, table 0, every pixel +2.
+void etc2_encode_quick(const u32 *rgba, int w, int h, u8 *out) {
+    for (int by = 0; by < (h + 3) / 4; by++)
+        for (int bx = 0; bx < (w + 3) / 4; bx++) {
+            int s[4] = {0, 0, 0, 0};
+            for (int y = 0; y < 4; y++)
+                for (int x = 0; x < 4; x++) {
+                    int sx = bx * 4 + x, sy = by * 4 + y;
+                    if (sx >= w) sx = w - 1;
+                    if (sy >= h) sy = h - 1;
+                    u32 v = rgba[sy * w + sx];
+                    s[0] += (int)(v & 255); s[1] += (int)((v >> 8) & 255); s[2] += (int)((v >> 16) & 255); s[3] += (int)(v >> 24);
+                }
+            int a = (s[3] + 8) / 16;
+            out[0] = (u8)a; out[1] = (1 << 4) | 13;              // EAC: base = average, multiplier 1, table 13 ...
+            for (int i = 2; i < 8; i++) out[i] = (u8)((i % 3 == 2) ? 0x92 : (i % 3 == 0) ? 0x49 : 0x24);   // ... every index 4 (+0)
+            for (int c = 0; c < 3; c++) { int q = ((s[c] + 8) / 16 * 31 + 127) / 255; out[8 + c] = (u8)(q << 3); }   // dR=dG=dB=0
+            out[11] = 0x02;                                      // tables 0/0, diff bit, no flip
+            out[12] = out[13] = out[14] = out[15] = 0;           // every pixel index 0 (+2)
+            out += 16;
+        }
+}
+
 // rgba: w*h pixels (red in the low byte). out: ((w+3)/4)*((h+3)/4) 16-byte blocks; edges repeat the last pixel.
 void etc2_encode_rgba(const u32 *rgba, int w, int h, u8 *out) {
     for (int by = 0; by < (h + 3) / 4; by++)

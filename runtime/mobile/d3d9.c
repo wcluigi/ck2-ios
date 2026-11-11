@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <pthread.h>
 
 u32 user32_main_hwnd(void);
 static u32 user32_main_hwnd_(void) { return user32_main_hwnd(); }
@@ -210,9 +211,43 @@ u32 *d3d_tex_pixels(const void *gt, int *w, int *h) {
 // Compressed textures: a level's ETC2 blocks, from <game>/texcache/<hash of the DXT data>.etc when encoded before
 // (encoding a map's textures costs seconds on a phone; the game's textures never change between runs)
 #define TEXCACHE_MAX (384ull << 20)
+// background encoder: jobs (a copy of the picture) in, ETC2 blocks out; the texture is found again by slot + uid
+typedef struct EncJob { int res; u32 uid; int level; u32 w, h; u32 *rgba; u8 *blk; size_t n; char path[700]; struct EncJob *next; } EncJob;
+static pthread_mutex_t g_encmu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_enccv = PTHREAD_COND_INITIALIZER;
+static EncJob *g_enc_head, *g_enc_tail, *g_enc_done;
+static u32 g_enc_bytes;                          // pictures waiting (queue cap)
+static u64 cache_bytes;                          // what <game>/texcache holds (under g_encmu once the worker runs)
+static void enc_save(const char *p, const u8 *blk, size_t n) {
+    // shortcut: the cache stops growing at TEXCACHE_MAX (no eviction); fine while the game's textures fit
+    pthread_mutex_lock(&g_encmu);
+    int ok = cache_bytes + n <= TEXCACHE_MAX;
+    if (ok) cache_bytes += n;
+    pthread_mutex_unlock(&g_encmu);
+    FILE *f = ok ? fopen(p, "wb") : 0;
+    if (f) { fwrite(blk, 1, n, f); fclose(f); }
+}
+static void *enc_worker(void *arg) {
+    (void)arg;
+    for (;;) {
+        pthread_mutex_lock(&g_encmu);
+        while (!g_enc_head) pthread_cond_wait(&g_enccv, &g_encmu);
+        EncJob *j = g_enc_head;
+        g_enc_head = j->next;
+        if (!g_enc_head) g_enc_tail = 0;
+        pthread_mutex_unlock(&g_encmu);
+        etc2_encode_rgba(j->rgba, (int)j->w, (int)j->h, j->blk);
+        enc_save(j->path, j->blk, j->n);
+        free(j->rgba); j->rgba = 0;
+        pthread_mutex_lock(&g_encmu);
+        g_enc_bytes -= j->w * j->h * 4;
+        j->next = g_enc_done; g_enc_done = j;
+        pthread_mutex_unlock(&g_encmu);
+    }
+    return 0;
+}
 static void etc_level(Res *t, int face, int l, const u32 *rgba, u32 w, u32 h) {
     static int cache_ok = -1;
-    static u64 cache_bytes;
     char dir[600], p[700];
     snprintf(dir, sizeof dir, "%s/texcache", g_game_dir);
     if (cache_ok < 0) {                          // once: make the folder, add up what it holds
@@ -234,22 +269,54 @@ static void etc_level(Res *t, int face, int l, const u32 *rgba, u32 w, u32 h) {
     size_t n = (size_t)((w + 3) / 4) * ((h + 3) / 4) * 16;
     u64 k = 1469598103934665603ull ^ ((u64)w << 16) ^ h;      // FNV-1a over the picture (made mip levels have no game copy)
     for (u32 i = 0; i < w * h; i++) k = (k ^ rgba[i]) * 1099511628211ull;
-    (void)face; (void)l;
+    (void)face;
     snprintf(p, sizeof p, "%s/%016llx.etc", dir, (unsigned long long)k);
     u8 *blk = malloc(n);
     FILE *f = fopen(p, "rb");
     int got = f && fread(blk, 1, n, f) == n;
     if (f) fclose(f);
-    if (!got) {
+    if (got) { gpu_tex_upload_etc2(t->gt, l, blk, (int)w, (int)h); free(blk); return; }
+    // Not cached: a flat-colour stand-in now, the real encode on the worker (enc_worker), swapped in by enc_drain.
+    // Encoding on the game thread was ~10 % of a room's frame time on the phone (new players' karts) -- the room's
+    // frame drops (11 Nov 2026). Too much already queued: encoded here as before.
+    pthread_mutex_lock(&g_encmu);
+    int queue = g_enc_bytes + w * h * 4 <= (64u << 20);
+    pthread_mutex_unlock(&g_encmu);
+    if (!queue) {
         etc2_encode_rgba(rgba, (int)w, (int)h, blk);
-        // shortcut: the cache stops growing at TEXCACHE_MAX (no eviction); fine while the game's textures fit
-        if (cache_bytes + n <= TEXCACHE_MAX && (f = fopen(p, "wb"))) {
-            if (fwrite(blk, 1, n, f) == n) cache_bytes += n;
-            fclose(f);
-        }
+        enc_save(p, blk, n);
+        gpu_tex_upload_etc2(t->gt, l, blk, (int)w, (int)h);
+        free(blk);
+        return;
     }
-    gpu_tex_upload_etc2(t->gt, face * 16 + l, blk, (int)w, (int)h);
-    free(blk);
+    etc2_encode_quick(rgba, (int)w, (int)h, blk);
+    gpu_tex_upload_etc2(t->gt, l, blk, (int)w, (int)h);
+    EncJob *j = calloc(1, sizeof *j);
+    j->res = (int)(t - g_res); j->uid = t->uid; j->level = l; j->w = w; j->h = h; j->blk = blk; j->n = n;
+    j->rgba = malloc((size_t)w * h * 4);
+    memcpy(j->rgba, rgba, (size_t)w * h * 4);
+    snprintf(j->path, sizeof j->path, "%s", p);
+    static int started;
+    pthread_mutex_lock(&g_encmu);
+    if (!started++) { pthread_t th; if (!pthread_create(&th, 0, enc_worker, 0)) pthread_detach(th); }
+    if (g_enc_tail) g_enc_tail->next = j; else g_enc_head = j;
+    g_enc_tail = j; g_enc_bytes += w * h * 4;
+    pthread_cond_signal(&g_enccv);
+    pthread_mutex_unlock(&g_encmu);
+}
+// game thread, once a frame: finished encodes go to their textures (if the texture still exists)
+static void enc_drain(void) {
+    pthread_mutex_lock(&g_encmu);
+    EncJob *d = g_enc_done;
+    g_enc_done = 0;
+    pthread_mutex_unlock(&g_encmu);
+    while (d) {
+        EncJob *nx = d->next;
+        Res *t = d->res > 0 && d->res < NRES ? &g_res[d->res] : 0;
+        if (t && t->used && t->uid == d->uid && t->gt && t->etc) gpu_tex_upload_etc2(t->gt, d->level, d->blk, (int)d->w, (int)d->h);
+        free(d->blk); free(d);
+        d = nx;
+    }
 }
 static void upload_level(Res *t, int face, int l) {
     if (!t->gt || !t->mem[face][l]) return;
@@ -832,6 +899,7 @@ void hud_frame(void);
 // on-screen race controls (touch_ui.c), drawn on the back buffer; the game's target is restored after
 // Slow-frame log in races (cursor hidden): a frame over 60 ms names what was loaded / built during it.
 static void perf_frame(void) {
+    enc_drain();                                 // finished background texture encodes
     static u64 last;
     u64 now = us_now(), dt = last ? now - last : 0;
     last = now;

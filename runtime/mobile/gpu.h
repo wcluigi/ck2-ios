@@ -83,6 +83,7 @@ int gpu_geom_on(void);
 int gpu_geom_has(u64 key, float bs[4]);
 void gpu_tex_upload_etc2(GpuTex *t, int level, const u8 *blocks, int w, int h);   // whole level, 16-byte blocks
 void etc2_encode_rgba(const u32 *rgba, int w, int h, u8 *out);                    // etc2.c
+void etc2_encode_quick(const u32 *rgba, int w, int h, u8 *out);                   // flat stand-in while the above runs
 void gpu_set_target(GpuTex *color, GpuTex *depth);   // NULL color = back buffer
 void gpu_clear(u32 flags, u32 argb, float z, u32 stencil, const int *rects, int nrects);
 void gpu_draw(const GDraw *d);
