@@ -67,13 +67,17 @@ typedef struct {
     const GState *st;
 } GDraw;
 
-typedef struct { int w, h, levels, rt, depth; u32 fmt; } GTexDesc;
+typedef struct { int w, h, levels, rt, depth; u32 fmt; int etc; } GTexDesc;   // etc: ETC2 RGBA8 on the GPU (gpu_has_etc2)
 
 void gpu_init(void *native_window, int width, int height);
 void gpu_resize(int width, int height);
 GpuTex *gpu_tex_create(const GTexDesc *d);
 void gpu_tex_upload(GpuTex *t, int level, int x, int y, int w, int h, const u32 *rgba, int pitch_px);   // RGBA8 (r in low byte)
 void gpu_tex_destroy(GpuTex *t);
+// "Compressed textures" (launcher option -> CK_ETC2=1, when the GPU has ETC2): DXT textures stored as ETC2 RGBA8
+int gpu_has_etc2(void);
+void gpu_tex_upload_etc2(GpuTex *t, int level, const u8 *blocks, int w, int h);   // whole level, 16-byte blocks
+void etc2_encode_rgba(const u32 *rgba, int w, int h, u8 *out);                    // etc2.c
 void gpu_set_target(GpuTex *color, GpuTex *depth);   // NULL color = back buffer
 void gpu_clear(u32 flags, u32 argb, float z, u32 stencil, const int *rects, int nrects);
 void gpu_draw(const GDraw *d);

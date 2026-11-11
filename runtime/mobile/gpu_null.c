@@ -19,3 +19,5 @@ void gpu_present(void) {
 void gpu_backbuffer_size(int *w, int *h) { *w = g_w; *h = g_h; }
 void gpu_wide(int *gw, int *rw, int *ox) { *gw = *rw = g_w; *ox = 0; }
 int gpu_read_target(GpuTex *t, u32 *o, int w, int h) { (void)t; (void)o; (void)w; (void)h; return 0; }
+int gpu_has_etc2(void) { return 0; }
+void gpu_tex_upload_etc2(GpuTex *t, int level, const u8 *blocks, int w, int h) { (void)t; (void)level; (void)blocks; (void)w; (void)h; }

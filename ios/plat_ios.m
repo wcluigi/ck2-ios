@@ -1286,7 +1286,7 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
 @property BOOL zh;
 @end
 @implementation SettingsVC {
-    UISegmentedControl *_wide, *_detail, *_fps;
+    UISegmentedControl *_wide, *_detail, *_fps, *_lean, *_etc2;
     UISlider *_scale, *_gamma;
     UILabel *_scaleLabel, *_gammaLabel;
 }
@@ -1335,6 +1335,9 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     NSInteger fps = [d integerForKey:@"fps"], fsel = 0;
     for (int i = 1; i < 5; i++) if (GFX_FPS[i] == fps) fsel = i;
     _fps = [self segments:@[[self t:@"Auto" zh:@"自动"], @"30", @"60", @"90", @"120"] selected:fsel];
+    // race speed-ups (gpu_wgpu.c), as Android: less vertex data per draw / DXT textures as ETC2
+    _lean = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"lean"] ? 0 : 1];
+    _etc2 = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"etc2"] ? 0 : 1];
     float gamma = [d objectForKey:@"gamma"] ? [d floatForKey:@"gamma"] : 1.0f;
     _gamma = [self slider:0.5f hi:3.0f value:gamma];
     _gammaLabel = [self label:@"" size:13 color:rgb(0xB7C4E8)];
@@ -1346,6 +1349,8 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     for (UIView *v in @[[self label:[self t:@"Screen" zh:@"画面"] size:13 color:rgb(0xF5C21B)], _wide,
                         _scaleLabel, _scale,
                         [self label:[self t:@"Graphics detail" zh:@"画质"] size:13 color:rgb(0xF5C21B)], _detail,
+                        [self label:[self t:@"Compact 3D data" zh:@"精简3D数据"] size:13 color:rgb(0xF5C21B)], _lean,
+                        [self label:[self t:@"Compressed textures" zh:@"纹理压缩"] size:13 color:rgb(0xF5C21B)], _etc2,
                         [self label:[self t:@"Frame rate cap" zh:@"帧率上限"] size:13 color:rgb(0xF5C21B)], _fps,
                         _gammaLabel, _gamma, defGamma]) [st addArrangedSubview:v];
     [self showValues];
@@ -1376,6 +1381,8 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     [d setInteger:(NSInteger)(lroundf(_scale.value / 5.0f) * 5) forKey:@"scale"];
     [d setInteger:_detail.selectedSegmentIndex forKey:@"detail"];
     [d setInteger:GFX_FPS[_fps.selectedSegmentIndex] forKey:@"fps"];
+    [d setBool:_lean.selectedSegmentIndex == 0 forKey:@"lean"];
+    [d setBool:_etc2.selectedSegmentIndex == 0 forKey:@"etc2"];
     [d setFloat:roundf(_gamma.value * 10) / 10 forKey:@"gamma"];
     [self dismissViewControllerAnimated:YES completion:nil];
 }
@@ -1661,6 +1668,8 @@ static BOOL has_cjk(NSString *s) {
         char scale_s[8];
         snprintf(scale_s, sizeof scale_s, "%d", [gd objectForKey:@"scale"] ? (int)MIN(100, MAX(50, [gd integerForKey:@"scale"])) : 100);
         setenv("CK_SCALE", scale_s, 1);
+        setenv("CK_LEAN", [gd boolForKey:@"lean"] ? "1" : "0", 1);       // Compact 3D data
+        setenv("CK_ETC2", [gd boolForKey:@"etc2"] ? "1" : "0", 1);       // Compressed textures
         g_screen_hz = (int)UIScreen.mainScreen.maximumFramesPerSecond;
         freopen([game stringByAppendingPathComponent:@"stderr.txt"].UTF8String, "w", stderr);
         popup_poll_start();                                       // server-asked popups (Rename Card, ranked map vote)

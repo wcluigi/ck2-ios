@@ -11,7 +11,7 @@
 
 #define SV(s) ((WGPUStringView){(s), WGPU_STRLEN})
 struct GpuTex {
-    WGPUTexture tex; WGPUTextureView view; int w, h, levels, rt, depth; int cube;
+    WGPUTexture tex; WGPUTextureView view; int w, h, levels, rt, depth; int cube; int etc;
     u32 used_batch;                      // batch that last sampled it (upload must flush first)
 };
 
@@ -46,6 +46,21 @@ static int bb_h(void) { return (int)(g_bh * g_rs + 0.5f); }
 // back buffer that is not one of them (the HUD, a banner) puts the scene there first, scaled up -- opaque the first
 // time in a frame, blended over later (3D effects drawn after the HUD) -- so everything 2D stays full resolution.
 static GpuTex *g_scene, *g_scene_depth;
+static int g_etc2;                       // Compressed textures on (launcher option + GPU support)
+static int g_lean;                       // Compact vertices on (launcher option, CK_LEAN=1): LVert instead of GVert
+typedef struct { float pos[4]; signed char nrm[4]; u32 diffuse, specular; float uv[2][2]; } LVert;
+_Static_assert(sizeof(LVert) == 44, "LVert layout");
+// GVert -> LVert; ua / ub = the uv sets the two texture stages read
+static void lean_copy(LVert *o, const GVert *v, u32 n, int ua, int ub) {
+    for (u32 i = 0; i < n; i++, v++, o++) {
+        memcpy(o->pos, v->pos, 16);
+        float x = v->nrm[0], y = v->nrm[1], z = v->nrm[2], l2 = x * x + y * y + z * z;
+        float k = l2 > 0 ? 127.f / sqrtf(l2) : 0;      // the shader renormalises; only the direction matters
+        o->nrm[0] = (signed char)lrintf(x * k); o->nrm[1] = (signed char)lrintf(y * k); o->nrm[2] = (signed char)lrintf(z * k); o->nrm[3] = 0;
+        o->diffuse = v->diffuse; o->specular = v->specular;
+        memcpy(o->uv[0], v->uv[ua], 8); memcpy(o->uv[1], v->uv[ub], 8);
+    }
+}
 static int g_in_scene, g_scene_pending, g_scene_first = 1, g_scene_clear;
 static u32 g_scene_clear_color;
 static float g_scene_z = 1;
@@ -389,12 +404,18 @@ void gpu_init(void *native_window, int width, int height) {
     }
     WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT;
     dd.uncapturedErrorCallbackInfo.callback = on_error;
+    // Compressed textures (launcher option, CK_ETC2=1): only when this GPU samples ETC2 (Mali, Adreno, Apple do)
+    static const WGPUFeatureName etc2 = WGPUFeatureName_TextureCompressionETC2;
+    { const char *e = getenv("CK_ETC2"); g_etc2 = e && *e == '1' && wgpuAdapterHasFeature(g_adapter, etc2); }
+    if (g_etc2) { dd.requiredFeatureCount = 1; dd.requiredFeatures = &etc2; }
+    { const char *e = getenv("CK_LEAN"); g_lean = e && *e == '1'; }      // Compact vertices (launcher option)
     WGPURequestDeviceCallbackInfo dc = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     dc.mode = WGPUCallbackMode_AllowProcessEvents; dc.callback = on_device; dc.userdata1 = &g_dev;
     wgpuAdapterRequestDevice(g_adapter, &dd, dc);
     for (int i = 0; i < 1000 && !g_dev; i++) wgpuInstanceProcessEvents(g_inst);
     if (!g_dev) rt_fatal("no WebGPU device");
     g_q = wgpuDeviceGetQueue(g_dev);
+    rt_log("gpu_wgpu: compressed textures %s, compact vertices %s%c", g_etc2 ? "on (ETC2)" : "off", g_lean ? "on" : "off", 10);
     configure_surface();
     layouts();
     g_shader = shader(WGSL);
@@ -436,10 +457,36 @@ GpuTex *gpu_tex_create(const GTexDesc *d) {
         t->cube = 1;
         return t;
     }
+    if (d->etc && g_etc2 && !d->rt && !d->depth) {          // Compressed textures: d3d9.c checked w, h multiples of 4
+        GpuTex *t = calloc(1, sizeof *t);
+        g_perf.texs++;
+        t->w = d->w; t->h = d->h; t->levels = levels < 1 ? 1 : levels; t->etc = 1;
+        WGPUTextureDescriptor td = WGPU_TEXTURE_DESCRIPTOR_INIT;
+        td.size = (WGPUExtent3D){(u32)d->w, (u32)d->h, 1};
+        td.mipLevelCount = (u32)t->levels;
+        td.format = WGPUTextureFormat_ETC2RGBA8Unorm;
+        td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        t->tex = wgpuDeviceCreateTexture(g_dev, &td);
+        t->view = wgpuTextureCreateView(t->tex, 0);
+        return t;
+    }
     return tex_new(d->w, d->h, d->rt ? 1 : levels, d->rt, d->depth);
 }
+int gpu_has_etc2(void) { return g_etc2; }
+void gpu_tex_upload_etc2(GpuTex *t, int level, const u8 *blocks, int w, int h) {
+    if (!t || !t->etc || (level & 15) >= t->levels) return;
+    level &= 15;
+    if (t->used_batch == g_batch) flush();       // draws recorded with the old contents go first
+    u32 bw = (u32)(w + 3) / 4, bh = (u32)(h + 3) / 4;
+    WGPUTexelCopyTextureInfo dst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+    dst.texture = t->tex; dst.mipLevel = (u32)level;
+    WGPUTexelCopyBufferLayout lay = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+    lay.bytesPerRow = bw * 16; lay.rowsPerImage = bh;
+    WGPUExtent3D sz = {bw * 4, bh * 4, 1};       // whole blocks: the level's physical size (levels under 4 pixels too)
+    wgpuQueueWriteTexture(g_q, &dst, blocks, (size_t)bw * bh * 16, &lay, &sz);
+}
 void gpu_tex_upload(GpuTex *t, int level, int x, int y, int w, int h, const u32 *rgba, int pitch_px) {
-    if (!t || t->depth) return;
+    if (!t || t->depth || t->etc) return;        // ETC2 textures take gpu_tex_upload_etc2 only
     int face = level >> 4; level &= 15;
     if (t->cube && (face || level)) return;
     if (level >= t->levels) return;
@@ -700,8 +747,15 @@ static WGPURenderPipeline pipe_create(const GState *s, WGPUPrimitiveTopology top
         {0, WGPUVertexFormat_Float32x4, 0, 0}, {0, WGPUVertexFormat_Float32x3, 16, 1}, {0, WGPUVertexFormat_Unorm8x4, 28, 2},
         {0, WGPUVertexFormat_Unorm8x4, 32, 3}, {0, WGPUVertexFormat_Float32x2, 36, 4}, {0, WGPUVertexFormat_Float32x2, 44, 5},
         {0, WGPUVertexFormat_Float32x2, 52, 6}, {0, WGPUVertexFormat_Float32x2, 60, 7}};
+    // Compact vertices: LVert (44 bytes, not 84): normal as 4 signed bytes, only the two uv sets the stages read
+    // (locations 6/7 alias them; draw() points the stages at sets 0/1)
+    WGPUVertexAttribute lat[8] = {
+        {0, WGPUVertexFormat_Float32x4, 0, 0}, {0, WGPUVertexFormat_Snorm8x4, 16, 1}, {0, WGPUVertexFormat_Unorm8x4, 20, 2},
+        {0, WGPUVertexFormat_Unorm8x4, 24, 3}, {0, WGPUVertexFormat_Float32x2, 28, 4}, {0, WGPUVertexFormat_Float32x2, 36, 5},
+        {0, WGPUVertexFormat_Float32x2, 28, 6}, {0, WGPUVertexFormat_Float32x2, 36, 7}};
     WGPUVertexBufferLayout vl = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    vl.arrayStride = sizeof(GVert); vl.stepMode = WGPUVertexStepMode_Vertex; vl.attributeCount = 8; vl.attributes = at;
+    vl.arrayStride = g_lean ? sizeof(LVert) : sizeof(GVert); vl.stepMode = WGPUVertexStepMode_Vertex; vl.attributeCount = 8;
+    vl.attributes = g_lean ? lat : at;
     WGPUBlendState bs;
     bs.color = (WGPUBlendComponent){bop(s->blend_op), bf(src), bf(dst)};
     bs.alpha = s->sep_alpha ? (WGPUBlendComponent){bop(s->blend_op_a), bf(s->src_blend_a), bf(s->dst_blend_a)} : bs.color;
@@ -808,7 +862,9 @@ void gpu_draw(const GDraw *d) {
     WGPUPrimitiveTopology topo = prim == 1 ? WGPUPrimitiveTopology_PointList : prim == 2 ? WGPUPrimitiveTopology_LineList :
                                  prim == 3 ? WGPUPrimitiveTopology_LineStrip : prim == 5 ? WGPUPrimitiveTopology_TriangleStrip :
                                  WGPUPrimitiveTopology_TriangleList;
-    u32 vbytes = d->nverts * (u32)sizeof(GVert), ibytes = nidx * 4;
+    // Compact vertices also send indices as 16 bit when they fit
+    int i16 = g_lean && idx && d->nverts <= 65535;
+    u32 vbytes = d->nverts * (u32)(g_lean ? sizeof(LVert) : sizeof(GVert)), ibytes = nidx * (i16 ? 2 : 4);
     if (g_voff + vbytes > VB_SIZE || g_ioff + ibytes + 4 > IB_SIZE || g_uoff + USTRIDE > UB_SIZE) flush();
     if (vbytes > VB_SIZE || ibytes > IB_SIZE) return;
     if (!g_target) {                              // back buffer draws: the race's 3D world -> the scene target
@@ -850,7 +906,10 @@ void gpu_draw(const GDraw *d) {
         put4u(u, 416 + 16 * st, g->colorop, (g->colorarg1 & 255) | ((g->colorarg2 & 255) << 8) | ((g->colorarg0 & 255) << 16),
               g->alphaop, (g->alphaarg1 & 255) | ((g->alphaarg2 & 255) << 8) | ((g->alphaarg0 & 255) << 16));
     }
-    put4u(u, 448, s->stage[0].texcoordindex, s->stage[1].texcoordindex, s->stage[0].ttflags, s->stage[1].ttflags);
+    u32 tci0 = s->stage[0].texcoordindex, tci1 = s->stage[1].texcoordindex;
+    int ua = (int)(tci0 & 3), ub = (int)(tci1 & 3);
+    if (g_lean) { tci0 = (tci0 & ~3u) | 0; tci1 = (tci1 & ~3u) | 1; }   // LVert carries the stages' sets as 0 and 1
+    put4u(u, 448, tci0, tci1, s->stage[0].ttflags, s->stage[1].ttflags);
     int nl = 0;
     if (fl & 2) {
         for (int i = 0; i < 8; i++) {
@@ -874,11 +933,16 @@ void gpu_draw(const GDraw *d) {
     u32 uoff = g_uoff;
     g_uoff += USTRIDE;
     // geometry
-    memcpy(g_vstage + g_voff, d->verts, vbytes);
+    if (g_lean) lean_copy((LVert *)(g_vstage + g_voff), d->verts, d->nverts, ua, ub);
+    else memcpy(g_vstage + g_voff, d->verts, vbytes);
     u32 voff = g_voff;
     g_voff += vbytes;
     u32 ioff = g_ioff;
-    if (idx) { memcpy(g_istage + g_ioff, idx, ibytes); g_ioff += ibytes; }
+    if (idx && i16) {
+        u16 *o = (u16 *)(g_istage + g_ioff);
+        for (u32 i = 0; i < nidx; i++) o[i] = (u16)idx[i];
+        g_ioff = (g_ioff + ibytes + 3) & ~3u;        // keep offsets 4-aligned (32-bit draws, writeBuffer size)
+    } else if (idx) { memcpy(g_istage + g_ioff, idx, ibytes); g_ioff += ibytes; }
     // state
     if (!g_ubg) {
         WGPUBindGroupEntry e = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -913,7 +977,7 @@ void gpu_draw(const GDraw *d) {
     wgpuRenderPassEncoderSetBlendConstant(g_pass, &(WGPUColor){1, 1, 1, 1});   // D3DRS_BLENDFACTOR not tracked yet
     wgpuRenderPassEncoderSetVertexBuffer(g_pass, 0, g_vb, voff, vbytes);
     if (idx) {
-        wgpuRenderPassEncoderSetIndexBuffer(g_pass, g_ib, WGPUIndexFormat_Uint32, ioff, ibytes);
+        wgpuRenderPassEncoderSetIndexBuffer(g_pass, g_ib, i16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32, ioff, ibytes);
         wgpuRenderPassEncoderDrawIndexed(g_pass, nidx, 1, 0, 0, 0);
     } else wgpuRenderPassEncoderDraw(g_pass, d->nverts, 1, 0, 0);
 }

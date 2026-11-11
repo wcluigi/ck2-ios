@@ -314,8 +314,11 @@ static void start_game(void) {
         char wd[600];
         snprintf(wd, sizeof wd, "%s/webui", g_image_dir_s);
         mkdir(wd, 0755);
-        extract_asset(am, "webui/index.html", g_image_dir_s);
-        extract_asset(am, "webui/bridge.js", g_image_dir_s);
+        if (!extract_asset(am, "webui/index.html", g_image_dir_s)) {   // an APK without the page: drop an older install's copy
+            char p[700];
+            snprintf(p, sizeof p, "%s/index.html", wd); unlink(p);
+            snprintf(p, sizeof p, "%s/bridge.js", wd); unlink(p);
+        } else extract_asset(am, "webui/bridge.js", g_image_dir_s);
     }
     // login arguments: written by LoginActivity (one-time pass, deleted once read); game/launch.txt is a test fallback
     snprintf(g_args, sizeof g_args, "-wnd 1");
@@ -336,6 +339,8 @@ static void start_game(void) {
         while (fgets(line, sizeof line, f)) {
             if (!strncmp(line, "vsync=", 6)) setenv("CK_VSYNC", line[6] == '0' ? "0" : "1", 1);
             if (!strncmp(line, "wide=", 5)) setenv("CK_WIDE", line[5] == '0' ? "0" : "1", 1);
+            if (!strncmp(line, "lean=", 5)) setenv("CK_LEAN", line[5] == '1' ? "1" : "0", 1);     // Compact 3D data
+            if (!strncmp(line, "etc2=", 5)) setenv("CK_ETC2", line[5] == '1' ? "1" : "0", 1);     // Compressed textures
             if (!strncmp(line, "scale=", 6)) { char v[8]; snprintf(v, sizeof v, "%d", atoi(line + 6)); setenv("CK_SCALE", v, 1); }
             if (!strncmp(line, "hz=", 3) && atoi(line + 3) >= 30) g_screen_hz = atoi(line + 3);
         }

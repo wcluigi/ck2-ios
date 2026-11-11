@@ -16,7 +16,9 @@ cp android/assets/* $OUT/assets/ 2>/dev/null || true     # HUD editor element li
 rm -f $OUT/assets/mobile_ui.zip
 # (the re-skin overlay is not shipped while the HTML UI is the phone UI: plat.c would draw it under the page)
 # the phone UI page (the Claude design + webui_app/bridge.js), served by runtime/mobile/ui_bridge.c
-rm -rf $OUT/assets/webui && mkdir -p $OUT/assets/webui && cp webui_app/index.html webui_app/bridge.js $OUT/assets/webui/
+# only with HTML=1 (the user, 11 Nov 2026: no HTML in new builds until they say so); without it the game's own UI
+rm -rf $OUT/assets/webui
+[ "$HTML" = 1 ] && mkdir -p $OUT/assets/webui && cp webui_app/index.html webui_app/bridge.js $OUT/assets/webui/
 # The release's game files inside the APK (tools/bundle_data.py; ~600 MB): ALWAYS (the user, 5 Nov 2026: "always pack
 # with the data, not only apk"). BUNDLE=0 only for the lean automatic update in the patch (release_apk.sh).
 BUNDLE=${BUNDLE:-1}

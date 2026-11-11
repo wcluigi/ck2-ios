@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 u32 user32_main_hwnd(void);
 static u32 user32_main_hwnd_(void) { return user32_main_hwnd(); }
@@ -21,6 +23,7 @@ typedef struct Res {
     u32 mem[6][14], pitch[14], lw[14], lh[14];   // per face/level guest memory
     u32 surf[6][14];                             // surface objects per face/level
     GpuTex *gt;
+    int etc;                                     // stored as ETC2 on the GPU (Compressed textures)
     int dirty[6][14];
     // surface
     int parent, level, face, is_backbuffer, is_depth;
@@ -199,13 +202,58 @@ u32 *d3d_tex_pixels(const void *gt, int *w, int *h) {
     }
     return 0;
 }
+// Compressed textures: a level's ETC2 blocks, from <game>/texcache/<hash of the DXT data>.etc when encoded before
+// (encoding a map's textures costs seconds on a phone; the game's textures never change between runs)
+#define TEXCACHE_MAX (384ull << 20)
+static void etc_level(Res *t, int face, int l, const u32 *rgba, u32 w, u32 h) {
+    static int cache_ok = -1;
+    static u64 cache_bytes;
+    char dir[600], p[700];
+    snprintf(dir, sizeof dir, "%s/texcache", g_game_dir);
+    if (cache_ok < 0) {                          // once: make the folder, add up what it holds
+#ifdef _WIN32
+        mkdir(dir);
+#else
+        mkdir(dir, 0755);
+#endif
+        DIR *dd = opendir(dir);
+        struct dirent *e;
+        while (dd && (e = readdir(dd))) {
+            struct stat st;
+            snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+            if (!stat(p, &st) && S_ISREG(st.st_mode)) cache_bytes += (u64)st.st_size;
+        }
+        if (dd) closedir(dd);
+        cache_ok = 1;
+    }
+    size_t n = (size_t)((w + 3) / 4) * ((h + 3) / 4) * 16;
+    u64 k = 1469598103934665603ull ^ ((u64)t->fmt << 32) ^ ((u64)w << 16) ^ h;    // FNV-1a over the DXT level
+    const u8 *src = (const u8 *)HP(t->mem[face][l]);
+    for (u32 i = 0, sz = level_size(t->fmt, w, h); i < sz; i++) k = (k ^ src[i]) * 1099511628211ull;
+    snprintf(p, sizeof p, "%s/%016llx.etc", dir, (unsigned long long)k);
+    u8 *blk = malloc(n);
+    FILE *f = fopen(p, "rb");
+    int got = f && fread(blk, 1, n, f) == n;
+    if (f) fclose(f);
+    if (!got) {
+        etc2_encode_rgba(rgba, (int)w, (int)h, blk);
+        // shortcut: the cache stops growing at TEXCACHE_MAX (no eviction); fine while the game's textures fit
+        if (cache_bytes + n <= TEXCACHE_MAX && (f = fopen(p, "wb"))) {
+            if (fwrite(blk, 1, n, f) == n) cache_bytes += n;
+            fclose(f);
+        }
+    }
+    gpu_tex_upload_etc2(t->gt, face * 16 + l, blk, (int)w, (int)h);
+    free(blk);
+}
 static void upload_level(Res *t, int face, int l) {
     if (!t->gt || !t->mem[face][l]) return;
     u32 w = t->lw[l], h = t->lh[l];
     u64 t0 = us_now();
     u32 *tmp = malloc((size_t)w * h * 4);
     to_rgba(t->fmt, (u8 *)HP(t->mem[face][l]), t->pitch[l], w, h, tmp);
-    gpu_tex_upload(t->gt, face * 16 + l, 0, 0, (int)w, (int)h, tmp, (int)w);
+    if (t->etc) etc_level(t, face, l, tmp, w, h);
+    else gpu_tex_upload(t->gt, face * 16 + l, 0, 0, (int)w, (int)h, tmp, (int)w);
     free(tmp);
     g_perf.up_us += us_now() - t0;
     t->dirty[face][l] = 0;
@@ -462,6 +510,8 @@ static Res *make_texture(int kind, u32 w, u32 h, u32 levels, u32 usage, u32 fmt,
     if (pool != 2) {                      // not SYSTEMMEM: has a GPU copy
         GTexDesc d = {(int)w, (int)h, (usage & 0x400) ? 1 : (int)levels, (usage & 1) != 0, 0, fmt};   // AUTOGENMIPMAP: one level on the GPU
         if (kind == K_CUBE) d.levels |= 0x100;
+        // Compressed textures: the game's DXT art (whole levels written once) as ETC2; block-sized textures only
+        d.etc = t->etc = gpu_has_etc2() && is_dxt(fmt) && kind == K_TEX && !(usage & 0x401) && w >= 4 && h >= 4 && !(w & 3) && !(h & 3);
         t->gt = gpu_tex_create(&d);
     }
     return t;

@@ -20,7 +20,7 @@ mkdir -p $O
 export CC CFLAGS O
 ls out_m/*.c | xargs -P "${JOBS:-$(sysctl -n hw.ncpu)}" -I{} sh -c 'o="$O/$(basename "$1" .c).o"; [ "$o" -nt "$1" ] || $CC $CFLAGS -c "$1" -o "$o"' _ {}
 RT="core heap plat loader main fmt gbk_table hle_kernel32 hle_msvcrt hle_user32 hle_misc hle_ws2 hle_input_audio hle_fmod
-    native_rw hle_gdi text touch_ui input hud ui_bridge d3d9 gpu_wgpu"
+    native_rw hle_gdi text touch_ui input hud ui_bridge etc2 d3d9 gpu_wgpu"
 for f in $RT; do $CC $CFLAGS -c runtime/mobile/$f.c -o $O/rt_$f.o; done
 $CC $CFLAGS -fobjc-arc -c ios/plat_ios.m -o $O/plat_ios.o
 APP=build/ios/Payload/CK2.app
@@ -31,7 +31,7 @@ $CC -arch arm64 -isysroot $SDK -miphoneos-version-min=14.0 -o $APP/CK2 $O/*.o "$
 # the app's files: lifted image + phone assets (as package_apk.sh puts them in the APK) and the game data
 cp out_m/image.bin out_m/imports.txt out_m/modules.txt $APP/image/
 cp android/assets/* $APP/image/
-mkdir -p $APP/image/webui && cp webui_app/index.html webui_app/bridge.js $APP/image/webui/   # the phone UI page (ui_bridge.c)
+if [ "$HTML" = 1 ]; then mkdir -p $APP/image/webui && cp webui_app/index.html webui_app/bridge.js $APP/image/webui/; fi   # the phone UI page (ui_bridge.c), only with HTML=1
 cp ios/assets/latin*.ttf ios/assets/latin_OFL.txt $APP/image/
 cp ios/assets/AppIcon*.png $APP/
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" ios/Info.plist > $APP/Info.plist

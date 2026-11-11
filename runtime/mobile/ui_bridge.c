@@ -37,6 +37,7 @@ typedef int socklen_t;
 static u32 g_roots[NROOTS];
 static int g_nroots;
 static char g_token[40];
+static int g_page_on;                            // the app has the page (index.html): otherwise the bridge stays off
 const char *ui_page_url(void);
 
 void ui_note_root(u32 self) {                   // from native_gui_find_child: every control the game searches under
@@ -367,6 +368,7 @@ void ui_bridge_start(void);
 void ui_bridge_tick(void) {                      // game thread, once a frame
     static u32 n;
     if (!n) ui_bridge_start();
+    if (!g_page_on) return;                      // the app has no page (built without HTML=1): the game's own UI
     if (g_press_step >= 0) {                     // the press: move (0), down (2), up (5)
         if (g_press_step == 0) ui_mouse(0x200, g_press_x, g_press_y, 0);
         if (g_press_step == 2) ui_mouse(0x201, g_press_x, g_press_y, 1);
@@ -490,6 +492,12 @@ const char *ui_page_url(void) {                   // what the platform shows ful
 void ui_bridge_start(void) {
     static int started;
     if (started++) return;
+    extern char g_image_dir[512];
+    char p[700];
+    const char *root = getenv("CK_WEBUI");
+    snprintf(p, sizeof p, "%s/%s", root ? root : g_image_dir, root ? "index.html" : "webui/index.html");
+    if (access(p, F_OK)) { rt_log("ui: no page in this build, game UI only%c", 10); return; }
+    g_page_on = 1;
     u64 seed = us_now() ^ (u64)(uintptr_t)&started;
     for (int i = 0; i < 24; i++) { seed = seed * 6364136223846793005ull + 1442695040888963407ull; g_token[i] = "abcdefghijklmnopqrstuvwxyz0123456789"[(seed >> 33) % 36]; }
     g_token[24] = 0;
