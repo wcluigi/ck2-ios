@@ -25,6 +25,8 @@ typedef struct Res {
     u32 surf[6][14];                             // surface objects per face/level
     GpuTex *gt;
     int etc;                                     // stored as ETC2 on the GPU (Compressed textures)
+    u32 hash;                                    // level 0's picture (sampled), set at upload
+    int automip;                                 // AUTOGENMIPMAP: smaller levels made from level 0 at upload
     int dirty[6][14];
     // surface
     int parent, level, face, is_backbuffer, is_depth;
@@ -230,9 +232,9 @@ static void etc_level(Res *t, int face, int l, const u32 *rgba, u32 w, u32 h) {
         cache_ok = 1;
     }
     size_t n = (size_t)((w + 3) / 4) * ((h + 3) / 4) * 16;
-    u64 k = 1469598103934665603ull ^ ((u64)t->fmt << 32) ^ ((u64)w << 16) ^ h;    // FNV-1a over the DXT level
-    const u8 *src = (const u8 *)HP(t->mem[face][l]);
-    for (u32 i = 0, sz = level_size(t->fmt, w, h); i < sz; i++) k = (k ^ src[i]) * 1099511628211ull;
+    u64 k = 1469598103934665603ull ^ ((u64)w << 16) ^ h;      // FNV-1a over the picture (made mip levels have no game copy)
+    for (u32 i = 0; i < w * h; i++) k = (k ^ rgba[i]) * 1099511628211ull;
+    (void)face; (void)l;
     snprintf(p, sizeof p, "%s/%016llx.etc", dir, (unsigned long long)k);
     u8 *blk = malloc(n);
     FILE *f = fopen(p, "rb");
@@ -255,8 +257,36 @@ static void upload_level(Res *t, int face, int l) {
     u64 t0 = us_now();
     u32 *tmp = malloc((size_t)w * h * 4);
     to_rgba(t->fmt, (u8 *)HP(t->mem[face][l]), t->pitch[l], w, h, tmp);
+    if (!l && !face) {                           // what the picture is (texture hiding by content, e.g. the sky track's clouds)
+        u32 hsh = 2166136261u;
+        for (u32 i = 0; i < w * h; i += 7) hsh = (hsh ^ tmp[i]) * 16777619u;
+        t->hash = hsh ^ (w << 16) ^ h;
+    }
     if (t->etc) etc_level(t, face, l, tmp, w, h);
     else gpu_tex_upload(t->gt, face * 16 + l, 0, 0, (int)w, (int)h, tmp, (int)w);
+    // AUTOGENMIPMAP: the game's 3D art asks the driver for its smaller copies; they were never made, so far surfaces
+    // sampled the full picture (slow on phone GPUs, shimmering). Made here by halving level 0 (2x2 average).
+    if (t->automip && !l && !face) {
+        u32 pw = w, ph = h, *prev = tmp;
+        for (u32 lv = 1; lv < t->levels && (pw > 1 || ph > 1); lv++) {
+            u32 nw = pw > 1 ? pw / 2 : 1, nh = ph > 1 ? ph / 2 : 1;
+            u32 *nx = malloc((size_t)nw * nh * 4);
+            for (u32 y = 0; y < nh; y++)
+                for (u32 x = 0; x < nw; x++) {
+                    u32 x0 = x * 2 < pw ? x * 2 : pw - 1, x1 = x * 2 + 1 < pw ? x * 2 + 1 : pw - 1;
+                    u32 y0 = y * 2 < ph ? y * 2 : ph - 1, y1 = y * 2 + 1 < ph ? y * 2 + 1 : ph - 1;
+                    u32 a = prev[y0 * pw + x0], b = prev[y0 * pw + x1], c = prev[y1 * pw + x0], e = prev[y1 * pw + x1], o = 0;
+                    for (int sh = 0; sh < 32; sh += 8)
+                        o |= ((((a >> sh) & 255) + ((b >> sh) & 255) + ((c >> sh) & 255) + ((e >> sh) & 255) + 2) / 4) << sh;
+                    nx[y * nw + x] = o;
+                }
+            if (t->etc) etc_level(t, 0, (int)lv, nx, nw, nh);
+            else gpu_tex_upload(t->gt, (int)lv, 0, 0, (int)nw, (int)nh, nx, (int)nw);
+            if (prev != tmp) free(prev);
+            prev = nx; pw = nw; ph = nh;
+        }
+        if (prev != tmp) free(prev);
+    }
     free(tmp);
     g_perf.up_us += us_now() - t0;
     t->dirty[face][l] = 0;
@@ -512,12 +542,16 @@ static Res *make_texture(int kind, u32 w, u32 h, u32 levels, u32 usage, u32 fmt,
             for (int f = 0; f < faces; f++) t->mem[f][l] = gcalloc(level_size(fmt, lw, lh));
     }
     if (pool != 2) {                      // not SYSTEMMEM: has a GPU copy
-        GTexDesc d = {(int)w, (int)h, (usage & 0x400) ? 1 : (int)levels, (usage & 1) != 0, 0, fmt};   // AUTOGENMIPMAP: one level on the GPU
+        // AUTOGENMIPMAP (the game's 3D art): the whole chain on the GPU, made from level 0 at upload (upload_level)
+        t->automip = (usage & 0x400) && kind == K_TEX && !(usage & 1);
+        GTexDesc d = {(int)w, (int)h, (usage & 0x400) && !t->automip ? 1 : (int)levels, (usage & 1) != 0, 0, fmt};
         if (kind == K_CUBE) d.levels |= 0x100;
-        // Compressed textures: the game's DXT art (whole levels written once) as ETC2; block-sized textures only.
+        // Compressed textures: the game's 3D art as ETC2 -- DXT, or the 32-bit pictures that have smaller levels (menus
+        // and text are single-level and stay sharp); whole levels written once; block-sized textures only.
         // Not for textures first made during a race (nitro flames, item effects): encoding one on the game thread
         // froze the race (11 Nov 2026, the user: "doing nitro now freezes"); those stay RGBA8.
-        d.etc = t->etc = gpu_has_etc2() && is_dxt(fmt) && kind == K_TEX && !(usage & 0x401) && w >= 4 && h >= 4 && !(w & 3) && !(h & 3)
+        int art = is_dxt(fmt) || ((fmt == FMT_A8R8G8B8 || fmt == FMT_X8R8G8B8) && (t->automip || levels > 1));
+        d.etc = t->etc = gpu_has_etc2() && art && kind == K_TEX && !(usage & 1) && w >= 4 && h >= 4 && !(w & 3) && !(h & 3)
                          && !hud_race_recent(5000);
         t->gt = gpu_tex_create(&d);
     }
@@ -1064,6 +1098,37 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
         for (int q = 0; q < 6; q++) {
             float n = sqrtf(pl[q][0] * pl[q][0] + pl[q][1] * pl[q][1] + pl[q][2] * pl[q][2]);
             if (n > 0 && (pl[q][0] * v[0] + pl[q][1] * v[1] + pl[q][2] * v[2] + pl[q][3]) / n < -r) { g_perf.culled++; return; }
+        }
+    }
+    // Hidden on phones (11 Nov 2026, the user: "disable those cloud layers on that map for mobile"): 3D draws whose
+    // texture is one of these pictures (level-0 hash, upload_level) are not drawn. <image dir>/mobile_hide.txt (APK
+    // asset) lists them, one hex hash per line, # comments; CK_HIDETEX="h1,h2" adds more (testing).
+    if (!d.pretransformed && g_tex_obj[0]) {
+        static u32 hide[64]; static int nhide = -1;
+        if (nhide < 0) {
+            nhide = 0;
+            extern char g_image_dir[512];
+            char hp[600], line[160];
+            for (int src = 0; src < 2; src++) {      // the app's list, then <game>/mobile_hide.txt (adjustable over USB)
+                snprintf(hp, sizeof hp, "%s/mobile_hide.txt", src ? g_game_dir : g_image_dir);
+                FILE *hf = fopen(hp, "r");
+                while (hf && fgets(line, sizeof line, hf) && nhide < 64) if (line[0] != '#' && line[0] > ' ') hide[nhide++] = (u32)strtoul(line, 0, 16);
+                if (hf) fclose(hf);
+            }
+            const char *ev = getenv("CK_HIDETEX");
+            for (const char *q = ev; q && *q && nhide < 64; q = strchr(q, ',') ? strchr(q, ',') + 1 : 0) hide[nhide++] = (u32)strtoul(q, 0, 16);
+        }
+        Res *htr = res_of(g_tex_obj[0]);
+        if (htr && htr->hash) for (int q = 0; q < nhide; q++) if (htr->hash == hide[q]) return;
+    }
+    {   // debug: one frame's 3D draws with their texture's picture hash (for mobile_hide.txt), when <game>/framedump.txt appears
+        static u32 dump_frame;
+        if (!(g_frames % 30)) { char fp[600]; snprintf(fp, sizeof fp, "%s/framedump.txt", g_game_dir); if (!access(fp, F_OK)) { unlink(fp); dump_frame = g_frames + 2; } }
+        if (dump_frame && g_frames == dump_frame && !d.pretransformed) {
+            Res *tr = res_of(g_tex_obj[0]);
+            rt_log("fd: tex %08x %ux%u fmt %u | blend %d %u/%u zw %u at %u ref %u | nv %u stored %d r %.0f | to_bb %d rt %ux%u | op %u tf %08x\n",
+                   tr ? tr->hash : 0, tr ? tr->w : 0, tr ? tr->h : 0, tr ? tr->fmt : 0, g_st.alpha_blend, g_st.src_blend, g_st.dst_blend, g_st.zwrite,
+                   g_st.alpha_test, g_st.alpha_ref, nverts, stored, stored ? bs[3] : 0, to_bb, rtr ? rtr->w : 0, rtr ? rtr->h : 0, g_st.stage[0].colorop, g_st.texture_factor);
         }
     }
     if (d.pretransformed) g_perf.flat++; else if (!stored) g_perf.dyn3d++;

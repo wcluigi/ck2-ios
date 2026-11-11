@@ -310,6 +310,7 @@ static void start_game(void) {
     extract_asset(am, "hud_elements.txt", g_image_dir_s);      // HUD layout elements (hud.c)
     extract_asset(am, "cjk_sc.ttf", g_image_dir_s);            // Chinese text on every phone (text.c)
     extract_asset(am, "pipelines_seed.bin", g_image_dir_s);    // GPU pipelines built at start on every install (gpu_wgpu.c)
+    extract_asset(am, "mobile_hide.txt", g_image_dir_s);       // textures not drawn on phones (d3d9.c), e.g. map 68's clouds
     {                                                          // the phone UI page (runtime/mobile/ui_bridge.c serves it)
         char wd[600];
         snprintf(wd, sizeof wd, "%s/webui", g_image_dir_s);
