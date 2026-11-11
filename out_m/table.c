@@ -15084,7 +15084,11 @@ const FnEnt ck_fn_table[] = {
   {0x009e0b14u, F_009e0b14},
   {0x009e0b28u, F_009e0b28},
   {0x009e0c10u, F_009e0c10},
-  {0x009e0d30u, F_009e0d30},
+  {0x009e0d40u, F_009e0d40},
+  {0x009e0e00u, F_009e0e00},
+  {0x009e0e2du, F_009e0e2d},
+  {0x009e0e4fu, F_009e0e4f},
+  {0x009e0e84u, F_009e0e84},
   {0x10001000u, F_10001000},
   {0x1000101bu, F_1000101b},
   {0x1000103cu, F_1000103c},
@@ -17175,7 +17179,7 @@ const FnEnt ck_fn_table[] = {
   {0x1040a9d0u, F_1040a9d0},
   {0x1040a9dbu, F_1040a9db},
 };
-const u32 ck_fn_count = 17174;
+const u32 ck_fn_count = 17178;
 const u32 ck_entry = 0x005feba2u;
 const u32 ck_code_ranges[][2] = {{0x401000u, 0x62d000u}, {0x62d000u, 0x62e000u}, {0x9c1000u, 0x9c2000u}, {0x9c4000u, 0x9c5000u}, {0x9c5000u, 0x9c7000u}, {0x9dd000u, 0x9de000u}, {0x9de000u, 0x9e0000u}, {0x9e0000u, 0x9e1000u}, {0x10001000u, 0x10008000u}, {0x10101000u, 0x1010d000u}, {0x10201000u, 0x1020b000u}, {0x10301000u, 0x10309000u}, {0x10401000u, 0x1040b000u}};
 const u32 ck_code_range_count = 13;

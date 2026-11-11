@@ -4244,7 +4244,8 @@ L_004e269a:;
   /* 004e26ec test al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
   /* 004e26ee fdiv dword ptr [ebp + 0x14] */ { const u32 m_ = (u32)(ebp + 0x14u); ST(0) = FR(ST(0) / (double)MF32(m_)); }
   /* 004e26f1 je 0x4e26fe */ if (ZF_) goto L_004e26fe;
-  /* 004e26f3 mov eax, dword ptr [ebx + 0x500] */ { const u32 m_ = (u32)(ebx + 0x500u); eax = (u32)(M32(m_)); }
+  /* 004e26f3 call 0x9e0e84 */ esp -= 4; M32(esp) = 0x4e26f8u; SAVEALL; F_009e0e84(c); ABI_CHECK(0x9e0e84u, 0x4e26f3u); RETCHK(0x4e26f8u, 0x4e26f3u); LOADALL;
+  /* 004e26f8 nop */ ;
   /* 004e26f9 mov dword ptr [ebp + 0x14], eax */ { const u32 m_ = (u32)(ebp + 0x14u); M32(m_) = (u32)(eax); }
   /* 004e26fc jmp 0x4e2703 */ goto L_004e2703;
 L_004e26fe:;
