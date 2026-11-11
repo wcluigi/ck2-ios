@@ -89,33 +89,60 @@ public class GameActivity extends NativeActivity {
         runOnUiThread(new Runnable() { public void run() { showChat(); } });
     }
 
+    // Full-screen typing (11 Nov 2026, the user: "make the typing fullscreen"): the small dialog was half under the
+    // landscape keyboard. A dark full-screen panel, the text field + Send / Cancel across the top, keyboard below.
     void showChat() {
+        final android.app.Dialog dlg = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        final boolean[] done = {false};
         final EditText e = new EditText(this);
         e.setSingleLine(true);
         e.setInputType(InputType.TYPE_CLASS_TEXT);
-        e.setImeOptions(EditorInfo.IME_ACTION_SEND | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        e.setImeOptions(EditorInfo.IME_ACTION_SEND | EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN);
         e.setHint("Message");
-        final AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Chat")
-                .setView(e)
-                .setPositiveButton("Send", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface di, int w) { nativeChat(e.getText().toString()); }
-                })
-                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface di, int w) { nativeChat(""); }
-                })
-                .setOnCancelListener(new DialogInterface.OnCancelListener() {
-                    public void onCancel(DialogInterface di) { nativeChat(""); }
-                })
-                .create();
-        e.setOnEditorActionListener(new android.widget.TextView.OnEditorActionListener() {
-            public boolean onEditorAction(android.widget.TextView v, int id, android.view.KeyEvent ev) {
-                nativeChat(e.getText().toString());
-                dlg.dismiss();
-                return true;
-            }
+        e.setTextSize(20);
+        e.setTextColor(0xFFFFFFFF);
+        e.setHintTextColor(0x80FFFFFF);
+        e.setBackgroundColor(0xFF1E2538);
+        int pad = (int) (12 * getResources().getDisplayMetrics().density);
+        e.setPadding(pad, pad, pad, pad);
+        final Runnable send = new Runnable() { public void run() {
+            if (done[0]) return;
+            done[0] = true;
+            nativeChat(e.getText().toString());
+            dlg.dismiss();
+        } };
+        final Runnable cancel = new Runnable() { public void run() {
+            if (done[0]) return;
+            done[0] = true;
+            nativeChat("");
+            dlg.dismiss();
+        } };
+        android.widget.Button bs = new android.widget.Button(this), bc = new android.widget.Button(this);
+        bs.setText("Send"); bc.setText("Cancel");
+        bs.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) { send.run(); } });
+        bc.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) { cancel.run(); } });
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(pad * 3, pad * 2, pad * 3, pad);      // clear of a notch / rounded corners
+        row.addView(e, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
+        android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(-2, -2);
+        blp.leftMargin = pad;
+        row.addView(bs, blp);
+        row.addView(bc, new android.widget.LinearLayout.LayoutParams(blp));
+        android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xF00A0E18);
+        root.addView(row, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        dlg.setContentView(root);
+        dlg.setOnCancelListener(new DialogInterface.OnCancelListener() {    // Android's Back
+            public void onCancel(DialogInterface di) { cancel.run(); }
         });
-        dlg.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+        e.setOnEditorActionListener(new android.widget.TextView.OnEditorActionListener() {
+            public boolean onEditorAction(android.widget.TextView v, int id, android.view.KeyEvent ev) { send.run(); return true; }
+        });
+        dlg.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         dlg.show();
         e.requestFocus();
     }

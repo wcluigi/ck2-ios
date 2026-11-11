@@ -56,21 +56,67 @@ void plat_fatal_hook(const char *msg) {
     for (;;) pause();                    // keep the message up (rt_fatal would abort right after)
 }
 
-// ---- chat: the game's Chat button / a controller's chat key -> a text box; the text comes back as typed characters
+// ---- chat: the game's Chat button / a controller's chat key -> a text box; the text comes back as typed characters.
+// Full screen (11 Nov 2026, the user: "make the typing fullscreen"), as Android: a dark panel, the text field +
+// Send / Cancel across the top, the keyboard below.
+@interface ChatVC : UIViewController <UITextFieldDelegate>
+@property (copy) void (^done)(NSString *);
+@end
+@implementation ChatVC {
+    UITextField *_tf;
+    BOOL _sent;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.055 blue:0.094 alpha:0.94];
+    _tf = [[UITextField alloc] init];
+    _tf.placeholder = @"Message";
+    _tf.font = [UIFont systemFontOfSize:20];
+    _tf.textColor = UIColor.whiteColor;
+    _tf.backgroundColor = [UIColor colorWithRed:0.118 green:0.145 blue:0.22 alpha:1];
+    _tf.returnKeyType = UIReturnKeySend;
+    _tf.delegate = self;
+    _tf.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 12)];
+    _tf.leftViewMode = UITextFieldViewModeAlways;
+    _tf.layer.cornerRadius = 8;
+    UIButton *s = [UIButton buttonWithType:UIButtonTypeSystem], *c = [UIButton buttonWithType:UIButtonTypeSystem];
+    [s setTitle:@"Send" forState:UIControlStateNormal];
+    [c setTitle:@"Cancel" forState:UIControlStateNormal];
+    s.titleLabel.font = c.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    [s addTarget:self action:@selector(send) forControlEvents:UIControlEventTouchUpInside];
+    [c addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[_tf, s, c]];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 14;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:row];
+    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [row.topAnchor constraintEqualToAnchor:g.topAnchor constant:12], [row.leadingAnchor constraintEqualToAnchor:g.leadingAnchor constant:16],
+        [row.trailingAnchor constraintEqualToAnchor:g.trailingAnchor constant:-16], [row.heightAnchor constraintEqualToConstant:48]]];
+}
+- (void)viewDidAppear:(BOOL)animated { [super viewDidAppear:animated]; [_tf becomeFirstResponder]; }
+- (BOOL)textFieldShouldReturn:(UITextField *)t { [self finish:t.text ?: @""]; return NO; }
+- (void)send { [self finish:_tf.text ?: @""]; }
+- (void)cancel { [self finish:@""]; }
+- (void)finish:(NSString *)s {
+    if (_sent) return;
+    _sent = YES;
+    if (self.done) self.done(s);
+    [self dismissViewControllerAnimated:NO completion:nil];
+}
+@end
 void plat_open_chat(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Chat" message:nil preferredStyle:UIAlertControllerStyleAlert];
-        [a addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Message"; t.returnKeyType = UIReturnKeySend; }];
-        void (^send)(NSString *) = ^(NSString *s) {
+        ChatVC *a = [[ChatVC alloc] init];
+        a.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        a.done = ^(NSString *s) {
             for (NSUInteger i = 0; i < s.length && i < 120; i++) input_push(4, [s characterAtIndex:i], 0, 0, 0);
             input_push(2, 0x0d, 1, 0, 0); input_push(2, 0x0d, 0, 0, 0);     // Enter: send (empty: just closes the line)
         };
-        [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *x) { send(@""); }]];
-        [a addAction:[UIAlertAction actionWithTitle:@"Send" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
-            send(a.textFields.firstObject.text ?: @""); }]];
         UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
         while (vc.presentedViewController) vc = vc.presentedViewController;
-        [vc presentViewController:a animated:YES completion:nil];
+        [vc presentViewController:a animated:NO completion:nil];
     });
 }
 
