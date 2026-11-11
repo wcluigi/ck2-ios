@@ -1,18 +1,5 @@
 #include "funcs.h"
 
-void F_004f4a00(CPU *c) {
-  NATIVE_HOOK(0x4f4a00u) REGS; LOADALL;
-L_004f4a00:;
-  /* 004f4a00 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
-  /* 004f4a01 mov esi, eax */ { esi = (u32)(eax); }
-  /* 004f4a03 call 0x4f4190 */ esp -= 4; M32(esp) = 0x4f4a08u; SAVEALL; F_004f4190(c); ABI_CHECK(0x4f4190u, 0x4f4a03u); RETCHK(0x4f4a08u, 0x4f4a03u); LOADALL;
-  /* 004f4a08 mov dword ptr [esi], 0x64f634 */ { const u32 m_ = (u32)(esi); M32(m_) = (u32)(0x64f634u); }
-  /* 004f4a0e mov dword ptr [esi + 0x40], 0x13038dc0 */ { const u32 m_ = (u32)(esi + 0x40u); M32(m_) = (u32)(0x13038dc0u); }
-  /* 004f4a15 mov eax, esi */ { eax = (u32)(esi); }
-  /* 004f4a17 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
-  /* 004f4a18 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
-}
-
 void F_004f4a20(CPU *c) {
   NATIVE_HOOK(0x4f4a20u) REGS; LOADALL;
 L_004f4a20:;
@@ -10366,4 +10353,23 @@ L_004fba8e:;
   /* 004fba91 mov esp, ebp */ { esp = (u32)(ebp); }
   /* 004fba93 pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
   /* 004fba94 ret 8 */ c->popped = M32(esp); esp += 12u; SAVEALL; return;
+}
+
+void F_004fbaa0(CPU *c) {
+  NATIVE_HOOK(0x4fbaa0u) REGS; LOADALL;
+L_004fbaa0:;
+  /* 004fbaa0 push ebp */ { u32 v_ = ebp; esp -= 4; M32(esp) = v_; }
+  /* 004fbaa1 mov ebp, esp */ { ebp = (u32)(esp); }
+  /* 004fbaa3 mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
+  /* 004fbaa6 fld dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); FPUSH((double)MF32(m_)); }
+  /* 004fbaa9 mov ecx, dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); ecx = (u32)(M32(m_)); }
+  /* 004fbaac fcomp dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); c->fsw = fcom_sw(c->fsw, ST(0), (double)MF32(m_)); FPOP(); }
+  /* 004fbaaf fnstsw ax */ eax = (eax & 0xffff0000u) | (FSW_ & 0xffffu);
+  /* 004fbab1 test ah, 5 */ { u32 a_ = ((eax >> 8) & 0xffu), b_ = 0x5u; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
+  /* 004fbab4 mov eax, 0xffffffff */ { eax = (u32)(0xffffffffu); }
+  /* 004fbab9 jnp 0x4fbac0 */ if (!PF_) goto L_004fbac0;
+  /* 004fbabb mov eax, 1 */ { eax = (u32)(0x1u); }
+L_004fbac0:;
+  /* 004fbac0 pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
+  /* 004fbac1 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
 }

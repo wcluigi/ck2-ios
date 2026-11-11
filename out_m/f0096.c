@@ -1,12 +1,5 @@
 #include "funcs.h"
 
-void F_00628fa0(CPU *c) {
-  NATIVE_HOOK(0x628fa0u) REGS; LOADALL;
-L_00628fa0:;
-  /* 00628fa0 mov dword ptr [0x7a7150], 0x42652ee0 */ { const u32 m_ = (u32)(0x7a7150u); M32(m_) = (u32)(0x42652ee0u); }
-  /* 00628faa ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
-}
-
 void F_00628fb0(CPU *c) {
   NATIVE_HOOK(0x628fb0u) REGS; LOADALL;
 L_00628fb0:;
@@ -1381,4 +1374,16 @@ L_00629c60:;
   /* 00629c74 mov eax, 0x7a7e68 */ { eax = (u32)(0x7a7e68u); }
   /* 00629c79 call 0x52cec0 */ esp -= 4; M32(esp) = 0x629c7eu; SAVEALL; F_0052cec0(c); ABI_CHECK(0x52cec0u, 0x629c79u); RETCHK(0x629c7eu, 0x629c79u); LOADALL;
   /* 00629c7e ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
+void F_00629c80(CPU *c) {
+  NATIVE_HOOK(0x629c80u) REGS; LOADALL;
+L_00629c80:;
+  /* 00629c80 push 0x429a0000 */ { u32 v_ = 0x429a0000u; esp -= 4; M32(esp) = v_; }
+  /* 00629c85 push 0x42aa0000 */ { u32 v_ = 0x42aa0000u; esp -= 4; M32(esp) = v_; }
+  /* 00629c8a push 0x42140000 */ { u32 v_ = 0x42140000u; esp -= 4; M32(esp) = v_; }
+  /* 00629c8f push 0x42340000 */ { u32 v_ = 0x42340000u; esp -= 4; M32(esp) = v_; }
+  /* 00629c94 mov eax, 0x7a7ee0 */ { eax = (u32)(0x7a7ee0u); }
+  /* 00629c99 call 0x52cec0 */ esp -= 4; M32(esp) = 0x629c9eu; SAVEALL; F_0052cec0(c); ABI_CHECK(0x52cec0u, 0x629c99u); RETCHK(0x629c9eu, 0x629c99u); LOADALL;
+  /* 00629c9e ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
 }
