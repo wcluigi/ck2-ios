@@ -74,6 +74,21 @@ void plat_open_chat(void) {
     });
 }
 
+// ---- a game text field the player tapped (hle_misc.c ImmSetOpenStatus): typed into it, no Enter (12 Nov 2026)
+void plat_open_text(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Type" message:nil preferredStyle:UIAlertControllerStyleAlert];
+        [a addTextFieldWithConfigurationHandler:^(UITextField *t) { t.returnKeyType = UIReturnKeyDone; }];
+        [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+            NSString *s = a.textFields.firstObject.text ?: @"";
+            for (NSUInteger i = 0; i < s.length && i < 120; i++) input_push(4, [s characterAtIndex:i], 0, 0, 0); }]];
+        UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
+        while (vc.presentedViewController) vc = vc.presentedViewController;
+        [vc presentViewController:a animated:YES completion:nil];
+    });
+}
+
 // ---- audio out: AudioUnit (RemoteIO), float stereo, pulled from the FMOD mixer (hle_fmod.c) ------------------------
 static void (*g_mix)(float *, int);
 static AudioUnit g_au;

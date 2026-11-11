@@ -9,7 +9,7 @@
 #include <stdlib.h>
 
 void ui_key(int vk, int down);
-void plat_open_chat(void);
+void open_chat(void);
 int user32_cursor_hidden(void);
 int hud_touch_button(const char *name, float *cx, float *cy, float *r);
 float hud_touch_opacity(void);
@@ -66,7 +66,7 @@ static void sync_keys(void) {
         // CHAT: Enter opens the race chat line (Right Ctrl did not), then the phone's text box; its text comes back
         // as typed characters + Enter (plat_android.c native_chat)
         ui_key(0x0d, want);
-        if (!want) plat_open_chat();
+        if (!want) open_chat();
     }
 }
 int hud_racing(void);

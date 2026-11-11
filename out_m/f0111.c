@@ -1,5 +1,14 @@
 #include "funcs.h"
 
+void F_10306920(CPU *c) {
+  NATIVE_HOOK(0x10306920u) REGS; LOADALL;
+L_10306920:;
+  /* 10306920 push 0xc */ { u32 v_ = 0xcu; esp -= 4; M32(esp) = v_; }
+  /* 10306922 call 0x103051fa */ esp -= 4; M32(esp) = 0x10306927u; SAVEALL; F_103051fa(c); ABI_CHECK(0x103051fau, 0x10306922u); RETCHK(0x10306927u, 0x10306922u); LOADALL;
+  /* 10306927 pop ecx */ { u32 v_ = M32(esp); esp += 4; ecx = (u32)(v_); }
+  /* 10306928 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
 void F_10306929(CPU *c) {
   NATIVE_HOOK(0x10306929u) REGS; LOADALL;
 L_10306929:;
@@ -6790,17 +6799,6 @@ L_104020d8:;
   /* 104020e2 add eax, 0x7090609 */ { u32 a_ = eax, b_ = 0x7090609u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
   /* 104020e7 or dword ptr [eax], ecx */ { const u32 m_ = (u32)(eax); u32 a_ = M32(m_), b_ = ecx; u32 r_ = a_ | b_; SETFC(OP_LOGIC, 0, 0, r_, 4); M32(m_) = (u32)(r_); }
   /* 104020e9 lea ecx, [ecx] */ ecx = (u32)((u32)(ecx));
-  /* 104020ec and byte ptr ss:[eax + 0x10], al */ { const u32 m_ = (u32)(eax + 0x10u); u32 a_ = M8(m_), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); M8(m_) = (u8)(r_); }
-  /* 104020f0 inc ebp */ { u32 a_ = ebp; u32 r_ = (a_ + 1u) & 0xffffffffu; ebp = (u32)(r_); SETF(OP_INC, a_, 1, r_, 4); }
-  /* 104020f1 and byte ptr [eax + 0x10], al */ { const u32 m_ = (u32)(eax + 0x10u); u32 a_ = M8(m_), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); M8(m_) = (u8)(r_); }
-  /* 104020f4 push esp */ { u32 v_ = esp; esp -= 4; M32(esp) = v_; }
-  /* 104020f5 and byte ptr [eax + 0x10], al */ { const u32 m_ = (u32)(eax + 0x10u); u32 a_ = M8(m_), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); M8(m_) = (u8)(r_); }
-  /* 104020f8 arpl word ptr [eax], sp */ TRAP(0x104020f8u, "arpl");
-}
-
-void F_104020ec(CPU *c) {
-  NATIVE_HOOK(0x104020ecu) REGS; LOADALL;
-L_104020ec:;
   /* 104020ec and byte ptr ss:[eax + 0x10], al */ { const u32 m_ = (u32)(eax + 0x10u); u32 a_ = M8(m_), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); M8(m_) = (u8)(r_); }
   /* 104020f0 inc ebp */ { u32 a_ = ebp; u32 r_ = (a_ + 1u) & 0xffffffffu; ebp = (u32)(r_); SETF(OP_INC, a_, 1, r_, 4); }
   /* 104020f1 and byte ptr [eax + 0x10], al */ { const u32 m_ = (u32)(eax + 0x10u); u32 a_ = M8(m_), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); M8(m_) = (u8)(r_); }

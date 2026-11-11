@@ -15090,6 +15090,7 @@ void F_009e0e00(CPU *c);
 void F_009e0e2d(CPU *c);
 void F_009e0e4f(CPU *c);
 void F_009e0e84(CPU *c);
+void F_009e0f18(CPU *c);
 void F_10001000(CPU *c);
 void F_1000101b(CPU *c);
 void F_1000103c(CPU *c);
