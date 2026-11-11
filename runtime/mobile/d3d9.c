@@ -7,6 +7,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 u32 user32_main_hwnd(void);
 static u32 user32_main_hwnd_(void) { return user32_main_hwnd(); }
@@ -29,6 +30,7 @@ typedef struct Res {
     int parent, level, face, is_backbuffer, is_depth;
     // buffers
     u32 size, fvf;
+    u32 uid, ver, lock_frame;                    // static geometry cache: identity, write count, frame of the last write
     // declaration
     u8 decl[64][8]; int ndecl;
     // state block
@@ -48,7 +50,8 @@ static Res *res_new(int kind, u32 vt) {
         int i = (g_nres_hint + k) % NRES;
         if (!i || g_res[i].used) continue;
         memset(&g_res[i], 0, sizeof g_res[i]);
-        g_res[i].used = 1; g_res[i].kind = kind;
+        static u32 uids;
+        g_res[i].used = 1; g_res[i].kind = kind; g_res[i].uid = ++uids;
         g_res[i].g = gstatic(16);   // tiny, never reused: guest may keep stale pointers briefly
         M32(g_res[i].g) = vt; M32(g_res[i].g + 4) = 1; M32(g_res[i].g + 8) = (u32)i;
         g_nres_hint = i + 1;
@@ -495,6 +498,7 @@ HLE(d3d_Create9) {
 
 // ---- resources ---------------------------------------------------------------------------------------
 static int nlevels(u32 w, u32 h) { int n = 1; while (w > 1 || h > 1) { w = w > 1 ? w / 2 : 1; h = h > 1 ? h / 2 : 1; n++; } return n; }
+int hud_race_recent(u32 ms);
 static Res *make_texture(int kind, u32 w, u32 h, u32 levels, u32 usage, u32 fmt, u32 pool) {
     Res *t = res_new(kind, kind == K_CUBE ? g_cube_vt : g_tex_vt);
     if (!levels || (usage & 0x400)) levels = (u32)nlevels(w, h);     // 0 or AUTOGENMIPMAP: full chain (we upload level 0 only for autogen)
@@ -510,8 +514,11 @@ static Res *make_texture(int kind, u32 w, u32 h, u32 levels, u32 usage, u32 fmt,
     if (pool != 2) {                      // not SYSTEMMEM: has a GPU copy
         GTexDesc d = {(int)w, (int)h, (usage & 0x400) ? 1 : (int)levels, (usage & 1) != 0, 0, fmt};   // AUTOGENMIPMAP: one level on the GPU
         if (kind == K_CUBE) d.levels |= 0x100;
-        // Compressed textures: the game's DXT art (whole levels written once) as ETC2; block-sized textures only
-        d.etc = t->etc = gpu_has_etc2() && is_dxt(fmt) && kind == K_TEX && !(usage & 0x401) && w >= 4 && h >= 4 && !(w & 3) && !(h & 3);
+        // Compressed textures: the game's DXT art (whole levels written once) as ETC2; block-sized textures only.
+        // Not for textures first made during a race (nitro flames, item effects): encoding one on the game thread
+        // froze the race (11 Nov 2026, the user: "doing nitro now freezes"); those stay RGBA8.
+        d.etc = t->etc = gpu_has_etc2() && is_dxt(fmt) && kind == K_TEX && !(usage & 0x401) && w >= 4 && h >= 4 && !(w & 3) && !(h & 3)
+                         && !hud_race_recent(5000);
         t->gt = gpu_tex_create(&d);
     }
     return t;
@@ -642,10 +649,12 @@ HLE(surf_GetContainer) { Res *s = res_of(ARG(0)); if (!s || !s->parent) return E
 HLE(surf_GetDC) { rt_log("Surface::GetDC unsupported\n"); return E_FAIL; }
 
 // buffers
+extern volatile u32 g_frames;
 HLE(buf_Lock) {
     Res *b = res_of(ARG(0));
     if (!b) return D3DERR_INVALIDCALL;
     M32(ARG(3)) = b->mem[0][0] + ARG(1);
+    if (!(ARG(4) & 0x10)) { b->ver++; b->lock_frame = g_frames; }      // not D3DLOCK_READONLY: its cached geometry is stale
     return S_OK;
 }
 HLE(buf_Unlock) { return S_OK; }
@@ -800,12 +809,13 @@ static void perf_frame(void) {
                    g_perf.texs, (u32)(g_perf.up_us / 1000), g_perf.pipes, (u32)(g_perf.pipe_us / 1000));
     }
     // every 600 frames: average frame time and draw calls (what the drawing layer costs)
-    static u32 nf, draws, passes; static u64 t0;
+    static u32 nf, draws, passes, hits, culled, flat, dyn3d; static u64 t0;
     if (!t0) t0 = now;
-    nf++; draws += g_perf.draws; passes += g_perf.passes;
+    nf++; draws += g_perf.draws; passes += g_perf.passes; hits += g_perf.geom_hits; culled += g_perf.culled; flat += g_perf.flat; dyn3d += g_perf.dyn3d;
     if (nf == 600) {
-        rt_log("frames: %.1f fps, %u draws/frame, %.1f render passes/frame\n", 600.0 * 1e6 / (double)(now - t0), draws / 600, passes / 600.0);
-        nf = 0; draws = 0; passes = 0; t0 = now;
+        rt_log("frames: %.1f fps, %u draws/frame (%u 2D, %u stored 3D, %u per-frame 3D), %.1f render passes/frame, %u culled/frame\n",
+               600.0 * 1e6 / (double)(now - t0), draws / 600, flat / 600, hits / 600, dyn3d / 600, passes / 600.0, culled / 600);
+        nf = 0; draws = 0; passes = 0; hits = 0; culled = 0; flat = 0; dyn3d = 0; t0 = now;
     }
     memset(&g_perf, 0, sizeof g_perf);
 }
@@ -993,6 +1003,66 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
         if (e[k].usage == 10 && e[k].idx == 1) d.has_specular = 1;
         if (e[k].usage == 5 && e[k].idx + 1 > d.ntex) d.ntex = e[k].idx + 1;
     }
+    // Static geometry (gpu_geom_*): world draws from buffers not written in the last 2 frames nor DYNAMIC are keyed by
+    // buffer identity + write count, layout, range and the uv sets read; the GPU keeps their converted vertices
+    if (gpu_geom_on() && !up_data && !d.pretransformed) {
+        u64 k = 1469598103934665603ull;
+#define MIX(x) (k = (k ^ (u64)(x)) * 1099511628211ull)
+        int ok = 1;
+        for (int s = 0; s < 4 && ok; s++) {
+            int used = 0;
+            for (int q = 0; q < ne; q++) if ((e[q].stream & 3) == s) used = 1;
+            if (!used) continue;
+            Res *b = res_of(g_streams[s]);
+            if (!b || b->kind != K_VB || (b->usage & 0x200) || g_frames - b->lock_frame < 2) ok = 0;
+            else { MIX(b->uid); MIX(b->ver); MIX(g_stream_off[s]); MIX(g_stream_stride[s]); MIX(s); }
+        }
+        if (ok && ib) {
+            Res *b = res_of(g_indices);
+            if (!b || b->kind != K_IB || (b->usage & 0x200) || g_frames - b->lock_frame < 2) ok = 0;
+            else { MIX(b->uid); MIX(b->ver); MIX(ib - (const u8 *)HP(b->mem[0][0])); MIX(nidx); MIX(idx32); MIX(base); }
+        }
+        if (ok) {
+            for (int q = 0; q < ne; q++) { MIX(e[q].stream); MIX(e[q].off); MIX(e[q].type); MIX(e[q].usage); MIX(e[q].idx); }
+            MIX(prim); MIX(first_vertex); MIX(nverts); MIX(ib != 0);
+            MIX(g_st.stage[0].texcoordindex & 3); MIX(g_st.stage[1].texcoordindex & 3);
+            d.geom = k | 1;
+        }
+#undef MIX
+    }
+    // Draw distance (launcher option, CK_DRAWDIST = % of the game's far plane), read once
+    static int ddpc = -1;
+    if (ddpc < 0) {
+        const char *dv = getenv("CK_DRAWDIST");
+        ddpc = dv ? atoi(dv) : 100;
+        if (ddpc < 20 || ddpc > 100) ddpc = 100;
+    }
+    Res *rtr = res_of(g_rt_obj);
+    int to_bb = !rtr || rtr->is_backbuffer;
+    int gw, rw, ox;
+    gpu_wide(&gw, &rw, &ox);
+    int full = g_st.vp_x == 0 && g_st.vp_y == 0 && (int)g_st.vp_w >= gw && (int)g_st.vp_h >= g_bb_h;
+    const float *P = g_st.proj.m;
+    float farz = P[11] == 1 && P[10] != 1 ? P[14] / (1 - P[10]) : 0;   // the race camera's far plane (perspective only)
+    float bs[4];
+    int stored = d.geom && gpu_geom_has(d.geom, bs);
+    // Draw distance: stored geometry past ddpc % of the game's far plane is not drawn (full-screen 3D only: the room's
+    // kart cards and other sub-viewports keep everything). The sky and the ground around you never qualify.
+    if (stored && ddpc < 100 && to_bb && full && farz > 500) {
+        const float *W = g_st.world.m, *V = g_st.view.m;
+        float wx = bs[0] * W[0] + bs[1] * W[4] + bs[2] * W[8] + W[12];
+        float wy = bs[0] * W[1] + bs[1] * W[5] + bs[2] * W[9] + W[13];
+        float wz = bs[0] * W[2] + bs[1] * W[6] + bs[2] * W[10] + W[14];
+        float vx = wx * V[0] + wy * V[4] + wz * V[8] + V[12], vy = wx * V[1] + wy * V[5] + wz * V[9] + V[13], vz = wx * V[2] + wy * V[6] + wz * V[10] + V[14];
+        float s0 = W[0] * W[0] + W[1] * W[1] + W[2] * W[2], s1 = W[4] * W[4] + W[5] * W[5] + W[6] * W[6], s2 = W[8] * W[8] + W[9] * W[9] + W[10] * W[10];
+        float sc = sqrtf(s0 > s1 ? (s0 > s2 ? s0 : s2) : (s1 > s2 ? s1 : s2));
+        if (sqrtf(vx * vx + vy * vy + vz * vz) - bs[3] * sc > farz * (float)ddpc / 100.f) { g_perf.culled++; return; }
+    }
+    if (d.pretransformed) g_perf.flat++; else if (!stored) g_perf.dyn3d++;
+    if (stored) {                                     // already on the GPU: nothing to rebuild or send
+        d.prim = prim; d.nverts = nverts; d.nindices = ib ? nidx : 0;
+        goto send;
+    }
     for (u32 v = 0; v < nverts; v++) {
         GVert *o = &g_vbuf[v];
         memset(o, 0, sizeof *o);
@@ -1026,10 +1096,11 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
         }
         d.indices = g_ibuf; d.nindices = nidx;
     }
+send:
     d.st = &g_st;
     static int dlog = -1, nlog;
     if (dlog < 0) { const char *ev = getenv("CK_DRAWLOG"); dlog = ev ? atoi(ev) : 0; }
-    if (nlog < dlog) {
+    if (nlog < dlog && d.verts) {
         nlog++;
         char el[512]; int o = 0;
         for (int k = 0; k < ne && o < 480; k++) o += snprintf(el + o, sizeof el - (size_t)o, " s%d/o%d/t%d/u%d/i%d", e[k].stream, e[k].off, e[k].type, e[k].usage, e[k].idx);
@@ -1039,11 +1110,6 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
                nverts > 2 ? g_vbuf[2].pos[0] : 0, nverts > 2 ? g_vbuf[2].pos[1] : 0, g_vbuf[0].diffuse, g_vbuf[0].uv[0][0], g_vbuf[0].uv[0][1], g_st.stage[0].colorop);
     }
     g_frame_draws++;
-    Res *rtr = res_of(g_rt_obj);
-    int to_bb = !rtr || rtr->is_backbuffer;
-    int gw, rw, ox;
-    gpu_wide(&gw, &rw, &ox);
-    int full = g_st.vp_x == 0 && g_st.vp_y == 0 && (int)g_st.vp_w >= gw && (int)g_st.vp_h >= g_bb_h;
     // render quality: only the race's full-screen 3D world is drawn smaller; HUD, menus and kart previews stay sharp
     d.lowres = to_bb && !d.pretransformed && full && hud_race_recent(2000);
     // screen parts moved / scaled by hud.c (race HUD layout, results board, room layout): the 2D vertices are moved
@@ -1097,7 +1163,16 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
         }
         d.st = ws;
     }
+    // Draw distance: the game's linear fog pulled in to the cut, so far things fade out instead of popping off
+    float fog_keep[2] = {g_st.fog_start, g_st.fog_end};
+    int fog_patched = 0;
+    if (ddpc < 100 && to_bb && full && !d.pretransformed && farz > 500 && g_st.fog_enable
+        && (g_st.fog_table_mode == 3 || (!g_st.fog_table_mode && g_st.fog_vertex_mode == 3))) {
+        float lim = farz * (float)ddpc / 100.f;
+        if (g_st.fog_end > lim) { g_st.fog_end = lim; if (g_st.fog_start > lim * 0.6f) g_st.fog_start = lim * 0.6f; fog_patched = 1; }
+    }
     gpu_draw(&d);
+    if (fog_patched) { g_st.fog_start = fog_keep[0]; g_st.fog_end = fog_keep[1]; }
     if (patched) {
         g_st.vp_x = keep.vp_x; g_st.vp_y = keep.vp_y; g_st.vp_w = keep.vp_w; g_st.vp_h = keep.vp_h;
         memcpy(g_st.scissor, keep.sc, sizeof keep.sc);

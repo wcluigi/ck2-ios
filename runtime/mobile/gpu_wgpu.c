@@ -510,8 +510,12 @@ void gpu_tex_destroy(GpuTex *t) {
 }
 
 // ---- passes -----------------------------------------------------------------------------------------
+// what the current pass has set (gpu_draw skips repeats); a new pass starts with nothing set
+static struct { WGPURenderPipeline pipe; WGPUBindGroup tex; WGPUBuffer vb, ib; WGPUIndexFormat ifmt; float vp[6]; u32 sc[4];
+                int vp_set, sc_set, blend_set; } g_ps;
 static void end_pass(void) {
     if (g_pass) { wgpuRenderPassEncoderEnd(g_pass); wgpuRenderPassEncoderRelease(g_pass); g_pass = 0; }
+    memset(&g_ps, 0, sizeof g_ps);
 }
 static void begin_scene_pass(void) {
     if (!g_scene || g_scene->w != bb_w() || g_scene->h != bb_h()) {
@@ -838,6 +842,78 @@ static void put4(u8 *u, int off, float a, float b, float c, float d) { float v[4
 static void put4u(u8 *u, int off, u32 a, u32 b, u32 c, u32 d) { u32 v[4] = {a, b, c, d}; memcpy(u + off, v, 16); }
 static void col4(u8 *u, int off, u32 argb) { put4(u, off, ((argb >> 16) & 255) / 255.f, ((argb >> 8) & 255) / 255.f, (argb & 255) / 255.f, (argb >> 24) / 255.f); }
 
+// ---- static geometry on the GPU (11 Nov 2026, "Compact 3D data") ------------------------------------------------
+// The race profile on the user's Helio G99: every draw rebuilt its vertices from the game's buffers and uploaded
+// them again every frame (draw_common 13 % + copies 11 % of the game thread at 1000 draws). Draws whose buffers did
+// not change (d3d9.c keys them by buffer, version, layout and range) are converted once into a GPU arena; when it
+// fills, everything is dropped and rebuilt as drawn.
+#define SVB_SIZE (96u << 20)
+#define SIB_SIZE (24u << 20)
+#define NGEOM 65536u
+typedef struct { u64 key; u32 voff, vbytes, ioff, ibytes, nidx, nverts; WGPUPrimitiveTopology topo; int i16; float bs[4]; } GeomEnt;
+static GeomEnt *g_geom;
+static u32 g_ngeom, g_svoff, g_sioff, g_geom_resets;
+static WGPUBuffer g_svb, g_sib;
+int gpu_geom_on(void) { return g_lean; }
+static GeomEnt *geom_slot(u64 key, int insert) {
+    if (!g_geom) return 0;
+    for (u32 i = (u32)(key ^ (key >> 31)) & (NGEOM - 1), n = 0; n < NGEOM; i = (i + 1) & (NGEOM - 1), n++) {
+        if (g_geom[i].key == key) return &g_geom[i];
+        if (!g_geom[i].key) return insert ? &g_geom[i] : 0;
+    }
+    return 0;
+}
+int gpu_geom_has(u64 key, float bs[4]) {
+    const GeomEnt *e = geom_slot(key, 0);
+    if (e && bs) memcpy(bs, e->bs, 16);
+    return e != 0;
+}
+static void geom_reset(void) {
+    flush();                                     // draws already recorded may use the arena: submit them first
+    memset(g_geom, 0, NGEOM * sizeof *g_geom);
+    g_ngeom = g_svoff = g_sioff = 0;
+    if (g_geom_resets++ < 20) rt_log("gpu_wgpu: static geometry arena full, rebuilt (%u)\n", g_geom_resets);
+}
+static const GeomEnt *geom_store(u64 key, const GVert *v, u32 nv, const u32 *idx, u32 nidx, WGPUPrimitiveTopology topo,
+                                 int i16, int ua, int ub, int pre) {
+    if (!g_geom) {
+        g_geom = calloc(NGEOM, sizeof *g_geom);
+        WGPUBufferDescriptor bd = WGPU_BUFFER_DESCRIPTOR_INIT;
+        bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = SVB_SIZE; g_svb = wgpuDeviceCreateBuffer(g_dev, &bd);
+        bd.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst; bd.size = SIB_SIZE; g_sib = wgpuDeviceCreateBuffer(g_dev, &bd);
+    }
+    u32 vb = nv * (u32)(g_lean ? sizeof(LVert) : sizeof(GVert)), ib = idx ? (nidx * (i16 ? 2u : 4u) + 3) & ~3u : 0;
+    if (!nv || vb > SVB_SIZE / 8 || ib > SIB_SIZE / 8) return 0;        // a huge one stays on the per-frame path
+    if (g_svoff + vb > SVB_SIZE || g_sioff + ib > SIB_SIZE || g_ngeom >= NGEOM / 2) geom_reset();
+    GeomEnt *e = geom_slot(key, 1);
+    if (!e) return 0;
+    static u8 *tmp; static size_t tcap;
+    size_t need = vb > ib ? vb : ib;
+    if (need > tcap) { tcap = need + 65536; tmp = realloc(tmp, tcap); }
+    if (g_lean) { lean_copy((LVert *)tmp, v, nv, ua, ub); wgpuQueueWriteBuffer(g_q, g_svb, g_svoff, tmp, vb); }
+    else wgpuQueueWriteBuffer(g_q, g_svb, g_svoff, v, vb);
+    if (ib) {
+        if (i16) { u16 *o = (u16 *)tmp; for (u32 i = 0; i < nidx; i++) o[i] = (u16)idx[i]; if (nidx & 1) o[nidx] = 0; }
+        else memcpy(tmp, idx, nidx * 4);
+        wgpuQueueWriteBuffer(g_q, g_sib, g_sioff, tmp, ib);
+    }
+    e->key = key; e->voff = g_svoff; e->vbytes = vb; e->ioff = g_sioff; e->ibytes = ib; e->nidx = idx ? nidx : 0; e->nverts = nv;
+    e->topo = topo; e->i16 = i16;
+    // bounding sphere (model space) for the draw distance option: box centre + farthest vertex
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f}, r2 = 0;
+    if (!pre) {
+        for (u32 i = 0; i < nv; i++) for (int c = 0; c < 3; c++) { float p = v[i].pos[c]; if (p < lo[c]) lo[c] = p; if (p > hi[c]) hi[c] = p; }
+        for (int c = 0; c < 3; c++) e->bs[c] = (lo[c] + hi[c]) * 0.5f;
+        for (u32 i = 0; i < nv; i++) {
+            float dx = v[i].pos[0] - e->bs[0], dy = v[i].pos[1] - e->bs[1], dz = v[i].pos[2] - e->bs[2], q = dx * dx + dy * dy + dz * dz;
+            if (q > r2) r2 = q;
+        }
+        e->bs[3] = sqrtf(r2);
+    } else e->bs[3] = 1e30f;
+    g_svoff += vb; g_sioff += ib; g_ngeom++;
+    return e;
+}
+
 void gpu_draw(const GDraw *d) {
     g_perf.draws++;
     const GState *s = d->st;
@@ -847,7 +923,10 @@ void gpu_draw(const GDraw *d) {
     // (each costs ~0.6 s to build on Mali). Strip triangle i is (i, i+1, i+2), odd ones flipped, as D3D culls them.
     static u32 *fan; static u32 fancap;
     const u32 *idx = d->indices;
-    if (prim == 6 || prim == 5) {
+    const GeomEnt *ge = d->geom ? geom_slot(d->geom, 0) : 0;      // static geometry already on the GPU
+    if (d->geom && !ge && !d->verts) return;                      // (cannot happen: d3d9.c asked gpu_geom_has)
+    if (ge) g_perf.geom_hits++;
+    if (!ge && (prim == 6 || prim == 5)) {
         u32 n = d->indices ? nidx : d->nverts;
         if (n < 3) return;
         u32 need = (n - 2) * 3;
@@ -864,7 +943,11 @@ void gpu_draw(const GDraw *d) {
                                  WGPUPrimitiveTopology_TriangleList;
     // Compact vertices also send indices as 16 bit when they fit
     int i16 = g_lean && idx && d->nverts <= 65535;
-    u32 vbytes = d->nverts * (u32)(g_lean ? sizeof(LVert) : sizeof(GVert)), ibytes = nidx * (i16 ? 2 : 4);
+    u32 tci0 = s->stage[0].texcoordindex, tci1 = s->stage[1].texcoordindex;
+    int ua = (int)(tci0 & 3), ub = (int)(tci1 & 3);
+    if (!ge && d->geom) ge = geom_store(d->geom, d->verts, d->nverts, idx, nidx, topo, i16, ua, ub, d->pretransformed);
+    if (ge) { topo = ge->topo; i16 = ge->i16; nidx = ge->nidx; }
+    u32 vbytes = ge ? 0 : d->nverts * (u32)(g_lean ? sizeof(LVert) : sizeof(GVert)), ibytes = ge ? 0 : nidx * (i16 ? 2 : 4);
     if (g_voff + vbytes > VB_SIZE || g_ioff + ibytes + 4 > IB_SIZE || g_uoff + USTRIDE > UB_SIZE) flush();
     if (vbytes > VB_SIZE || ibytes > IB_SIZE) return;
     if (!g_target) {                              // back buffer draws: the race's 3D world -> the scene target
@@ -879,7 +962,7 @@ void gpu_draw(const GDraw *d) {
     if (!g_pass) begin_pass();
     // uniforms
     u8 *u = g_ustage + g_uoff;
-    memset(u, 0, USTRIDE);
+    memset(u, 0, 480);                       // lights past the count the shader loops over are never read
     float wv[16], wvp[16];
     mat_mul(s->world.m, s->view.m, wv);
     mat_mul(wv, s->proj.m, wvp);
@@ -906,8 +989,6 @@ void gpu_draw(const GDraw *d) {
         put4u(u, 416 + 16 * st, g->colorop, (g->colorarg1 & 255) | ((g->colorarg2 & 255) << 8) | ((g->colorarg0 & 255) << 16),
               g->alphaop, (g->alphaarg1 & 255) | ((g->alphaarg2 & 255) << 8) | ((g->alphaarg0 & 255) << 16));
     }
-    u32 tci0 = s->stage[0].texcoordindex, tci1 = s->stage[1].texcoordindex;
-    int ua = (int)(tci0 & 3), ub = (int)(tci1 & 3);
     if (g_lean) { tci0 = (tci0 & ~3u) | 0; tci1 = (tci1 & ~3u) | 1; }   // LVert carries the stages' sets as 0 and 1
     put4u(u, 448, tci0, tci1, s->stage[0].ttflags, s->stage[1].ttflags);
     int nl = 0;
@@ -931,14 +1012,16 @@ void gpu_draw(const GDraw *d) {
     }
     put4(u, 464, s->mat_power, (float)nl, 0, 0);
     u32 uoff = g_uoff;
-    g_uoff += USTRIDE;
+    g_uoff += (480u + 112u * (u32)nl + 255u) & ~255u;   // only what this draw uses (the binding still spans USTRIDE)
     // geometry
-    if (g_lean) lean_copy((LVert *)(g_vstage + g_voff), d->verts, d->nverts, ua, ub);
+    if (ge) {}
+    else if (g_lean) lean_copy((LVert *)(g_vstage + g_voff), d->verts, d->nverts, ua, ub);
     else memcpy(g_vstage + g_voff, d->verts, vbytes);
     u32 voff = g_voff;
     g_voff += vbytes;
     u32 ioff = g_ioff;
-    if (idx && i16) {
+    if (ge) {}
+    else if (idx && i16) {
         u16 *o = (u16 *)(g_istage + g_ioff);
         for (u32 i = 0; i < nidx; i++) o[i] = (u16)idx[i];
         g_ioff = (g_ioff + ibytes + 3) & ~3u;        // keep offsets 4-aligned (32-bit draws, writeBuffer size)
@@ -955,31 +1038,53 @@ void gpu_draw(const GDraw *d) {
     if (t0 == ct) t0 = g_white;         // sampling the target being drawn to is invalid in WebGPU
     if (t1 == ct) t1 = g_white;
     t0->used_batch = g_batch; t1->used_batch = g_batch;
-    WGPURenderPipeline p = pipeline(s, topo, g_pass_depth != 0);
-    wgpuRenderPassEncoderSetPipeline(g_pass, p);
-    wgpuRenderPassEncoderSetBindGroup(g_pass, 0, g_ubg, 1, &uoff);
-    wgpuRenderPassEncoderSetBindGroup(g_pass, 1, tex_group(t0, sampler(&s->samp[0]), t1, sampler(&s->samp[1])), 0, 0);
-    // viewport (clamped to the target)
-    float vx = s->vp_x * k, vy = s->vp_y * k, vw = s->vp_w * k, vh = s->vp_h * k;
-    if (vx + vw > ct->w) vw = ct->w - vx;
-    if (vy + vh > ct->h) vh = ct->h - vy;
-    if (vw < 1 || vh < 1) return;
-    float z0 = s->vp_minz, z1 = s->vp_maxz;
-    if (z1 < z0 || z1 > 1) { z0 = 0; z1 = 1; }
-    if (d->pretransformed) wgpuRenderPassEncoderSetViewport(g_pass, 0, 0, (float)ct->w, (float)ct->h, 0, 1);
-    else wgpuRenderPassEncoderSetViewport(g_pass, vx, vy, vw, vh, z0, z1);
+    // viewport (clamped to the target) and scissor first: a draw that ends up empty sets nothing
+    float vp[6];
+    if (d->pretransformed) { vp[0] = 0; vp[1] = 0; vp[2] = (float)ct->w; vp[3] = (float)ct->h; vp[4] = 0; vp[5] = 1; }
+    else {
+        float vx = s->vp_x * k, vy = s->vp_y * k, vw = s->vp_w * k, vh = s->vp_h * k;
+        if (vx + vw > ct->w) vw = ct->w - vx;
+        if (vy + vh > ct->h) vh = ct->h - vy;
+        if (vw < 1 || vh < 1) return;
+        float z0 = s->vp_minz, z1 = s->vp_maxz;
+        if (z1 < z0 || z1 > 1) { z0 = 0; z1 = 1; }
+        vp[0] = vx; vp[1] = vy; vp[2] = vw; vp[3] = vh; vp[4] = z0; vp[5] = z1;
+    }
+    u32 sc[4] = {0, 0, (u32)ct->w, (u32)ct->h};
     if (s->scissor_enable) {
         int x0 = (int)(s->scissor[0] * k), y0 = (int)(s->scissor[1] * k), x1 = (int)(s->scissor[2] * k + 0.999f), y1 = (int)(s->scissor[3] * k + 0.999f);
         if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > ct->w) x1 = ct->w; if (y1 > ct->h) y1 = ct->h;
         if (x1 <= x0 || y1 <= y0) return;
-        wgpuRenderPassEncoderSetScissorRect(g_pass, (u32)x0, (u32)y0, (u32)(x1 - x0), (u32)(y1 - y0));
-    } else wgpuRenderPassEncoderSetScissorRect(g_pass, 0, 0, (u32)ct->w, (u32)ct->h);
-    wgpuRenderPassEncoderSetBlendConstant(g_pass, &(WGPUColor){1, 1, 1, 1});   // D3DRS_BLENDFACTOR not tracked yet
-    wgpuRenderPassEncoderSetVertexBuffer(g_pass, 0, g_vb, voff, vbytes);
-    if (idx) {
-        wgpuRenderPassEncoderSetIndexBuffer(g_pass, g_ib, i16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32, ioff, ibytes);
-        wgpuRenderPassEncoderDrawIndexed(g_pass, nidx, 1, 0, 0, 0);
-    } else wgpuRenderPassEncoderDraw(g_pass, d->nverts, 1, 0, 0);
+        sc[0] = (u32)x0; sc[1] = (u32)y0; sc[2] = (u32)(x1 - x0); sc[3] = (u32)(y1 - y0);
+    }
+    // only what changed since the last draw of this pass is set again (g_ps, cleared when a pass ends): at 1000 draws
+    // a frame the repeated pipeline / texture / viewport / scissor / buffer calls were a large share of wgpu's time
+    WGPURenderPipeline p = pipeline(s, topo, g_pass_depth != 0);
+    if (p != g_ps.pipe) { wgpuRenderPassEncoderSetPipeline(g_pass, p); g_ps.pipe = p; }
+    wgpuRenderPassEncoderSetBindGroup(g_pass, 0, g_ubg, 1, &uoff);
+    WGPUBindGroup tg = tex_group(t0, sampler(&s->samp[0]), t1, sampler(&s->samp[1]));
+    if (tg != g_ps.tex) { wgpuRenderPassEncoderSetBindGroup(g_pass, 1, tg, 0, 0); g_ps.tex = tg; }
+    if (!g_ps.vp_set || memcmp(vp, g_ps.vp, sizeof vp)) {
+        wgpuRenderPassEncoderSetViewport(g_pass, vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+        memcpy(g_ps.vp, vp, sizeof vp); g_ps.vp_set = 1;
+    }
+    if (!g_ps.sc_set || memcmp(sc, g_ps.sc, sizeof sc)) {
+        wgpuRenderPassEncoderSetScissorRect(g_pass, sc[0], sc[1], sc[2], sc[3]);
+        memcpy(g_ps.sc, sc, sizeof sc); g_ps.sc_set = 1;
+    }
+    if (!g_ps.blend_set) { wgpuRenderPassEncoderSetBlendConstant(g_pass, &(WGPUColor){1, 1, 1, 1}); g_ps.blend_set = 1; }   // D3DRS_BLENDFACTOR not tracked yet
+    // one vertex / index buffer per pass (the arena or this frame's staging); draws pick their part by base vertex
+    // and first index (offsets are whole vertices / indices: the vertex size is fixed for the run)
+    WGPUBuffer vbuf = ge ? g_svb : g_vb, ibuf = ge ? g_sib : g_ib;
+    u32 stride = (u32)(g_lean ? sizeof(LVert) : sizeof(GVert));
+    if (vbuf != g_ps.vb) { wgpuRenderPassEncoderSetVertexBuffer(g_pass, 0, vbuf, 0, ge ? SVB_SIZE : VB_SIZE); g_ps.vb = vbuf; }
+    u32 base_vertex = (ge ? ge->voff : voff) / stride;
+    u32 n = ge ? ge->nidx : (idx ? nidx : 0);
+    if (n) {
+        WGPUIndexFormat fmt = i16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32;
+        if (ibuf != g_ps.ib || fmt != g_ps.ifmt) { wgpuRenderPassEncoderSetIndexBuffer(g_pass, ibuf, fmt, 0, ge ? SIB_SIZE : IB_SIZE); g_ps.ib = ibuf; g_ps.ifmt = fmt; }
+        wgpuRenderPassEncoderDrawIndexed(g_pass, n, 1, (ge ? ge->ioff : ioff) / (i16 ? 2u : 4u), (int32_t)base_vertex, 0);
+    } else wgpuRenderPassEncoderDraw(g_pass, ge ? ge->nverts : d->nverts, 1, base_vertex, 0);
 }
 
 // The platform window can go away (app switched away / screen locked) and come back as a new window: the surface

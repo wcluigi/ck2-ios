@@ -29,6 +29,18 @@ public class GameActivity extends NativeActivity {
         for (Display.Mode m : d.getSupportedModes())
             if (m.getPhysicalWidth() == best.getPhysicalWidth() && m.getPhysicalHeight() == best.getPhysicalHeight()
                     && m.getRefreshRate() > best.getRefreshRate()) best = m;
+        // a frame rate cap (Settings 30 / 60 / 90 / 120): the slowest mode the cap divides evenly, so every frame stays
+        // on screen equally long -- a 60 cap on a 144 Hz panel showed frames for 2 or 3 refreshes (judder)
+        int cap = getIntent().getIntExtra("fpscap", 0);
+        if (cap > 0) {
+            Display.Mode even = null;
+            for (Display.Mode m : d.getSupportedModes()) {
+                if (m.getPhysicalWidth() != best.getPhysicalWidth() || m.getPhysicalHeight() != best.getPhysicalHeight()) continue;
+                int hz = Math.round(m.getRefreshRate());
+                if (hz >= cap && hz % cap == 0 && (even == null || m.getRefreshRate() < even.getRefreshRate())) even = m;
+            }
+            if (even != null) best = even;
+        }
         WindowManager.LayoutParams lp = getWindow().getAttributes();
         lp.preferredDisplayModeId = best.getModeId();
         lp.preferredRefreshRate = best.getRefreshRate();

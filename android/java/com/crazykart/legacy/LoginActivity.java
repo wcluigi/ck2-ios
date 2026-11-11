@@ -517,6 +517,13 @@ public class LoginActivity extends Activity {
         card.addView(label(t("Compressed textures", "纹理压缩")));
         final RadioGroup etc2 = segmented(new String[]{t("On", "开"), t("Off", "关")}, prefs.getBoolean("etc2", false) ? 0 : 1);
         card.addView(etc2, new LinearLayout.LayoutParams(-1, -2));
+        // Draw distance (d3d9.c): far scenery not drawn past this share of the game's view distance, fog pulled in
+        card.addView(label(t("Draw distance", "视距")));
+        final int[] DD = {100, 75, 50, 35};
+        int ddSel = 0;
+        for (int i = 0; i < DD.length; i++) if (DD[i] == prefs.getInt("drawdist", 100)) ddSel = i;
+        final RadioGroup dd = segmented(new String[]{t("Full", "全部"), t("Far", "远"), t("Medium", "中"), t("Near", "近")}, ddSel);
+        card.addView(dd, new LinearLayout.LayoutParams(-1, -2));
         card.addView(label(t("Frame rate cap", "帧率上限")));
         String[] fpsNames = FPS_NAMES.clone();
         fpsNames[0] = t("Auto", "自动");
@@ -650,7 +657,8 @@ public class LoginActivity extends Activity {
             int d = det.getCheckedRadioButtonId() - 200, f = fps.getCheckedRadioButtonId() - 200;
             prefs.edit().putBoolean("wide", wide.getCheckedRadioButtonId() == 200)          // 3D fills the phone's screen
                     .putBoolean("vsync", FPS[f] == 0).putInt("scale", 50 + rq.getProgress() * 5).putBoolean("accessories", acc.getCheckedRadioButtonId() == 200)
-                    .putBoolean("lean", lean.getCheckedRadioButtonId() == 200).putBoolean("etc2", etc2.getCheckedRadioButtonId() == 200).apply();                                   // Auto = synced to the screen
+                    .putBoolean("lean", lean.getCheckedRadioButtonId() == 200).putBoolean("etc2", etc2.getCheckedRadioButtonId() == 200)
+                    .putInt("drawdist", DD[dd.getCheckedRadioButtonId() - 200]).apply();                                   // Auto = synced to the screen
             float g = (gs.getProgress() + 5) / 10f;
             try {
                 if (us != null && us.length >= 0x20) {
@@ -877,15 +885,19 @@ public class LoginActivity extends Activity {
                 // runtime options (not game arguments): read by plat_android.c at start
                 FileOutputStream oo = new FileOutputStream(new File(getFilesDir(), "options.txt"));
                 oo.write(("vsync=" + (prefs.getBoolean("vsync", true) ? 1 : 0) + "\nhz=" + hz + "\nwide=" + (prefs.getBoolean("wide", true) ? 1 : 0) + "\nscale=" + prefs.getInt("scale", 100)
-                        + "\nlean=" + (prefs.getBoolean("lean", false) ? 1 : 0) + "\netc2=" + (prefs.getBoolean("etc2", false) ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+                        + "\nlean=" + (prefs.getBoolean("lean", false) ? 1 : 0) + "\netc2=" + (prefs.getBoolean("etc2", false) ? 1 : 0)
+                        + "\ndrawdist=" + prefs.getInt("drawdist", 100) + "\n").getBytes(StandardCharsets.UTF_8));
                 oo.close();
                 runOnUiThread(new Runnable() { public void run() {
                     // the game's voice chat signs in to the server API with the launcher key, like the PC launcher
                     byte[] ib = readAll(gameFile("CrazyKart.ini"));          // the game's language (Settings)
-                    String lang = ib != null && "1".equals(iniGet(new String(ib, StandardCharsets.UTF_8), "Language")) ? "zh" : "en";
+                    String ini = ib != null ? new String(ib, StandardCharsets.UTF_8) : "";
+                    String lang = "1".equals(iniGet(ini, "Language")) ? "zh" : "en";
+                    int cap = 0;                                                // the frame rate cap (0 = Auto)
+                    try { if (!"1".equals(iniGet(ini, "VSync")) && iniGet(ini, "MaxFps") != null) cap = Integer.parseInt(iniGet(ini, "MaxFps")); } catch (Exception e) { }
                     startActivity(new Intent(LoginActivity.this, GameActivity.class).putExtra("api", API[srv])
                             .putExtra("user", account).putExtra("key", fkey).putExtra("lang", lang)
-                            .putExtra("accessories", prefs.getBoolean("accessories", true)));
+                            .putExtra("accessories", prefs.getBoolean("accessories", true)).putExtra("fpscap", cap));
                     finish();
                 } });
             } catch (Exception e) {

@@ -65,6 +65,7 @@ typedef struct {
     int lowres;              // the race's full-screen 3D world: drawn at render quality (gpu_wgpu.c scene target)
     int has_normal, has_diffuse, has_specular, ntex;
     const GState *st;
+    u64 geom;                // static geometry key (gpu_geom_has): kept on the GPU; 0 = this draw's own vertices
 } GDraw;
 
 typedef struct { int w, h, levels, rt, depth; u32 fmt; int etc; } GTexDesc;   // etc: ETC2 RGBA8 on the GPU (gpu_has_etc2)
@@ -76,6 +77,10 @@ void gpu_tex_upload(GpuTex *t, int level, int x, int y, int w, int h, const u32 
 void gpu_tex_destroy(GpuTex *t);
 // "Compressed textures" (launcher option -> CK_ETC2=1, when the GPU has ETC2): DXT textures stored as ETC2 RGBA8
 int gpu_has_etc2(void);
+// Static geometry on the GPU (with "Compact 3D data"): a draw whose vertices did not change is built and uploaded
+// once. gpu_geom_has: already there (verts may then be NULL); bs = its bounding sphere (model space, x y z r)
+int gpu_geom_on(void);
+int gpu_geom_has(u64 key, float bs[4]);
 void gpu_tex_upload_etc2(GpuTex *t, int level, const u8 *blocks, int w, int h);   // whole level, 16-byte blocks
 void etc2_encode_rgba(const u32 *rgba, int w, int h, u8 *out);                    // etc2.c
 void gpu_set_target(GpuTex *color, GpuTex *depth);   // NULL color = back buffer
