@@ -30,14 +30,24 @@ static void ev_push(int kind, int a, int b, int c, int d) {
 int tui_touch(int id, int act, int x, int y);
 int hud_touch(int id, int act, int *x, int *y);
 static int g_mouse_ptr = -1;        // the pointer that drives the mouse (first touch not on a race control)
+static int g_down_x, g_down_y;      // where that finger went down (lobby swipe)
+int ui_lobby_swipe(int x0, int y0, int x1, int y1);
 static void pointer_hide(void);
 static void touch_event(int id, int act, int x, int y) {
     if (id != 9) pointer_hide();             // a finger: the controller pointer steps aside (9 = the pointer itself)
     if (tui_touch(id, act, x, y)) return;
     if (hud_touch(id, act, &x, &y)) return;     // lobby / room: drawn moved (hud.c), press what is shown there
-    if (act == 0) { if (g_mouse_ptr >= 0) return; g_mouse_ptr = id; ui_mouse(0x200, x, y, 0); ui_mouse(0x201, x, y, 1); return; }
+    if (act == 0) {
+        if (g_mouse_ptr >= 0) return;
+        g_mouse_ptr = id; g_down_x = x; g_down_y = y;
+        ui_mouse(0x200, x, y, 0); ui_mouse(0x201, x, y, 1);
+        return;
+    }
     if (id != g_mouse_ptr) return;
     if (act == 2) ui_mouse(0x200, x, y, 1);
+    else if (ui_lobby_swipe(g_down_x, g_down_y, x, y)) {   // a swipe on the room list: page, and join nothing
+        ui_mouse(0x200, 0, 0, 1); ui_mouse(0x202, 0, 0, 0); g_mouse_ptr = -1;
+    }
     else { ui_mouse(0x202, x, y, 0); g_mouse_ptr = -1; }
 }
 

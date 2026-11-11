@@ -324,6 +324,36 @@ static void update_visible(void) {
 
 // a press in progress: move, down, up over a few frames (the game's buttons fire on release)
 static int g_press_x, g_press_y, g_press_step = -1;
+// Lobby swipe (phones, 11 Nov 2026, the user: lobby scrolling without HTML): a vertical swipe that starts on the room
+// list turns its page -- up = the next 5 rooms, down = the previous 5 -- by pressing the game's own page arrows (the
+// list is 5 rows the server fills a page at a time). Client coordinates. 1 = it was such a swipe (input.c then lets
+// the finger go off the list, so the row under it is not joined).
+int ui_lobby_swipe(int x0, int y0, int x1, int y1) {
+    int dx = x1 - x0, dy = y1 - y0;
+    if (abs(dy) < 50 || abs(dy) < 2 * abs(dx)) return 0;
+    float r[4], lo[2] = {1e9f, 1e9f}, hi[2] = {-1e9f, -1e9f};
+    int any = 0;
+    for (int i = 0; i < 5; i++) {
+        char nm[16];
+        snprintf(nm, sizeof nm, "RoomBtn%d", i);
+        u32 c = ui_find(nm);
+        if (!c || !shown(c)) continue;
+        abs_rect(c, r);                          // x, y, w, h (design px)
+        if (r[0] < lo[0]) lo[0] = r[0]; if (r[1] < lo[1]) lo[1] = r[1];
+        if (r[0] + r[2] > hi[0]) hi[0] = r[0] + r[2]; if (r[1] + r[3] > hi[1]) hi[1] = r[1] + r[3];
+        any = 1;
+    }
+    float px = (x0 - 160) / 1.2f, py = y0 / 1.2f;   // the 1280x720 client -> 800x600 design
+    if (!any || px < lo[0] || px > hi[0] || py < lo[1] || py > hi[1]) return 0;
+    u32 b = ui_find(dy < 0 ? "RoomPageRBtn" : "RoomPageLBtn");
+    if (b && shown(b) && g_press_step < 0) {
+        abs_rect(b, r);
+        g_press_x = (int)(160 + (r[0] + r[2] / 2) * 1.2f);
+        g_press_y = (int)((r[1] + r[3] / 2) * 1.2f);
+        g_press_step = 0;
+    }
+    return 1;
+}
 static char *api_click(const char *q) {
     char nm[80];
     if (!qget(q, "n", nm, sizeof nm)) return strdup("{\"ok\":0}");
@@ -368,13 +398,13 @@ void ui_bridge_start(void);
 void ui_bridge_tick(void) {                      // game thread, once a frame
     static u32 n;
     if (!n) ui_bridge_start();
-    if (!g_page_on) return;                      // the app has no page (built without HTML=1): the game's own UI
-    if (g_press_step >= 0) {                     // the press: move (0), down (2), up (5)
+    if (g_press_step >= 0) {                     // the press: move (0), down (2), up (5) -- also the lobby swipe's
         if (g_press_step == 0) ui_mouse(0x200, g_press_x, g_press_y, 0);
         if (g_press_step == 2) ui_mouse(0x201, g_press_x, g_press_y, 1);
         if (g_press_step == 5) { ui_mouse(0x202, g_press_x, g_press_y, 0); g_press_step = -2; }
         g_press_step++;
     }
+    if (!g_page_on) return;                      // the app has no page (built without HTML=1): the game's own UI
     pthread_mutex_lock(&g_mu);
     if (g_req && !g_req->done) {
         Req *r = g_req;

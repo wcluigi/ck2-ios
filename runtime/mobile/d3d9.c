@@ -1030,33 +1030,41 @@ static void draw_common(u32 prim, u32 first_vertex, u32 nverts, const u8 *ib, in
         }
 #undef MIX
     }
-    // Draw distance (launcher option, CK_DRAWDIST = % of the game's far plane), read once
-    static int ddpc = -1;
-    if (ddpc < 0) {
-        const char *dv = getenv("CK_DRAWDIST");
-        ddpc = dv ? atoi(dv) : 100;
-        if (ddpc < 20 || ddpc > 100) ddpc = 100;
-    }
     Res *rtr = res_of(g_rt_obj);
     int to_bb = !rtr || rtr->is_backbuffer;
     int gw, rw, ox;
     gpu_wide(&gw, &rw, &ox);
     int full = g_st.vp_x == 0 && g_st.vp_y == 0 && (int)g_st.vp_w >= gw && (int)g_st.vp_h >= g_bb_h;
     const float *P = g_st.proj.m;
-    float farz = P[11] == 1 && P[10] != 1 ? P[14] / (1 - P[10]) : 0;   // the race camera's far plane (perspective only)
+    // the screen, or a screen-sized off-screen picture (many tracks draw the whole race world into one first)
+    int scr = to_bb || (rtr && rtr->w >= (u32)gw && rtr->h >= (u32)g_bb_h);
     float bs[4];
     int stored = d.geom && gpu_geom_has(d.geom, bs);
-    // Draw distance: stored geometry past ddpc % of the game's far plane is not drawn (full-screen 3D only: the room's
-    // kart cards and other sub-viewports keep everything). The sky and the ground around you never qualify.
-    if (stored && ddpc < 100 && to_bb && full && farz > 500) {
+    // View culling (11 Nov 2026, the user: "only what is in front is rendered, like GTA"): stored geometry whose
+    // bounding sphere lies wholly outside the camera's view (behind, beside, above) is not drawn. Planes from the
+    // projection the draw really uses (widescreen: the wider one draw_common applies below). Full-screen 3D only --
+    // the room's kart cards and the small rank-camera pictures keep everything.
+    if (stored && scr && full && P[11] == 1) {
         const float *W = g_st.world.m, *V = g_st.view.m;
         float wx = bs[0] * W[0] + bs[1] * W[4] + bs[2] * W[8] + W[12];
         float wy = bs[0] * W[1] + bs[1] * W[5] + bs[2] * W[9] + W[13];
         float wz = bs[0] * W[2] + bs[1] * W[6] + bs[2] * W[10] + W[14];
-        float vx = wx * V[0] + wy * V[4] + wz * V[8] + V[12], vy = wx * V[1] + wy * V[5] + wz * V[9] + V[13], vz = wx * V[2] + wy * V[6] + wz * V[10] + V[14];
+        float v[3] = {wx * V[0] + wy * V[4] + wz * V[8] + V[12], wx * V[1] + wy * V[5] + wz * V[9] + V[13], wx * V[2] + wy * V[6] + wz * V[10] + V[14]};
         float s0 = W[0] * W[0] + W[1] * W[1] + W[2] * W[2], s1 = W[4] * W[4] + W[5] * W[5] + W[6] * W[6], s2 = W[8] * W[8] + W[9] * W[9] + W[10] * W[10];
-        float sc = sqrtf(s0 > s1 ? (s0 > s2 ? s0 : s2) : (s1 > s2 ? s1 : s2));
-        if (sqrtf(vx * vx + vy * vy + vz * vz) - bs[3] * sc > farz * (float)ddpc / 100.f) { g_perf.culled++; return; }
+        float r = sqrtf(s0 > s1 ? (s0 > s2 ? s0 : s2) : (s1 > s2 ? s1 : s2)) * bs[3] * 1.05f + 1.f;   // a little slack
+        float kx = to_bb && ox > 0 ? (float)gw / (float)rw : 1.f;             // widescreen narrows column 0
+        // clip = view * P (row vectors): column j = (P[j], P[4+j], P[8+j], P[12+j]); planes w+x, w-x, w+y, w-y, z, w-z
+        float c0[4] = {P[0] * kx, P[4] * kx, P[8] * kx, P[12] * kx}, c1[4] = {P[1], P[5], P[9], P[13]};
+        float c2[4] = {P[2], P[6], P[10], P[14]}, c3[4] = {P[3], P[7], P[11], P[15]};
+        float pl[6][4];
+        for (int q = 0; q < 4; q++) {
+            pl[0][q] = c3[q] + c0[q]; pl[1][q] = c3[q] - c0[q]; pl[2][q] = c3[q] + c1[q]; pl[3][q] = c3[q] - c1[q];
+            pl[4][q] = c2[q]; pl[5][q] = c3[q] - c2[q];
+        }
+        for (int q = 0; q < 6; q++) {
+            float n = sqrtf(pl[q][0] * pl[q][0] + pl[q][1] * pl[q][1] + pl[q][2] * pl[q][2]);
+            if (n > 0 && (pl[q][0] * v[0] + pl[q][1] * v[1] + pl[q][2] * v[2] + pl[q][3]) / n < -r) { g_perf.culled++; return; }
+        }
     }
     if (d.pretransformed) g_perf.flat++; else if (!stored) g_perf.dyn3d++;
     if (stored) {                                     // already on the GPU: nothing to rebuild or send
@@ -1163,16 +1171,7 @@ send:
         }
         d.st = ws;
     }
-    // Draw distance: the game's linear fog pulled in to the cut, so far things fade out instead of popping off
-    float fog_keep[2] = {g_st.fog_start, g_st.fog_end};
-    int fog_patched = 0;
-    if (ddpc < 100 && to_bb && full && !d.pretransformed && farz > 500 && g_st.fog_enable
-        && (g_st.fog_table_mode == 3 || (!g_st.fog_table_mode && g_st.fog_vertex_mode == 3))) {
-        float lim = farz * (float)ddpc / 100.f;
-        if (g_st.fog_end > lim) { g_st.fog_end = lim; if (g_st.fog_start > lim * 0.6f) g_st.fog_start = lim * 0.6f; fog_patched = 1; }
-    }
     gpu_draw(&d);
-    if (fog_patched) { g_st.fog_start = fog_keep[0]; g_st.fog_end = fog_keep[1]; }
     if (patched) {
         g_st.vp_x = keep.vp_x; g_st.vp_y = keep.vp_y; g_st.vp_w = keep.vp_w; g_st.vp_h = keep.vp_h;
         memcpy(g_st.scissor, keep.sc, sizeof keep.sc);

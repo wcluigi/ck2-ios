@@ -12,6 +12,7 @@
 #define SV(s) ((WGPUStringView){(s), WGPU_STRLEN})
 struct GpuTex {
     WGPUTexture tex; WGPUTextureView view; int w, h, levels, rt, depth; int cube; int etc;
+    float k;                             // < 1: a screen-sized off-screen picture made at render quality (w, h = real size)
     u32 used_batch;                      // batch that last sampled it (upload must flush first)
 };
 
@@ -470,6 +471,13 @@ GpuTex *gpu_tex_create(const GTexDesc *d) {
         t->view = wgpuTextureCreateView(t->tex, 0);
         return t;
     }
+    // Render quality also shrinks the game's screen-sized off-screen pictures: on many tracks the whole race world is
+    // drawn into one (1280x720) before it reaches the screen, so scaling only the back buffer changed nothing there
+    if (d->rt && !d->depth && g_rs < 1 && d->w == g_gw && d->h == g_bh) {
+        GpuTex *t = tex_new((int)(d->w * g_rs), (int)(d->h * g_rs), 1, 1, 0);
+        t->k = g_rs;
+        return t;
+    }
     return tex_new(d->w, d->h, d->rt ? 1 : levels, d->rt, d->depth);
 }
 int gpu_has_etc2(void) { return g_etc2; }
@@ -579,6 +587,12 @@ static void begin_pass(void) {
     if (!g_target && (!dt || dt->w != ct->w || dt->h != ct->h)) {
         if (!g_bbdepth || g_bbdepth->w != ct->w || g_bbdepth->h != ct->h) g_bbdepth = tex_new(ct->w, ct->h, 1, 0, 1);
         dt = g_bbdepth;
+    }
+    // a screen-sized off-screen picture made smaller by render quality (gpu_tex_create): its own depth of that size
+    if (g_target && g_target->k > 0 && g_target->k < 1 && dt) {
+        static GpuTex *rtdepth;
+        if (!rtdepth || rtdepth->w != ct->w || rtdepth->h != ct->h) rtdepth = tex_new(ct->w, ct->h, 1, 0, 1);   // old one leaks: size changes are rare
+        dt = rtdepth;
     }
     if (dt && (dt->w != ct->w || dt->h != ct->h)) dt = 0;
     if (!g_enc) g_enc = wgpuDeviceCreateCommandEncoder(g_dev, 0);
@@ -968,8 +982,8 @@ void gpu_draw(const GDraw *d) {
     mat_mul(wv, s->proj.m, wvp);
     put_mat(u, 0, wvp); put_mat(u, 64, wv); put_mat(u, 128, s->texm[0].m); put_mat(u, 192, s->texm[1].m);
     GpuTex *ct = g_pass_target;
-    float k = ct == g_scene ? g_rs : 1;      // render quality: game pixels -> scene pixels
-    put4(u, 256, ct == g_scene ? (float)g_bw : (float)ct->w, ct == g_scene ? (float)g_bh : (float)ct->h, 0, 0);
+    float k = ct == g_scene ? g_rs : ct->k > 0 && ct->k < 1 ? ct->k : 1;      // render quality: game pixels -> scene pixels
+    put4(u, 256, ct == g_scene ? (float)g_bw : (float)ct->w / k, ct == g_scene ? (float)g_bh : (float)ct->h / k, 0, 0);
     u32 fl = (d->pretransformed ? 1u : 0) | (s->lighting && d->has_normal ? 2u : 0) | (d->has_normal ? 4u : 0) | (d->has_diffuse ? 8u : 0) |
              (d->has_specular ? 16u : 0) | (s->specular_enable ? 32u : 0) | (s->normalize ? 64u : 0) | (s->localviewer ? 128u : 0) |
              (s->color_vertex ? 256u : 0) | (s->fog_enable ? 512u : 0) | (s->range_fog ? 1024u : 0);
