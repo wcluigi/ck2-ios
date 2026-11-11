@@ -424,13 +424,25 @@ void hud_draw(GVert *v, u32 n, const void *tex, HudXf *xf) {
         static int nb; if (nb++ < 20) rt_log("hud: banner-sized draw %.0f %.0f %.0f %.0f\n", x0, y0, x1, y1);
     }
     const HudElem *e = 0;
+    // The minimap picture (1040,99 209x206 on the phone) is wider than its editor rectangle, and the player star /
+    // racer markers are separate small draws on top of it: one at the map's left edge has its centre outside the
+    // rectangle and stayed at the old place (11 Nov 2026, the user). Everything drawn inside this frame's minimap
+    // picture moves with the minimap.
+    static float mm[4];
+    static u32 mm_frame;
+    static const HudElem *mm_el;
     for (int i = 0; i < g_nel; i++) {             // smallest element whose original rectangle holds the centre
         const HudElem *h = &g_el[i];
         if (h->name[0] == 't' && !strncmp(h->name, "touch_", 6)) continue;
         if (cx < h->sx || cx > h->sx + h->sw || cy < h->sy || cy > h->sy + h->sh) continue;
         if (h->sw * h->sh < best) { best = h->sw * h->sh; e = h; }
     }
+    // no other element claims it (time, laps keep theirs) and it lies on this frame's minimap picture: a map marker
+    if (!e && mm_frame == g_frame_no && mm_el && w < mm[2] - mm[0] && cx >= mm[0] && cx <= mm[2] && cy >= mm[1] && cy <= mm[3]) e = mm_el;
     if (e && !strcmp(e->name, "speedo")) g_speedo_ms = ms_now();
+    if (e && !strcmp(e->name, "minimap") && w > 120 && h > 120) {     // the minimap picture itself
+        mm[0] = x0; mm[1] = y0; mm[2] = x1; mm[3] = y1; mm_frame = g_frame_no; mm_el = e;
+    }
     if (!e || !e->moved) return;
     for (u32 i = 0; i < n; i++) {
         v[i].pos[0] = e->x + (v[i].pos[0] - e->sx) * e->s;
