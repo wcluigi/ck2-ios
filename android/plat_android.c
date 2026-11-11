@@ -341,7 +341,8 @@ static void start_game(void) {
             if (!strncmp(line, "vsync=", 6)) setenv("CK_VSYNC", line[6] == '0' ? "0" : "1", 1);
             if (!strncmp(line, "wide=", 5)) setenv("CK_WIDE", line[5] == '0' ? "0" : "1", 1);
             if (!strncmp(line, "lean=", 5)) setenv("CK_LEAN", line[5] == '1' ? "1" : "0", 1);     // Compact 3D data
-            if (!strncmp(line, "etc2=", 5)) setenv("CK_ETC2", line[5] == '1' ? "1" : "0", 1);     // Compressed textures            if (!strncmp(line, "scale=", 6)) { char v[8]; snprintf(v, sizeof v, "%d", atoi(line + 6)); setenv("CK_SCALE", v, 1); }
+            if (!strncmp(line, "etc2=", 5)) setenv("CK_ETC2", line[5] == '1' ? "1" : "0", 1);     // Compressed textures
+            if (!strncmp(line, "scale=", 6)) { char v[8]; snprintf(v, sizeof v, "%d", atoi(line + 6)); setenv("CK_SCALE", v, 1); }   // Render quality
             if (!strncmp(line, "hz=", 3) && atoi(line + 3) >= 30) g_screen_hz = atoi(line + 3);
         }
         fclose(f);
