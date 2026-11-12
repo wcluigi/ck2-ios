@@ -9,6 +9,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <GameController/GameController.h>
 #import <WebKit/WebKit.h>
+#import <PhotosUI/PhotosUI.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -616,6 +617,9 @@ static void popup_poll(void) {                   // its own thread, for the whol
         [rq setValue:g_web_user forHTTPHeaderField:@"X-CK-User"];
         [rq setValue:[g_web_lang isEqualToString:@"zh"] ? @"cn" : @"en" forHTTPHeaderField:@"X-CK-Lang"];
         [rq setValue:@"none" forHTTPHeaderField:@"X-CK-Voice"];
+        NSUserDefaults *ud = NSUserDefaults.standardUserDefaults;        // Settings > Game (the server reads them from this poll)
+        [rq setValue:[ud stringForKey:@"ping"] ?: @"room,race" forHTTPHeaderField:@"X-CK-Ping"];
+        [rq setValue:([ud objectForKey:@"accessories"] ? [ud boolForKey:@"accessories"] : YES) ? @"on" : @"off" forHTTPHeaderField:@"X-CK-Accessories"];
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block long status = 0;
         __block NSData *body = nil;
@@ -871,20 +875,268 @@ static UIImage *hud_rgba(NSData *d) {
     return u;
 }
 
+// ---- the launcher design's building blocks (12 Nov 2026, the Claude design canvas "CrazyKart Legacy Mobile Launcher"),
+// shared by the launcher, Settings and the HUD editor: buttons / sliders that run a block, the design's faces (the system's
+// rounded face stands in for Baloo 2), its line icons and the "step" shadow under buttons (box-shadow: 0 Npt 0)
+#define C_SLAB 0x0E1F5C
+#define C_INK 0x131A2E
+#define C_YELLOW 0xF5C21B
+#define C_DEEP 0xC98F00
+#define C_MUTED 0xB7C4E8
+#define C_ERROR 0xFFAB8F
+#define C_PAPER 0xF2F8FC
+#define C_LINE 0xCFDEEA
+#define C_RAIL 0xE3EEF6
+#define C_SUB 0x4A5870
+#define C_EDGE 0x7A8EA3
+#define C_BLUE 0x1A4FD6
+#define C_PILL_ON 0xFFF4CC
+#define C_GOLD 0xD4A72C
+#define C_NIGHT 0x0A1436
+
+@interface CKButton : UIButton
+@property (copy) void (^tap)(CKButton *b);
+@end
+@implementation CKButton
+- (void)fire { if (self.tap) self.tap(self); }
+@end
+static CKButton *ck_button(void (^tap)(CKButton *)) {
+    CKButton *b = [CKButton buttonWithType:UIButtonTypeCustom];
+    b.tap = tap;
+    [b addTarget:b action:@selector(fire) forControlEvents:UIControlEventTouchUpInside];
+    return b;
+}
+@interface CKSlider : UISlider
+@property (copy) void (^moved)(CKSlider *s);
+@end
+@implementation CKSlider
+- (void)fire { if (self.moved) self.moved(self); }
+@end
+static CKSlider *ck_slider(float lo, float hi, float v, unsigned tint, void (^moved)(CKSlider *)) {
+    CKSlider *s = [[CKSlider alloc] init];
+    s.minimumValue = lo; s.maximumValue = hi; s.value = v; s.minimumTrackTintColor = rgb(tint);
+    s.moved = moved;
+    [s addTarget:s action:@selector(fire) forControlEvents:UIControlEventValueChanged];
+    return s;
+}
+static UIFont *f_disp(CGFloat s, UIFontWeight w) {
+    UIFont *f = [UIFont systemFontOfSize:s weight:w];
+    UIFontDescriptor *d = [f.fontDescriptor fontDescriptorWithDesign:UIFontDescriptorSystemDesignRounded];
+    return d ? [UIFont fontWithDescriptor:d size:s] : f;
+}
+static UIFont *f_body(CGFloat s, UIFontWeight w) { return [UIFont systemFontOfSize:s weight:w]; }
+static UILabel *ck_label(NSString *t, UIFont *f, unsigned c) {
+    UILabel *l = [[UILabel alloc] init];
+    l.text = t; l.font = f; l.textColor = rgb(c);
+    return l;
+}
+static unsigned mixu(unsigned a, unsigned b, CGFloat k) {
+    unsigned r = 0;
+    for (int s = 0; s <= 16; s += 8) {
+        CGFloat x = (CGFloat)((a >> s) & 255) + ((CGFloat)((b >> s) & 255) - (CGFloat)((a >> s) & 255)) * k;
+        r |= (unsigned)lround(x) << s;
+    }
+    return r;
+}
+static void step_shadow(UIView *v, unsigned c, CGFloat h) {
+    v.layer.shadowColor = rgb(c).CGColor; v.layer.shadowOffset = CGSizeMake(0, h); v.layer.shadowRadius = 0; v.layer.shadowOpacity = 1;
+}
+static void ck_box(UIView *v, UIColor *fill, UIColor *border, CGFloat bw, CGFloat radius) {
+    v.backgroundColor = fill; v.layer.cornerRadius = radius;
+    v.layer.borderWidth = border ? bw : 0; v.layer.borderColor = border.CGColor;
+}
+static void fix_h(UIView *v, CGFloat h) { [v.heightAnchor constraintEqualToConstant:h].active = YES; }
+static void fix_w(UIView *v, CGFloat w) { [v.widthAnchor constraintEqualToConstant:w].active = YES; }
+static UIStackView *hstack(NSArray *views, CGFloat sp) {
+    UIStackView *s = [[UIStackView alloc] initWithArrangedSubviews:views];
+    s.spacing = sp; s.alignment = UIStackViewAlignmentCenter;
+    return s;
+}
+static UIStackView *vstack(NSArray *views, CGFloat sp) {
+    UIStackView *s = [[UIStackView alloc] initWithArrangedSubviews:views];
+    s.axis = UILayoutConstraintAxisVertical; s.spacing = sp;
+    return s;
+}
+// a labelled pill button: text (+ icon) centred, the given fill / border / step shadow; radius = half the height
+static CKButton *ck_pill(NSString *t, UIFont *f, unsigned fg, UIColor *fill, UIColor *border, CGFloat h, void (^tap)(CKButton *)) {
+    CKButton *b = ck_button(tap);
+    [b setTitle:t forState:UIControlStateNormal];
+    b.titleLabel.font = f;
+    [b setTitleColor:rgb(fg) forState:UIControlStateNormal];
+    ck_box(b, fill, border, 1, h / 2);
+    b.contentEdgeInsets = UIEdgeInsetsMake(0, 16, 0, 16);
+    fix_h(b, h);
+    return b;
+}
+static CKButton *ck_yellow(NSString *t, CGFloat size, CGFloat h, void (^tap)(CKButton *)) {
+    CKButton *b = ck_pill(t, f_disp(size, UIFontWeightHeavy), C_INK, rgb(C_YELLOW), nil, h, tap);
+    step_shadow(b, C_DEEP, 4);
+    return b;
+}
+static CKButton *ck_light(NSString *t, void (^tap)(CKButton *)) {
+    CKButton *b = ck_pill(t, f_disp(15, UIFontWeightBold), C_INK, UIColor.whiteColor, rgb(C_EDGE), 44, tap);
+    step_shadow(b, C_LINE, 3);
+    return b;
+}
+// diagonal stripes on a ground colour (the design's repeating-linear-gradient), as a pattern colour
+static UIColor *stripes(unsigned bg, UIColor *ink, CGFloat period) {
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(period, period)];
+    UIImage *tile = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [rgb(bg) setFill]; UIRectFill(CGRectMake(0, 0, period, period));
+        [ink setStroke];
+        for (int i = -1; i <= 1; i++) {
+            UIBezierPath *p = [UIBezierPath bezierPath];
+            p.lineWidth = period / 2.0 / 1.41421356;
+            [p moveToPoint:CGPointMake(i * period, period)]; [p addLineToPoint:CGPointMake(i * period + period, 0)];
+            [p stroke];
+        }
+    }];
+    return [UIColor colorWithPatternImage:tile];
+}
+// the launcher's checker strip: ink and white squares
+static UIColor *checker(CGFloat sq) {
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(sq * 2, sq * 2)];
+    UIImage *tile = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [rgb(C_INK) setFill]; UIRectFill(CGRectMake(0, 0, sq * 2, sq * 2));
+        [UIColor.whiteColor setFill]; UIRectFill(CGRectMake(sq, 0, sq, sq)); UIRectFill(CGRectMake(0, sq, sq, sq));
+    }];
+    return [UIColor colorWithPatternImage:tile];
+}
+enum { IC_PLAY, IC_CHEV_UP, IC_CHEV_DOWN, IC_CHECK, IC_SERVER, IC_GEAR, IC_EYE, IC_EYE_OFF, IC_CLOSE, IC_PAD, IC_KEYBOARD, IC_MOVE, IC_GALLERY, IC_GLOBE };
+// the design's line icons, drawn on a 24-unit grid
+static UIImage *ck_icon(int kind, unsigned colour, CGFloat size) {
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(size, size)];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        CGContextScaleCTM(ctx.CGContext, size / 24, size / 24);
+        [rgb(colour) setStroke]; [rgb(colour) setFill];
+        UIBezierPath *p = [UIBezierPath bezierPath];
+        p.lineWidth = 2; p.lineCapStyle = kCGLineCapRound; p.lineJoinStyle = kCGLineJoinRound;
+        #define M(x, y) [p moveToPoint:CGPointMake(x, y)]
+        #define L(x, y) [p addLineToPoint:CGPointMake(x, y)]
+        switch (kind) {
+        case IC_PLAY: M(7, 4.5); L(7, 19.5); L(19, 12); [p closePath]; [p fill]; return;
+        case IC_CHEV_UP: p.lineWidth = 2.4; M(6, 15); L(12, 9); L(18, 15); break;
+        case IC_CHEV_DOWN: p.lineWidth = 3; M(6, 9); L(12, 15); L(18, 9); break;
+        case IC_CHECK: p.lineWidth = 2.6; M(5, 12.5); L(9.5, 17); L(19, 7.5); break;
+        case IC_SERVER:
+            [p appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectMake(4, 4, 16, 6) cornerRadius:2]];
+            [p appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectMake(4, 14, 16, 6) cornerRadius:2]];
+            M(8, 7); L(8.01, 7); M(8, 17); L(8.01, 17); break;
+        case IC_GEAR:
+            [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(9, 9, 6, 6)]];
+            [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(5, 5, 14, 14)]];
+            [p stroke];
+            p = [UIBezierPath bezierPath]; p.lineWidth = 2.6; p.lineCapStyle = kCGLineCapRound;
+            for (int i = 0; i < 8; i++) { double a = M_PI / 4 * i; M(12 + cos(a) * 7.5, 12 + sin(a) * 7.5); L(12 + cos(a) * 9.8, 12 + sin(a) * 9.8); }
+            break;
+        case IC_EYE: case IC_EYE_OFF:
+            M(2, 12); [p addQuadCurveToPoint:CGPointMake(22, 12) controlPoint:CGPointMake(12, 0.5)];
+            [p addQuadCurveToPoint:CGPointMake(2, 12) controlPoint:CGPointMake(12, 23.5)];
+            [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(9, 9, 6, 6)]];
+            if (kind == IC_EYE_OFF) { M(3, 3); L(21, 21); }
+            break;
+        case IC_CLOSE: p.lineWidth = 2.4; M(6, 6); L(18, 18); M(18, 6); L(6, 18); break;
+        case IC_PAD:
+            p.lineWidth = 1.6;
+            [p appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectMake(2, 7, 20, 10.5) cornerRadius:5]];
+            M(7, 10); L(7, 13); M(5.5, 11.5); L(8.5, 11.5);
+            [p stroke];
+            [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(15.2, 9.7, 1.6, 1.6)] fill];
+            [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(17.2, 11.7, 1.6, 1.6)] fill];
+            return;
+        case IC_KEYBOARD:
+            p.lineWidth = 1.6;
+            [p appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectMake(2, 6, 20, 12) cornerRadius:2.5]];
+            for (int x = 6; x <= 18; x += 4) { M(x, 10); L(x + 0.01, 10); }
+            M(7, 14); L(17, 14); break;
+        case IC_MOVE:
+            M(2, 12); L(22, 12); M(12, 2); L(12, 22);
+            M(5, 9); L(2, 12); L(5, 15); M(9, 5); L(12, 2); L(15, 5); M(15, 19); L(12, 22); L(9, 19); M(19, 9); L(22, 12); L(19, 15); break;
+        case IC_GALLERY:
+            [p appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectMake(3, 4, 18, 16) cornerRadius:3]];
+            [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(7, 8, 4, 4)]];
+            M(21, 16); L(16, 11); L(7, 20); break;
+        case IC_GLOBE:
+            p.lineWidth = 1.8;
+            [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(3, 3, 18, 18)]];
+            M(3, 12); L(21, 12);
+            [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(8.2, 3, 7.6, 18)]];
+            break;
+        }
+        #undef M
+        #undef L
+        [p stroke];
+    }];
+}
+static UIImageView *ck_icon_view(int kind, unsigned colour, CGFloat size) {
+    UIImageView *v = [[UIImageView alloc] initWithImage:ck_icon(kind, colour, size)];
+    v.contentMode = UIViewContentModeCenter;
+    fix_w(v, size); fix_h(v, size);
+    return v;
+}
+
+// the player's own button pictures (HUD editor > Choose from gallery): <game>/touch_icons/<name>.png for the editor and
+// <name>.rgba for the runtime (touch_ui.c own_art: <u32 w><u32 h> + 160 x 160 straight-alpha RGBA, already round)
+#define ICON_ART 160
+static NSString *icon_path(NSString *name, NSString *ext) {
+    return [[[docs() stringByAppendingPathComponent:@"game/touch_icons"] stringByAppendingPathComponent:name] stringByAppendingString:ext];
+}
+static void icon_save(NSString *name, UIImage *img) {
+    NSString *png = icon_path(name, @".png"), *raw = icon_path(name, @".rgba");
+    NSFileManager *fm = NSFileManager.defaultManager;
+    if (!img) { [fm removeItemAtPath:png error:nil]; [fm removeItemAtPath:raw error:nil]; return; }
+    [fm createDirectoryAtPath:[png stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+    [UIImagePNGRepresentation(img) writeToFile:png atomically:YES];
+    NSMutableData *d = [NSMutableData dataWithLength:8 + ICON_ART * ICON_ART * 4];
+    uint32_t *h = d.mutableBytes; h[0] = ICON_ART; h[1] = ICON_ART;
+    uint8_t *px = (uint8_t *)d.mutableBytes + 8;
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef g = CGBitmapContextCreate(px, ICON_ART, ICON_ART, 8, ICON_ART * 4, cs, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+    CGContextDrawImage(g, CGRectMake(0, 0, ICON_ART, ICON_ART), img.CGImage);
+    CGContextRelease(g); CGColorSpaceRelease(cs);
+    for (int i = 0; i < ICON_ART * ICON_ART * 4; i += 4) {               // premultiplied -> straight alpha
+        int a = px[i + 3];
+        if (a == 0 || a == 255) continue;
+        for (int k = 0; k < 3; k++) px[i + k] = (uint8_t)MIN(255, px[i + k] * 255 / a);
+    }
+    [d writeToFile:raw atomically:YES];
+}
+// the middle square of a picture, cut round, with the design's light ring
+static UIImage *icon_cut(UIImage *src) {
+    CGSize s = src.size;
+    CGFloat side = MIN(s.width, s.height);
+    UIGraphicsImageRendererFormat *fm = [UIGraphicsImageRendererFormat defaultFormat];
+    fm.scale = 1;
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(ICON_ART, ICON_ART) format:fm];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(1, 1, ICON_ART - 2, ICON_ART - 2)] addClip];
+        CGFloat k = ICON_ART / side;
+        [src drawInRect:CGRectMake(-(s.width - side) / 2 * k, -(s.height - side) / 2 * k, s.width * k, s.height * k)];
+        UIBezierPath *ring = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(4, 4, ICON_ART - 8, ICON_ART - 8)];
+        ring.lineWidth = 6; [rgb(0xE6EBF2) setStroke]; [ring stroke];
+    }];
+}
+
 @class HudEditorVC;
 @interface HudCanvas : UIView
 @property (weak) HudEditorVC *vc;
 @end
 
-@interface HudEditorVC : UIViewController
+@interface HudEditorVC : UIViewController <PHPickerViewControllerDelegate>
 @property (strong) NSMutableArray<HudElem *> *elems;
 @property (strong) NSMutableArray<HudElem *> *kept;     // not arranged in this session, saved as they were
-@property BOOL mobileOnly;                              // first start chose Mobile controls: the on-screen buttons only
+@property (copy) NSString *mode;                        // the control type it is opened for (nil = the saved one)
+@property BOOL first;                                   // the first start's step 3: Skip, not Back
+@property BOOL zh;
 @property CGFloat opacity;
 @property (strong) HudElem *active;
 @property (strong) HudCanvas *canvas;
 @property (strong) UILabel *info;
 @property (strong) UISlider *size;
+@property (strong) UIStackView *iconBar;
+@property (strong) UIImageView *iconPreview;
+@property (strong) UIButton *iconDefault;
+@property (strong) NSMutableDictionary *icons;          // name -> picture, or NSNull = back to the default (written at Save)
 - (void)showInfo;
 @end
 
@@ -910,24 +1162,24 @@ static UIImage *hud_rgba(NSData *d) {
     CGRect screen = CGRectMake(o.x, o.y, HGW * k, HGH * k);
     [rgb(0x111827) setFill]; UIRectFill(screen);                  // the race screen: plain
     [rgb(0x2A3A6E) setStroke]; UIRectFrame(screen);
-    NSShadow *sh = [[NSShadow alloc] init]; sh.shadowColor = UIColor.blackColor; sh.shadowBlurRadius = 2; sh.shadowOffset = CGSizeMake(0.5, 0.5);
-    NSDictionary *ta = @{NSFontAttributeName: [UIFont boldSystemFontOfSize:13], NSForegroundColorAttributeName: UIColor.whiteColor, NSShadowAttributeName: sh};
+    NSShadow *sh = [[NSShadow alloc] init]; sh.shadowColor = UIColor.blackColor; sh.shadowBlurRadius = 2; sh.shadowOffset = CGSizeMake(0, 1);
+    NSDictionary *ta = @{NSFontAttributeName: f_body(10, UIFontWeightHeavy), NSForegroundColorAttributeName: UIColor.whiteColor, NSShadowAttributeName: sh};
     HudEditorVC *vc = self.vc;
     for (HudElem *e in vc.elems) {
         CGRect r = [self rect:e];
         UIBezierPath *shape = e.touch ? [UIBezierPath bezierPathWithOvalInRect:r] : [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:4];
         if (e.pic) [e.pic drawInRect:r blendMode:kCGBlendModeNormal alpha:e.touch ? MIN(1, vc.opacity / 0.6 * 0.8) : 1];
-        else {                                                     // no picture yet: a labelled box
-            [[UIColor colorWithWhite:1 alpha:0.19] setFill]; [shape fill];
-            [e.label drawAtPoint:CGPointMake(r.origin.x + 4, r.origin.y + 4) withAttributes:ta];
-        }
-        if (e == vc.active) {
-            [rgb(0xF5C21B) setStroke]; shape.lineWidth = 2; [shape stroke];
-            CGFloat ly = r.origin.y - 18 < o.y + 2 ? CGRectGetMaxY(r) + 2 : r.origin.y - 18;
-            [e.label drawAtPoint:CGPointMake(r.origin.x, ly) withAttributes:ta];
-        } else if (!e.touch) {
-            [[UIColor colorWithWhite:1 alpha:0.25] setStroke];
+        else { [[UIColor colorWithWhite:1 alpha:0.08] setFill]; [shape fill]; }
+        if (e == vc.active) { [rgb(C_YELLOW) setStroke]; shape.lineWidth = 3; [shape stroke]; }
+        else if (!e.touch || vc.opacity < 0.05) {                  // HUD boxes, and invisible buttons: a dashed outline
+            [[UIColor colorWithWhite:1 alpha:0.3] setStroke];
             CGFloat dash[] = {5, 4}; [shape setLineDash:dash count:2 phase:0]; shape.lineWidth = 1; [shape stroke];
+        }
+        if (!e.touch) [e.label drawAtPoint:CGPointMake(r.origin.x + 4, r.origin.y + 2) withAttributes:ta];     // HUD boxes: their name
+        else if ([e.name isEqualToString:@"touch_autogas"] || [e.name isEqualToString:@"touch_tapdrift"]) {   // the switches: a tag under
+            NSString *tag = [e.name isEqualToString:@"touch_autogas"] ? (vc.zh ? @"自动油门" : @"AUTO GAS") : (vc.zh ? @"轻点漂移" : @"TAP DRIFT");
+            CGSize ts = [tag sizeWithAttributes:ta];
+            [tag drawAtPoint:CGPointMake(CGRectGetMidX(r) - ts.width / 2, CGRectGetMaxY(r) + 2) withAttributes:ta];
         }
     }
 }
@@ -983,11 +1235,23 @@ static UIImage *hud_rgba(NSData *d) {
 - (void)touchesCancelled:(NSSet *)ts withEvent:(UIEvent *)ev { for (UITouch *t in ts) [_live removeObject:t]; if (!_live.count) _dragging = NO; }
 @end
 
+// hud_elements.txt has English labels; the launcher's Chinese ones (the design)
+static NSDictionary *hud_zh(void) {
+    return @{@"items": @"道具栏", @"itemcount": @"道具数量", @"place": @"名次", @"ranking": @"排名", @"time": @"比赛时间", @"minimap": @"小地图",
+             @"speedo": @"速度表", @"touch_left": @"左转", @"touch_right": @"右转", @"touch_gas": @"油门", @"touch_brake": @"刹车", @"touch_drift": @"漂移",
+             @"touch_item": @"道具", @"touch_swap": @"切换道具", @"touch_esc": @"菜单", @"touch_chat": @"聊天", @"chat": @"比赛聊天", @"announce": @"公告",
+             @"touch_autogas": @"自动油门", @"touch_tapdrift": @"轻点漂移"};
+}
+
 @implementation HudEditorVC
+- (NSString *)t:(NSString *)en zh:(NSString *)zh { return self.zh ? zh : en; }
 - (NSString *)layoutPath { return [[docs() stringByAppendingPathComponent:@"game"] stringByAppendingPathComponent:@"hud_layout.txt"]; }
+- (UIImage *)bundlePic:(NSString *)name { return [UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:[name stringByAppendingString:@".png"]]]; }
 - (void)load {
     self.elems = [NSMutableArray array];
+    self.icons = [NSMutableDictionary dictionary];
     self.opacity = 0.6;
+    NSDictionary *zhNames = hud_zh();
     NSString *list = [NSString stringWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"hud_elements.txt"] encoding:NSUTF8StringEncoding error:nil];
     for (NSString *raw in [list componentsSeparatedByString:@"\n"]) {
         NSString *line = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -999,10 +1263,10 @@ static UIImage *hud_rgba(NSData *d) {
         HudElem *e = [[HudElem alloc] init];
         e.name = name; e.sx = e.x = v[0]; e.sy = e.y = v[1]; e.sw = v[2]; e.sh = v[3]; e.s = 1;
         e.label = [[line substringFromIndex:sc.scanLocation] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (self.zh && zhNames[name]) e.label = zhNames[name];
         e.touch = [name hasPrefix:@"touch_"];
         NSString *shot = [[[docs() stringByAppendingPathComponent:@"game/hudshots"] stringByAppendingPathComponent:name] stringByAppendingString:@".rgba"];
-        e.pic = e.touch ? [UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:[name stringByAppendingString:@".png"]]]
-                        : hud_rgba([NSData dataWithContentsOfFile:shot]);
+        e.pic = e.touch ? ([UIImage imageWithContentsOfFile:icon_path(name, @".png")] ?: [self bundlePic:name]) : hud_rgba([NSData dataWithContentsOfFile:shot]);
         [self.elems addObject:e];
     }
     NSString *saved = [NSString stringWithContentsOfFile:self.layoutPath encoding:NSUTF8StringEncoding error:nil];
@@ -1012,71 +1276,129 @@ static UIImage *hud_rgba(NSData *d) {
         if (p.count < 4) continue;
         for (HudElem *e in self.elems) if ([e.name isEqualToString:p[0]]) { e.x = [p[1] doubleValue]; e.y = [p[2] doubleValue]; e.s = [p[3] doubleValue]; }
     }
-    // what this player arranges (12 Nov 2026), as Android: Mobile chosen at the first start = the on-screen buttons
-    // only; the Mobile switches only with Mobile controls on
+    // what this player arranges (the launcher design, 12 Nov 2026), as Android: every HUD element and on-screen button;
+    // the AUTO GAS / TAP DRIFT switches only with Mobile controls
     self.kept = [NSMutableArray array];
-    BOOL mobileOn = self.mobileOnly || [NSUserDefaults.standardUserDefaults boolForKey:@"touchmobile"];
+    BOOL mobileOn = self.mode ? [self.mode isEqualToString:@"mobile"] : [NSUserDefaults.standardUserDefaults boolForKey:@"touchmobile"];
     for (NSInteger i = (NSInteger)self.elems.count - 1; i >= 0; i--) {
         HudElem *e = self.elems[(NSUInteger)i];
         BOOL sw = [e.name isEqualToString:@"touch_autogas"] || [e.name isEqualToString:@"touch_tapdrift"];
-        if ((self.mobileOnly && !e.touch) || (sw && !mobileOn)) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
+        if (sw && !mobileOn) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
     }
 }
-- (UILabel *)label:(NSString *)t color:(UIColor *)c {
-    UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:13]; return l;
-}
-- (UIButton *)button:(NSString *)t primary:(BOOL)pri action:(SEL)a {
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    [b setTitle:t forState:UIControlStateNormal];
-    b.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-    [b setTitleColor:pri ? rgb(0x131A2E) : UIColor.whiteColor forState:UIControlStateNormal];
-    b.backgroundColor = pri ? rgb(0xF5C21B) : rgb(0x0E1F5C); b.layer.cornerRadius = 18;
-    b.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
-    [b.heightAnchor constraintEqualToConstant:36].active = YES;
-    [b.widthAnchor constraintGreaterThanOrEqualToConstant:64].active = YES;
-    [b addTarget:self action:a forControlEvents:UIControlEventTouchUpInside];
+- (UILabel *)label:(NSString *)t color:(unsigned)c { return ck_label(t, f_body(13, UIFontWeightHeavy), c); }
+- (CKButton *)button:(NSString *)t primary:(BOOL)pri tap:(void (^)(CKButton *))tap {
+    CKButton *b = ck_pill(t, f_body(13, UIFontWeightHeavy), pri ? C_INK : 0xFFFFFF, rgb(pri ? C_YELLOW : C_SLAB), nil, 36, tap);
+    b.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
+    [b.widthAnchor constraintGreaterThanOrEqualToConstant:60].active = YES;
     return b;
 }
-- (UISlider *)slider:(float)lo hi:(float)hi value:(float)v action:(SEL)a width:(CGFloat)w {
-    UISlider *s = [[UISlider alloc] init];
-    s.minimumValue = lo; s.maximumValue = hi; s.value = v; s.minimumTrackTintColor = rgb(0xF5C21B);
-    [s addTarget:self action:a forControlEvents:UIControlEventValueChanged];
-    [s.widthAnchor constraintEqualToConstant:w].active = YES;
-    return s;
+- (UIStackView *)bar:(NSArray *)views {
+    UIStackView *bar = hstack(views, 6);
+    bar.layoutMargins = UIEdgeInsetsMake(4, 8, 4, 8); bar.layoutMarginsRelativeArrangement = YES;
+    bar.backgroundColor = [rgb(C_INK) colorWithAlphaComponent:0.92]; bar.layer.cornerRadius = 14;
+    bar.layer.borderWidth = 1; bar.layer.borderColor = rgb(0x2A3A6E).CGColor;
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    return bar;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.zh = [[NSUserDefaults.standardUserDefaults stringForKey:@"lang"] isEqualToString:@"zh"];
     [self load];
+    __weak HudEditorVC *w = self;
     self.canvas = [[HudCanvas alloc] initWithFrame:self.view.bounds];
     self.canvas.vc = self;
     self.canvas.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.canvas.contentMode = UIViewContentModeRedraw;
     [self.view addSubview:self.canvas];
-    self.info = [self label:@"Tap an item" color:UIColor.whiteColor];
-    [self.info.widthAnchor constraintGreaterThanOrEqualToConstant:120].active = YES;
-    self.size = [self slider:0.4 hi:3 value:1 action:@selector(sizeChanged) width:110];
+    self.info = [self label:@"" color:0xFFFFFF];
+    [self.info.widthAnchor constraintGreaterThanOrEqualToConstant:128].active = YES;
+    self.size = ck_slider(0.4, 3, 1, C_YELLOW, ^(CKSlider *s) { [w sizeChanged]; });
+    fix_w(self.size, 90);
     self.size.enabled = NO;
-    UIStackView *bar = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.info, [self label:@"Size" color:rgb(0xB7C4E8)], self.size,
-        [self label:@"Buttons" color:rgb(0xB7C4E8)], [self slider:0 hi:1 value:self.opacity action:@selector(opacityChanged:) width:90],
-        [self button:@"Reset" primary:NO action:@selector(reset)], [self button:@"Back" primary:NO action:@selector(close)],
-        [self button:@"Save" primary:YES action:@selector(save)]]];
-    bar.spacing = 8; bar.alignment = UIStackViewAlignmentCenter;
-    bar.layoutMargins = UIEdgeInsetsMake(4, 10, 4, 10); bar.layoutMarginsRelativeArrangement = YES;
-    bar.backgroundColor = [rgb(0x131A2E) colorWithAlphaComponent:0.9]; bar.layer.cornerRadius = 14;
-    bar.layer.borderWidth = 1; bar.layer.borderColor = rgb(0x2A3A6E).CGColor;
-    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    CKSlider *ob = ck_slider(0, 1, self.opacity, C_YELLOW, ^(CKSlider *s) { w.opacity = s.value; [w.canvas setNeedsDisplay]; });
+    fix_w(ob, 80);
+    UIStackView *bar = [self bar:@[self.info, [self label:[self t:@"Size" zh:@"大小"] color:C_MUTED], self.size,
+        [self label:[self t:@"Buttons" zh:@"按键"] color:C_MUTED], ob,
+        [self button:[self t:@"Reset" zh:@"重置"] primary:NO tap:^(CKButton *b) { [w reset]; }],
+        [self button:self.first ? [self t:@"Skip" zh:@"跳过"] : [self t:@"Back" zh:@"返回"] primary:NO tap:^(CKButton *b) { [w close]; }],
+        [self button:[self t:@"Save" zh:@"保存"] primary:YES tap:^(CKButton *b) { [w save]; }]]];
     [self.view addSubview:bar];
+    // a touch button picked: its picture from the gallery (round, with a light ring), or back to the default
+    self.iconPreview = [[UIImageView alloc] init];
+    fix_w(self.iconPreview, 32); fix_h(self.iconPreview, 32);
+    CKButton *gallery = [self button:[self t:@"Choose from gallery" zh:@"从相册选择"] primary:NO tap:^(CKButton *b) { [w pickIcon]; }];
+    gallery.backgroundColor = rgb(C_BLUE);
+    self.iconDefault = [self button:[self t:@"Default icon" zh:@"恢复默认图标"] primary:NO tap:^(CKButton *b) {
+        HudElem *e = w.active;
+        if (!e) return;
+        w.icons[e.name] = NSNull.null;
+        e.pic = [w bundlePic:e.name];
+        [w showInfo]; [w.canvas setNeedsDisplay];
+    }];
+    self.iconBar = [self bar:@[self.iconPreview, gallery, self.iconDefault, [self label:[self t:@"Square images work best" zh:@"建议使用正方形图片"] color:C_MUTED]]];
+    self.iconBar.hidden = YES;
+    [self.view addSubview:self.iconBar];
+    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[                         // bottom centre: the race HUD has nothing there
         [bar.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [bar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-6]]];
+        [bar.bottomAnchor constraintEqualToAnchor:g.bottomAnchor constant:-6],
+        [self.iconBar.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [self.iconBar.bottomAnchor constraintEqualToAnchor:bar.topAnchor constant:-6]]];
+    if (self.first) {                                                  // the first start: which step this is
+        BOOL mobile = [self.mode isEqualToString:@"mobile"];
+        UILabel *title = ck_label(mobile ? [self t:@"Step 3 of 3 · Arrange your HUD · Mobile controls" zh:@"第 3 步，共 3 步 · 调整 HUD · 手游操作"]
+                                         : [self t:@"Step 3 of 3 · Arrange your HUD · Classic controls" zh:@"第 3 步，共 3 步 · 调整 HUD · 经典操作"],
+                                  f_disp(13, UIFontWeightBold), 0xFFFFFF);
+        title.textAlignment = NSTextAlignmentCenter;
+        title.backgroundColor = [rgb(C_INK) colorWithAlphaComponent:0.9];
+        title.layer.cornerRadius = 14; title.layer.masksToBounds = YES;
+        title.layer.borderWidth = 1; title.layer.borderColor = rgb(0x2A3A6E).CGColor;
+        title.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.view addSubview:title];
+        [NSLayoutConstraint activateConstraints:@[[title.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+            [title.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:UIScreen.mainScreen.bounds.size.height * 0.236],
+            [title.heightAnchor constraintEqualToConstant:28]]];
+        [title.widthAnchor constraintEqualToConstant:[title.text sizeWithAttributes:@{NSFontAttributeName: title.font}].width + 28].active = YES;
+    }
     [self showInfo];
 }
 - (void)showInfo {
     HudElem *e = self.active;
-    self.info.text = e ? [NSString stringWithFormat:@"%@  %.0f%%", e.label, e.s * 100] : @"Tap an item, then slide it";
+    self.info.text = e ? [NSString stringWithFormat:@"%@  %.0f%%", e.label, e.s * 100] : [self t:@"Tap an item, then slide it" zh:@"点击一个元素，然后拖动"];
     self.size.enabled = e != nil;
     if (e) self.size.value = e.s;
+    self.iconBar.hidden = !(e && e.touch);
+    if (e && e.touch) {
+        self.iconPreview.image = e.pic;
+        id own = self.icons[e.name];
+        self.iconDefault.hidden = own ? own == NSNull.null : ![NSFileManager.defaultManager fileExistsAtPath:icon_path(e.name, @".png")];
+    }
+}
+// the system photo picker (works in a landscape-only app, needs no photo permission)
+- (void)pickIcon {
+    PHPickerConfiguration *c = [[PHPickerConfiguration alloc] init];
+    c.filter = [PHPickerFilter imagesFilter];
+    c.selectionLimit = 1;
+    PHPickerViewController *p = [[PHPickerViewController alloc] initWithConfiguration:c];
+    p.delegate = self;
+    [self presentViewController:p animated:YES completion:nil];
+}
+- (void)picker:(PHPickerViewController *)p didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    [p dismissViewControllerAnimated:YES completion:nil];
+    HudElem *e = self.active;
+    NSItemProvider *ip = results.firstObject.itemProvider;
+    if (!e || !e.touch || ![ip canLoadObjectOfClass:UIImage.class]) return;
+    __weak HudEditorVC *w = self;
+    [ip loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> obj, NSError *err) {
+        if (![(NSObject *)obj isKindOfClass:UIImage.class]) return;
+        UIImage *cut = icon_cut((UIImage *)obj);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            w.icons[e.name] = cut;
+            e.pic = cut;
+            [w showInfo]; [w.canvas setNeedsDisplay];
+        });
+    }];
 }
 - (void)sizeChanged {
     HudElem *e = self.active;
@@ -1086,7 +1408,6 @@ static UIImage *hud_rgba(NSData *d) {
     e.x = cx - e.sw * e.s / 2; e.y = cy - e.sh * e.s / 2;
     [self showInfo]; [self.canvas setNeedsDisplay];
 }
-- (void)opacityChanged:(UISlider *)s { self.opacity = s.value; [self.canvas setNeedsDisplay]; }
 - (void)reset {
     for (HudElem *e in self.elems) { e.x = e.sx; e.y = e.sy; e.s = 1; }
     self.opacity = 0.6;
@@ -1099,6 +1420,7 @@ static UIImage *hud_rgba(NSData *d) {
     [t appendFormat:@"touch_opacity %.2f\n", self.opacity];
     [NSFileManager.defaultManager createDirectoryAtPath:[self.layoutPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
     [t writeToFile:self.layoutPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    for (NSString *name in self.icons) icon_save(name, self.icons[name] == NSNull.null ? nil : self.icons[name]);
     [self close];
 }
 - (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
@@ -1170,109 +1492,278 @@ static UIImage *hud_rgba(NSData *d) {
 - (void)close { g_capture = nil; [self dismissViewControllerAnimated:NO completion:nil]; }
 @end
 
-// ---- Controls screen: bindings + chat macros (the Settings > Controls / Chat macros sections on Android) --------------
-@interface ControlsVC : UIViewController <UITextFieldDelegate>
-@property BOOL zh;
-@end
-@implementation ControlsVC {
-    UIButton *_kb[CT_N], *_pad[CT_N], *_combo[CT_MACROS];
-    UITextField *_text[CT_MACROS];
-    NSMutableData *_us;                    // UserSetting.bin: the chat macro texts (0x58 + slot * 0x400, UTF-16LE)
+// ---- hud_layout.txt touch_opacity (the HUD editor keeps the positions; only this line changes here) ------------------
+static NSString *hud_layout_path(void) { return [docs() stringByAppendingPathComponent:@"game/hud_layout.txt"]; }
+static float hud_opacity_get(void) {
+    NSString *t = [NSString stringWithContentsOfFile:hud_layout_path() encoding:NSUTF8StringEncoding error:nil];
+    for (NSString *line in [t componentsSeparatedByString:@"\n"]) {
+        NSArray *p = [[line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (p.count == 2 && [p[0] isEqualToString:@"touch_opacity"]) return MAX(0, MIN(1, [p[1] floatValue]));
+    }
+    return [[NSUserDefaults.standardUserDefaults stringForKey:@"controltype"] isEqualToString:@"keyboard"] ? 0 : 0.6f;
 }
+static void hud_opacity_set(float a) {
+    NSString *path = hud_layout_path();
+    NSMutableString *t = [NSMutableString string];
+    NSString *old = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    for (NSString *line in [old componentsSeparatedByString:@"\n"]) {
+        NSString *l = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (l.length && ![l hasPrefix:@"touch_opacity"]) [t appendFormat:@"%@\n", l];
+    }
+    [t appendFormat:@"touch_opacity %.2f\n", a];
+    [NSFileManager.defaultManager createDirectoryAtPath:[path stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+    [t writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+static void pill_look(UIButton *b, BOOL on) {
+    b.backgroundColor = rgb(on ? C_PILL_ON : 0xFFFFFF);
+    b.layer.borderColor = rgb(on ? C_DEEP : C_LINE).CGColor;
+    b.selected = on;
+}
+// an 18 pt checkbox picture: filled with a tick when on
+static UIImage *check_img(BOOL on, unsigned onFill, unsigned offFill, CGFloat offAlpha, unsigned offStroke, unsigned tick) {
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(18, 18)];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        UIBezierPath *b = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0.75, 0.75, 16.5, 16.5) cornerRadius:5];
+        [(on ? rgb(onFill) : [rgb(offFill) colorWithAlphaComponent:offAlpha]) setFill]; [b fill];
+        b.lineWidth = 1.5; [rgb(on ? onFill : offStroke) setStroke]; [b stroke];
+        if (!on) return;
+        UIBezierPath *t = [UIBezierPath bezierPath];
+        [t moveToPoint:CGPointMake(4.9, 9.4)]; [t addLineToPoint:CGPointMake(7.9, 12.2)]; [t addLineToPoint:CGPointMake(13.3, 5.9)];
+        t.lineWidth = 2; t.lineCapStyle = kCGLineCapRound; t.lineJoinStyle = kCGLineJoinRound;
+        [rgb(tick) setStroke]; [t stroke];
+    }];
+}
+// the gamma preview: brightness(gamma^0.6), as the design draws it
+static UIImage *gamma_img(UIImage *src, float g) {
+    CGFloat k = pow(g, 0.6);
+    CGSize s = CGSizeMake(320, 160);
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:s];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        CGFloat sc = MAX(s.width / src.size.width, s.height / src.size.height);
+        CGRect at = CGRectMake((s.width - src.size.width * sc) / 2, (s.height - src.size.height * sc) / 2, src.size.width * sc, src.size.height * sc);
+        [src drawInRect:at];
+        if (k < 1) { [[UIColor colorWithWhite:0 alpha:1 - k] setFill]; UIRectFillUsingBlendMode(CGRectMake(0, 0, s.width, s.height), kCGBlendModeNormal); }
+        else if (k > 1) [src drawInRect:at blendMode:kCGBlendModePlusLighter alpha:MIN(1, k - 1)];
+    }];
+}
+
+// ---- Settings: full-screen light panel, tabs on the left (the design): Display, Game, Sound, Controls, HUD, Chat macros,
+// Gamma; Restore defaults / Repair game files / Cancel / Save. Saved in NSUserDefaults (same keys as Android) and applied at
+// Play (LoginVC go): wide / fps / scale -> CK_WIDE / CK_VSYNC / CK_SCALE + CrazyKart.ini; detail / gamma / music / effects
+// volumes -> UserSetting.bin; accessories / ping -> the server poll's X-CK-Accessories / X-CK-Ping. No voice chat on iOS:
+// no voice rows. Bindings + chat macro keys apply at once (CaptureVC), chat macro texts and the rest at Save.
+@interface SettingsVC : UIViewController <UITextFieldDelegate>
+@property BOOL zh;
+@property (strong) NSMutableDictionary *o;              // the values being edited
+@property (copy) NSString *tab;
+@property (strong) UIStackView *content;
+@property (strong) NSMutableData *us;                   // UserSetting.bin (the chat macro texts)
+@property (strong) NSMutableArray<NSString *> *macros;
+@property (copy) void (^closed)(BOOL saved);
+@end
+@implementation SettingsVC
 - (NSString *)t:(NSString *)en zh:(NSString *)zh { return self.zh ? zh : en; }
 - (NSString *)usPath { return [docs() stringByAppendingPathComponent:@"game/UserSetting.bin"]; }
 - (NSString *)macroText:(int)slot {
     NSUInteger o = 0x58 + slot * 0x400, n = 0;
-    if (_us.length < o + 0x400) return @"";
-    const uint8_t *b = (const uint8_t *)_us.bytes + o;
+    if (self.us.length < o + 0x400) return @"";
+    const uint8_t *b = (const uint8_t *)self.us.bytes + o;
     while (n < 0x3fe && (b[n] || b[n + 1])) n += 2;
     return [[NSString alloc] initWithBytes:b length:n encoding:NSUTF16LittleEndianStringEncoding] ?: @"";
 }
-- (UIButton *)bindButton:(NSString *)title {
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    [b setTitle:title forState:UIControlStateNormal];
-    b.titleLabel.font = [UIFont boldSystemFontOfSize:13]; b.titleLabel.adjustsFontSizeToFitWidth = YES;
-    [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    b.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08]; b.layer.cornerRadius = 10;
-    b.layer.borderWidth = 1; b.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
-    [b.heightAnchor constraintEqualToConstant:34].active = YES;
-    return b;
-}
-- (UILabel *)label:(NSString *)t size:(CGFloat)s color:(UIColor *)c {
-    UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:s]; return l;
-}
-- (UIStackView *)row:(NSArray *)views {
-    UIStackView *r = [[UIStackView alloc] initWithArrangedSubviews:views];
-    r.spacing = 6; r.alignment = UIStackViewAlignmentCenter;
-    return r;
++ (NSDictionary *)defaults {
+    return @{@"wide": @YES, @"scale": @100, @"detail": @0, @"effects": @YES, @"lean": @NO, @"etc2": @NO, @"fps": @0, @"accessories": @YES,
+             @"ping": @"room,race", @"music": @YES, @"musicVol": @7, @"sfx": @YES, @"sfxVol": @7, @"gamma": @1.0};
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = rgb(0x0E1F5C);
-    _us = [NSMutableData dataWithContentsOfFile:self.usPath] ?: [NSMutableData dataWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"UserSetting.bin"]];
-    UIStackView *st = [[UIStackView alloc] init];
-    st.axis = UILayoutConstraintAxisVertical; st.spacing = 6;
-    UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
-    [done setTitle:[self t:@"Done" zh:@"完成"] forState:UIControlStateNormal];
-    done.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightHeavy];
-    [done setTitleColor:rgb(0x131A2E) forState:UIControlStateNormal];
-    done.backgroundColor = rgb(0xF5C21B); done.layer.cornerRadius = 19;
-    [done.widthAnchor constraintEqualToConstant:110].active = YES; [done.heightAnchor constraintEqualToConstant:38].active = YES;
-    [done addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside];
-    UIView *gap = [[UIView alloc] init];
-    [st addArrangedSubview:[self row:@[[self label:[self t:@"CONTROLS" zh:@"按键设置"] size:20 color:UIColor.whiteColor], gap, done]]];
+    self.view.backgroundColor = rgb(C_PAPER);
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    self.o = [NSMutableDictionary dictionary];
+    NSDictionary *def = SettingsVC.defaults;
+    for (NSString *k in def) self.o[k] = [d objectForKey:k] ?: def[k];
+    self.o[@"controltype"] = [d stringForKey:@"controltype"] ?: ([d boolForKey:@"touchmobile"] ? @"mobile" : @"classic");
+    self.o[@"opacity"] = @(hud_opacity_get());
+    self.o[@"lang"] = @(self.zh);
+    self.us = [NSMutableData dataWithContentsOfFile:self.usPath] ?: [NSMutableData dataWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"UserSetting.bin"]];
+    self.macros = [NSMutableArray array];
+    for (int s = 0; s < CT_MACROS; s++) [self.macros addObject:[self macroText:s]];
+    self.tab = @"display";
+    [self build];
+}
+- (void)viewWillAppear:(BOOL)a {                         // back from the HUD editor: its opacity
+    [super viewWillAppear:a];
+    if (!self.o) return;
+    self.o[@"opacity"] = @(hud_opacity_get());
+    if ([self.tab isEqualToString:@"hud"]) [self fillTab];
+}
+- (void)build {
+    for (UIView *v in self.view.subviews) [v removeFromSuperview];
+    __weak SettingsVC *w = self;
+    UILabel *title = ck_label([self t:@"Game settings" zh:@"游戏设置"], f_disp(24, UIFontWeightHeavy), C_INK);
+    CKButton *lang = ck_pill(self.zh ? @"中文" : @"English", f_body(15, UIFontWeightBold), C_INK, UIColor.whiteColor, rgb(C_EDGE), 44, nil);
+    [lang setImage:ck_icon(IC_GLOBE, C_INK, 18) forState:UIControlStateNormal];
+    lang.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
+    lang.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 20);
+    step_shadow(lang, C_LINE, 3);
+    lang.accessibilityLabel = @"Language / 语言";
+    lang.menu = [UIMenu menuWithChildren:@[
+        [UIAction actionWithTitle:@"English" image:nil identifier:nil handler:^(UIAction *a) { if (w.zh) { w.zh = NO; [w build]; } }],
+        [UIAction actionWithTitle:@"中文" image:nil identifier:nil handler:^(UIAction *a) { if (!w.zh) { w.zh = YES; [w build]; } }]]];
+    lang.showsMenuAsPrimaryAction = YES;
+    CKButton *x = ck_button(^(CKButton *b) { [w close:NO]; });
+    [x setImage:ck_icon(IC_CLOSE, C_INK, 18) forState:UIControlStateNormal];
+    ck_box(x, UIColor.whiteColor, nil, 0, 22); step_shadow(x, C_LINE, 3);
+    fix_w(x, 44); fix_h(x, 44);
+    x.accessibilityLabel = [self t:@"Close settings" zh:@"关闭设置"];
+    UIStackView *head = hstack(@[title, lang, x], 12);
+    [title setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
-    [st addArrangedSubview:[self label:[self t:@"Controls  (keyboard · controller)" zh:@"按键  （键盘 · 手柄）"] size:13 color:rgb(0xF5C21B)]];
-    for (int i = 0; i < CT_N; i++) {
-        UILabel *name = [self label:self.zh ? CT_ZH[i] : CT_EN[i] size:13 color:rgb(0xB7C4E8)];
-        _kb[i] = [self bindButton:ct_name(ct_kb(i), self.zh)]; _kb[i].tag = i;
-        _pad[i] = [self bindButton:ct_name(ct_pad(i), self.zh)]; _pad[i].tag = i;
-        [_kb[i] addTarget:self action:@selector(bindKb:) forControlEvents:UIControlEventTouchUpInside];
-        [_pad[i] addTarget:self action:@selector(bindPad:) forControlEvents:UIControlEventTouchUpInside];
-        UIStackView *r = [self row:@[name, _kb[i], _pad[i]]];
-        [name.widthAnchor constraintEqualToAnchor:_kb[i].widthAnchor multiplier:1.25].active = YES;
-        [_pad[i].widthAnchor constraintEqualToAnchor:_kb[i].widthAnchor].active = YES;
-        [st addArrangedSubview:r];
+    UIStackView *tabs = vstack(@[], 3);
+    tabs.layoutMargins = UIEdgeInsetsMake(4, 4, 4, 4); tabs.layoutMarginsRelativeArrangement = YES;
+    tabs.backgroundColor = rgb(C_RAIL); tabs.layer.cornerRadius = 22;
+    NSArray *all = @[@[@"display", [self t:@"Display" zh:@"画面"]], @[@"game", [self t:@"Game" zh:@"游戏"]], @[@"sound", [self t:@"Sound" zh:@"声音"]],
+                     @[@"controls", [self t:@"Controls" zh:@"按键"]], @[@"hud", @"HUD"], @[@"chat", [self t:@"Chat macros" zh:@"快捷聊天"]], @[@"gamma", @"Gamma"]];
+    for (NSArray *tb in all) {
+        BOOL on = [tb[0] isEqualToString:self.tab];
+        NSString *key = tb[0];
+        CKButton *b = ck_pill(tb[1], f_disp(15, UIFontWeightBold), on ? C_INK : C_SUB, on ? UIColor.whiteColor : UIColor.clearColor, nil, 40,
+                              ^(CKButton *bb) { w.tab = key; [w build]; });
+        if (on) step_shadow(b, C_LINE, 2);
+        b.accessibilityTraits |= on ? UIAccessibilityTraitSelected : 0;
+        [tabs addArrangedSubview:b];
     }
-    UIButton *reset = [self bindButton:[self t:@"Reset controls" zh:@"恢复默认按键"]];
-    [reset addTarget:self action:@selector(resetControls) forControlEvents:UIControlEventTouchUpInside];
-    [st addArrangedSubview:reset];
-
-    // Chat macros: the game's 9 quick-chat lines (UserSetting.bin, as the PC launcher edits them) + a key or
-    // two-button combination that sends each one
-    UILabel *mh = [self label:[self t:@"Chat macros  (text · key or combo)" zh:@"快捷聊天  （内容 · 按键或组合键）"] size:13 color:rgb(0xF5C21B)];
-    [st addArrangedSubview:mh];
-    [st setCustomSpacing:14 afterView:reset];
-    for (int s = 0; s < CT_MACROS; s++) {
-        UILabel *num = [self label:[NSString stringWithFormat:@"%d", s + 1] size:14 color:rgb(0xB7C4E8)];
-        [num.widthAnchor constraintEqualToConstant:18].active = YES;
-        UITextField *f = [[UITextField alloc] init];
-        f.text = [self macroText:s]; f.textColor = UIColor.whiteColor; f.font = [UIFont systemFontOfSize:13];
-        f.backgroundColor = [UIColor colorWithWhite:0 alpha:0.25]; f.layer.cornerRadius = 10;
-        f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 1)]; f.leftViewMode = UITextFieldViewModeAlways;
-        f.returnKeyType = UIReturnKeyDone; f.delegate = self; f.autocorrectionType = UITextAutocorrectionTypeNo;
-        [f.heightAnchor constraintEqualToConstant:34].active = YES;
-        _text[s] = f;
-        _combo[s] = [self bindButton:ct_combo(ct_macro(s), self.zh)]; _combo[s].tag = s;
-        [_combo[s] addTarget:self action:@selector(bindMacro:) forControlEvents:UIControlEventTouchUpInside];
-        [st addArrangedSubview:[self row:@[num, f, _combo[s]]]];
-        [f.widthAnchor constraintEqualToAnchor:_combo[s].widthAnchor multiplier:2.2 / 1.2].active = YES;
-    }
+    UIScrollView *rail = [[UIScrollView alloc] init];
+    rail.showsVerticalScrollIndicator = NO;
+    tabs.translatesAutoresizingMaskIntoConstraints = NO;
+    [rail addSubview:tabs];
+    UIView *card = [[UIView alloc] init];
+    ck_box(card, UIColor.whiteColor, rgb(C_LINE), 1, 16); step_shadow(card, C_LINE, 3);
     UIScrollView *sc = [[UIScrollView alloc] init];
+    sc.layer.cornerRadius = 16;
     sc.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
-    for (UIView *v in @[sc, st]) v.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:sc]; [sc addSubview:st];
+    self.content = vstack(@[], 0);
+    self.content.layoutMargins = UIEdgeInsetsMake(4, 18, 12, 18); self.content.layoutMarginsRelativeArrangement = YES;
+    for (UIView *v in @[sc, self.content]) v.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:sc]; [sc addSubview:self.content];
+    UIStackView *body = hstack(@[rail, card], 14);
+    body.alignment = UIStackViewAlignmentFill;
+    fix_w(rail, 150);
+
+    CKButton *restore = ck_light([self t:@"Restore defaults" zh:@"恢复默认设置"], ^(CKButton *b) {
+        [w.o addEntriesFromDictionary:SettingsVC.defaults];      // display, game, sound, gamma; controls / HUD / macros stay
+        [w fillTab];
+    });
+    CKButton *repair = ck_light([self t:@"Repair game files" zh:@"修复游戏文件"], ^(CKButton *b) { [w askRepair]; });
+    CKButton *cancel = ck_light([self t:@"Cancel" zh:@"取消"], ^(CKButton *b) { [w close:NO]; });
+    CKButton *save = ck_yellow([self t:@"Save" zh:@"确定"], 16, 44, ^(CKButton *b) { [w close:YES]; });
+    [save.widthAnchor constraintGreaterThanOrEqualToConstant:110].active = YES;
+    UIView *gap = [[UIView alloc] init];
+    [gap setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView *foot = hstack(@[restore, repair, gap, cancel, save], 10);
+
+    UIStackView *page = vstack(@[head, body, foot], 8);
+    page.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:page];
     UILayoutGuide *g = self.view.safeAreaLayoutGuide;
-    NSLayoutYAxisAnchor *kb = g.bottomAnchor;                     // iOS 15+: stop above the keyboard (macro texts)
+    NSLayoutYAxisAnchor *kb = g.bottomAnchor;                      // iOS 15+: stop above the keyboard (macro texts)
     if (@available(iOS 15.0, *)) kb = self.view.keyboardLayoutGuide.topAnchor;
     [NSLayoutConstraint activateConstraints:@[
-        [sc.leadingAnchor constraintEqualToAnchor:g.leadingAnchor], [sc.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
-        [sc.topAnchor constraintEqualToAnchor:g.topAnchor], [sc.bottomAnchor constraintEqualToAnchor:kb],
-        [st.topAnchor constraintEqualToAnchor:sc.topAnchor constant:12], [st.bottomAnchor constraintEqualToAnchor:sc.bottomAnchor constant:-16],
-        [st.centerXAnchor constraintEqualToAnchor:sc.centerXAnchor], [st.widthAnchor constraintLessThanOrEqualToConstant:620],
-        [st.widthAnchor constraintLessThanOrEqualToAnchor:sc.widthAnchor constant:-32]]];
-    NSLayoutConstraint *wide = [st.widthAnchor constraintEqualToConstant:620];
-    wide.priority = UILayoutPriorityDefaultHigh; wide.active = YES;
+        [page.leadingAnchor constraintEqualToAnchor:g.leadingAnchor constant:16], [page.trailingAnchor constraintEqualToAnchor:g.trailingAnchor constant:-16],
+        [page.topAnchor constraintEqualToAnchor:g.topAnchor constant:10], [page.bottomAnchor constraintEqualToAnchor:kb constant:-10],
+        [tabs.topAnchor constraintEqualToAnchor:rail.contentLayoutGuide.topAnchor], [tabs.bottomAnchor constraintEqualToAnchor:rail.contentLayoutGuide.bottomAnchor],
+        [tabs.leadingAnchor constraintEqualToAnchor:rail.contentLayoutGuide.leadingAnchor], [tabs.widthAnchor constraintEqualToAnchor:rail.frameLayoutGuide.widthAnchor],
+        [sc.leadingAnchor constraintEqualToAnchor:card.leadingAnchor], [sc.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [sc.topAnchor constraintEqualToAnchor:card.topAnchor], [sc.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-1],
+        [self.content.topAnchor constraintEqualToAnchor:sc.contentLayoutGuide.topAnchor], [self.content.bottomAnchor constraintEqualToAnchor:sc.contentLayoutGuide.bottomAnchor],
+        [self.content.leadingAnchor constraintEqualToAnchor:sc.contentLayoutGuide.leadingAnchor], [self.content.widthAnchor constraintEqualToAnchor:sc.frameLayoutGuide.widthAnchor]]];
+    [self fillTab];
+}
+- (void)row:(NSString *)label control:(UIView *)c {
+    UILabel *l = ck_label(label, f_disp(15, UIFontWeightBold), C_INK);
+    l.numberOfLines = 2; l.adjustsFontSizeToFitWidth = YES;
+    fix_w(l, 170);
+    UIStackView *r = hstack(@[l, c], 14);
+    r.layoutMargins = UIEdgeInsetsMake(8, 0, 8, 0); r.layoutMarginsRelativeArrangement = YES;
+    [self.content addArrangedSubview:r];
+    UIView *line = [[UIView alloc] init];
+    line.backgroundColor = rgb(C_RAIL); fix_h(line, 1);
+    [self.content addArrangedSubview:line];
+}
+- (void)hint:(NSString *)s {
+    UILabel *h = ck_label(s, f_body(14, UIFontWeightSemibold), C_SUB);
+    h.numberOfLines = 0;
+    UIStackView *wrap = vstack(@[h], 0);
+    wrap.layoutMargins = UIEdgeInsetsMake(8, 0, 6, 0); wrap.layoutMarginsRelativeArrangement = YES;
+    [self.content addArrangedSubview:wrap];
+}
+- (UIStackView *)pills:(NSArray<NSString *> *)labels key:(NSString *)key values:(NSArray *)values {
+    UIStackView *g = hstack(@[], 6);
+    __weak SettingsVC *w = self;
+    __weak UIStackView *wg = g;
+    for (NSUInteger i = 0; i < labels.count; i++) {
+        id v = values[i];
+        CKButton *b = ck_pill(labels[i], f_body(14, UIFontWeightBold), C_INK, UIColor.whiteColor, rgb(C_LINE), 40, ^(CKButton *x) {
+            for (UIView *o in wg.arrangedSubviews) if ([o isKindOfClass:UIButton.class]) pill_look((UIButton *)o, o == x);   // the last one is a spacer
+            [w picked:key value:v];
+        });
+        b.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
+        b.titleLabel.adjustsFontSizeToFitWidth = YES; b.titleLabel.minimumScaleFactor = 0.7;
+        [b.widthAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
+        pill_look(b, [self.o[key] isEqual:v]);
+        [g addArrangedSubview:b];
+    }
+    [g addArrangedSubview:[[UIView alloc] init]];
+    return g;
+}
+- (void)picked:(NSString *)key value:(id)v {
+    if ([key isEqualToString:@"controltype"]) {                     // keyboard / controller: on-screen buttons invisible
+        if ([v isEqualToString:@"keyboard"]) self.o[@"opacity"] = @0;
+        else if ([self.o[@"opacity"] floatValue] == 0) self.o[@"opacity"] = @0.6;
+    }
+    self.o[key] = v;
+}
+- (UIView *)slider:(float)lo hi:(float)hi step:(float)step key:(NSString *)key low:(NSString *)low high:(NSString *)high fmt:(NSString *(^)(float v))fmt {
+    UILabel *out = ck_label(fmt([self.o[key] floatValue]), f_disp(17, UIFontWeightHeavy), C_INK);
+    out.textAlignment = NSTextAlignmentRight;
+    [out.widthAnchor constraintGreaterThanOrEqualToConstant:48].active = YES;
+    __weak SettingsVC *w = self;
+    CKSlider *s = ck_slider(lo, hi, [self.o[key] floatValue], C_BLUE, ^(CKSlider *sl) {
+        float v = roundf(sl.value / step) * step;
+        w.o[key] = @(v);
+        out.text = fmt(v);
+    });
+    NSMutableArray *v = [NSMutableArray array];
+    if (low) [v addObject:ck_label(low, f_body(13, UIFontWeightSemibold), C_SUB)];
+    [v addObject:s];
+    if (high) [v addObject:ck_label(high, f_body(13, UIFontWeightSemibold), C_SUB)];
+    [v addObject:out];
+    UIStackView *r = hstack(v, 12);
+    [s setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    return r;
+}
+- (UIView *)onOff:(NSString *)key {
+    __weak SettingsVC *w = self;
+    CKButton *b = ck_button(^(CKButton *x) {
+        BOOL on = ![w.o[key] boolValue];
+        w.o[key] = @(on);
+        [x setImage:check_img(on, C_BLUE, 0xFFFFFF, 1, C_EDGE, 0xFFFFFF) forState:UIControlStateNormal];
+    });
+    [b setImage:check_img([self.o[key] boolValue], C_BLUE, 0xFFFFFF, 1, C_EDGE, 0xFFFFFF) forState:UIControlStateNormal];
+    [b setTitle:[self t:@"On" zh:@"开"] forState:UIControlStateNormal];
+    [b setTitleColor:rgb(C_INK) forState:UIControlStateNormal];
+    b.titleLabel.font = f_body(14, UIFontWeightSemibold);
+    b.titleEdgeInsets = UIEdgeInsetsMake(0, 10, 0, -10);
+    b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    fix_h(b, 40);
+    return b;
+}
+- (CKButton *)keyButton:(NSString *)t tap:(void (^)(CKButton *))tap {
+    CKButton *b = ck_pill(t, f_body(14, UIFontWeightBold), C_INK, UIColor.whiteColor, rgb(C_EDGE), 40, tap);
+    b.layer.cornerRadius = 10;
+    b.titleLabel.adjustsFontSizeToFitWidth = YES;
+    b.contentEdgeInsets = UIEdgeInsetsMake(0, 4, 0, 4);
+    return b;
 }
 - (void)capture:(BOOL)combo got:(void (^)(NSArray<NSNumber *> *))got {
     [self.view endEditing:YES];
@@ -1281,473 +1772,561 @@ static UIImage *hud_rgba(NSData *d) {
     c.modalPresentationStyle = UIModalPresentationOverFullScreen;
     [self presentViewController:c animated:NO completion:nil];
 }
-- (void)bindKb:(UIButton *)b {
-    int i = (int)b.tag;
-    [self capture:NO got:^(NSArray<NSNumber *> *c) {
-        int code = c.count ? c[0].intValue : 0;
-        [NSUserDefaults.standardUserDefaults setInteger:code forKey:[@"kb_" stringByAppendingString:CT_ID[i]]];
-        [b setTitle:ct_name(code, self.zh) forState:UIControlStateNormal];
-    }];
-}
-- (void)bindPad:(UIButton *)b {
-    int i = (int)b.tag;
-    [self capture:NO got:^(NSArray<NSNumber *> *c) {
-        int code = c.count ? c[0].intValue : 0;
-        [NSUserDefaults.standardUserDefaults setInteger:code forKey:[@"pad_" stringByAppendingString:CT_ID[i]]];
-        [b setTitle:ct_name(code, self.zh) forState:UIControlStateNormal];
-    }];
-}
-- (void)bindMacro:(UIButton *)b {
-    int s = (int)b.tag;
-    [self capture:YES got:^(NSArray<NSNumber *> *c) {
-        [NSUserDefaults.standardUserDefaults setObject:[c componentsJoinedByString:@"+"] forKey:[NSString stringWithFormat:@"macro_%d", s]];
-        [b setTitle:ct_combo(c, self.zh) forState:UIControlStateNormal];
-    }];
-}
-- (void)resetControls {
-    for (int i = 0; i < CT_N; i++) {
-        [NSUserDefaults.standardUserDefaults removeObjectForKey:[@"kb_" stringByAppendingString:CT_ID[i]]];
-        [NSUserDefaults.standardUserDefaults removeObjectForKey:[@"pad_" stringByAppendingString:CT_ID[i]]];
-        [_kb[i] setTitle:ct_name(CT_KB[i], self.zh) forState:UIControlStateNormal];
-        [_pad[i] setTitle:ct_name(CT_PAD[i], self.zh) forState:UIControlStateNormal];
+- (void)fillTab {
+    for (UIView *v in self.content.arrangedSubviews) [v removeFromSuperview];
+    __weak SettingsVC *w = self;
+    NSString *tab = self.tab;
+    if ([tab isEqualToString:@"display"]) {
+        [self row:[self t:@"Screen" zh:@"画面"] control:[self pills:@[[self t:@"Fill screen" zh:@"全屏"], [self t:@"16:9 with bars" zh:@"16:9 黑边"]] key:@"wide" values:@[@YES, @NO]]];
+        [self row:[self t:@"Render quality" zh:@"渲染质量"] control:[self slider:50 hi:100 step:5 key:@"scale" low:nil high:nil fmt:^NSString *(float v) {
+            return [NSString stringWithFormat:@"%d%%%@", (int)v, (int)v == 100 ? [w t:@"  (full)" zh:@"  （原画）"] : @""]; }]];
+        [self row:[self t:@"Graphics detail" zh:@"画质"] control:[self pills:@[[self t:@"High" zh:@"高"], [self t:@"Middle" zh:@"中"]] key:@"detail" values:@[@0, @1]]];
+        [self row:[self t:@"Effects" zh:@"特效"] control:[self pills:@[[self t:@"All" zh:@"全部"], [self t:@"Fewer" zh:@"精简"]] key:@"effects" values:@[@YES, @NO]]];
+        [self row:[self t:@"Compact 3D data" zh:@"精简3D数据"] control:[self pills:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] key:@"lean" values:@[@YES, @NO]]];
+        [self row:[self t:@"Compressed textures" zh:@"纹理压缩"] control:[self pills:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] key:@"etc2" values:@[@YES, @NO]]];
+        [self row:[self t:@"Frame rate cap" zh:@"帧率上限"] control:[self pills:@[[self t:@"Auto" zh:@"自动"], @"30", @"60", @"90", @"120"] key:@"fps" values:@[@0, @30, @60, @90, @120]]];
+    } else if ([tab isEqualToString:@"game"]) {
+        [self row:[self t:@"Other players' accessories" zh:@"其他玩家的赛车配件"] control:[self pills:@[[self t:@"Show" zh:@"显示"], [self t:@"Hide" zh:@"隐藏"]] key:@"accessories" values:@[@YES, @NO]]];
+        [self row:[self t:@"Show ping" zh:@"显示延迟"] control:[self pills:@[[self t:@"In the room" zh:@"房间内"], [self t:@"In races" zh:@"比赛中"], [self t:@"Both" zh:@"两者"]] key:@"ping" values:@[@"room", @"race", @"room,race"]]];
+        [self hint:[self t:@"Hiding other players' accessories can make races smoother on slower phones. Your own kart and what others see stay the same. Changes apply within half a minute, accessories from the next room you join."
+                        zh:@"隐藏其他玩家的配件可以让配置较低的手机比赛更流畅。你自己的赛车和别人看到的都不会改变。更改会在半分钟内生效，配件从下一个进入的房间开始。"]];
+    } else if ([tab isEqualToString:@"sound"]) {
+        NSString *(^num)(float) = ^NSString *(float v) { return [NSString stringWithFormat:@"%d", (int)v]; };
+        [self row:[self t:@"Music" zh:@"音乐"] control:[self onOff:@"music"]];
+        [self row:[self t:@"Music volume" zh:@"音乐音量"] control:[self slider:0 hi:10 step:1 key:@"musicVol" low:[self t:@"Low" zh:@"低"] high:[self t:@"High" zh:@"高"] fmt:num]];
+        [self row:[self t:@"Sound effects" zh:@"音效"] control:[self onOff:@"sfx"]];
+        [self row:[self t:@"Effects volume" zh:@"音效音量"] control:[self slider:0 hi:10 step:1 key:@"sfxVol" low:[self t:@"Low" zh:@"低"] high:[self t:@"High" zh:@"高"] fmt:num]];
+    } else if ([tab isEqualToString:@"controls"]) {
+        [self row:[self t:@"Touch controls" zh:@"触屏操作"] control:[self pills:@[[self t:@"Classic" zh:@"经典"], [self t:@"Mobile" zh:@"手游"], [self t:@"Keyboard / controller" zh:@"键盘 / 手柄"]]
+                                                                         key:@"controltype" values:@[@"classic", @"mobile", @"keyboard"]]];
+        UILabel *a = ck_label([self t:@"ACTION" zh:@"操作"], f_disp(13, UIFontWeightBold), C_SUB), *k = ck_label([self t:@"KEYBOARD" zh:@"键盘"], f_disp(13, UIFontWeightBold), C_SUB),
+                *p = ck_label([self t:@"CONTROLLER" zh:@"手柄"], f_disp(13, UIFontWeightBold), C_SUB);
+        fix_w(a, 170);
+        UIStackView *hd = hstack(@[a, k, p], 10);
+        [k.widthAnchor constraintEqualToAnchor:p.widthAnchor].active = YES;
+        hd.layoutMargins = UIEdgeInsetsMake(12, 0, 4, 0); hd.layoutMarginsRelativeArrangement = YES;
+        [self.content addArrangedSubview:hd];
+        for (int i = 0; i < CT_N; i++) {
+            UILabel *name = ck_label(self.zh ? CT_ZH[i] : CT_EN[i], f_disp(15, UIFontWeightBold), C_INK);
+            fix_w(name, 170);
+            NSString *kbKey = [@"kb_" stringByAppendingString:CT_ID[i]], *padKey = [@"pad_" stringByAppendingString:CT_ID[i]];
+            CKButton *kb = [self keyButton:ct_name(ct_kb(i), self.zh) tap:^(CKButton *b) {
+                [w capture:NO got:^(NSArray<NSNumber *> *c) {
+                    int code = c.count ? c[0].intValue : 0;
+                    [NSUserDefaults.standardUserDefaults setInteger:code forKey:kbKey];
+                    [b setTitle:ct_name(code, w.zh) forState:UIControlStateNormal];
+                }];
+            }];
+            CKButton *pad = [self keyButton:ct_name(ct_pad(i), self.zh) tap:^(CKButton *b) {
+                [w capture:NO got:^(NSArray<NSNumber *> *c) {
+                    int code = c.count ? c[0].intValue : 0;
+                    [NSUserDefaults.standardUserDefaults setInteger:code forKey:padKey];
+                    [b setTitle:ct_name(code, w.zh) forState:UIControlStateNormal];
+                }];
+            }];
+            UIStackView *r = hstack(@[name, kb, pad], 10);
+            [kb.widthAnchor constraintEqualToAnchor:pad.widthAnchor].active = YES;
+            r.layoutMargins = UIEdgeInsetsMake(3, 0, 3, 0); r.layoutMarginsRelativeArrangement = YES;
+            [self.content addArrangedSubview:r];
+        }
+        CKButton *reset = ck_light([self t:@"Reset controls" zh:@"恢复默认按键"], ^(CKButton *b) {
+            for (int i = 0; i < CT_N; i++) {
+                [NSUserDefaults.standardUserDefaults removeObjectForKey:[@"kb_" stringByAppendingString:CT_ID[i]]];
+                [NSUserDefaults.standardUserDefaults removeObjectForKey:[@"pad_" stringByAppendingString:CT_ID[i]]];
+            }
+            [w fillTab];
+        });
+        UIStackView *rw = hstack(@[reset, [[UIView alloc] init]], 0);
+        rw.layoutMargins = UIEdgeInsetsMake(10, 0, 0, 0); rw.layoutMarginsRelativeArrangement = YES;
+        [self.content addArrangedSubview:rw];
+    } else if ([tab isEqualToString:@"hud"]) {
+        NSString *ct = self.o[@"controltype"];
+        CKButton *edit = ck_pill([self t:@"Edit HUD layout" zh:@"编辑 HUD 布局"], f_disp(15, UIFontWeightBold), 0xFFFFFF, rgb(C_BLUE), nil, 44, ^(CKButton *b) {
+            hud_opacity_set([w.o[@"opacity"] floatValue]);           // the editor starts from the opacity chosen here
+            HudEditorVC *vc = [[HudEditorVC alloc] init];
+            vc.mode = w.o[@"controltype"];
+            vc.modalPresentationStyle = UIModalPresentationFullScreen;
+            [w presentViewController:vc animated:YES completion:nil];
+        });
+        [edit setImage:ck_icon(IC_MOVE, 0xFFFFFF, 18) forState:UIControlStateNormal];
+        edit.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
+        edit.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 26);
+        step_shadow(edit, C_SLAB, 4);
+        UILabel *scope = ck_label([ct isEqualToString:@"mobile"] ? [self t:@"Every HUD element and on-screen button, plus the Auto gas and Tap drift switches." zh:@"全部 HUD 元素和屏幕按键，以及自动油门和轻点漂移开关。"]
+                                  : [ct isEqualToString:@"keyboard"] ? [self t:@"On-screen buttons are hidden; the race HUD can still be moved." zh:@"屏幕按键已隐藏；比赛 HUD 仍可移动。"]
+                                  : [self t:@"Every HUD element and on-screen button." zh:@"全部 HUD 元素和屏幕按键。"], f_body(13, UIFontWeightSemibold), C_SUB);
+        scope.numberOfLines = 0;
+        UIStackView *hc = vstack(@[hstack(@[edit, [[UIView alloc] init]], 0), scope], 4);
+        [self row:[self t:@"HUD layout" zh:@"HUD 布局"] control:hc];
+        [self row:[self t:@"On-screen buttons" zh:@"屏幕按键透明度"] control:[self slider:0 hi:1 step:0.05 key:@"opacity" low:nil high:nil fmt:^NSString *(float v) {
+            return [NSString stringWithFormat:@"%d%%", (int)lroundf(v * 100)]; }]];
+        [self hint:[self t:@"In the editor, tap an item to move it or change its size. Tap an on-screen button to also pick its icon from your gallery."
+                        zh:@"在编辑器中点击元素可以移动或调整大小。点击屏幕按键还可以从相册选择图标。"]];
+    } else if ([tab isEqualToString:@"chat"]) {
+        [self hint:[self t:@"The game’s 9 quick-chat lines, each with a key or two-button combination that sends it." zh:@"游戏的 9 条快捷聊天，每条可设置一个按键或组合键来发送。"]];
+        for (int s = 0; s < CT_MACROS; s++) {
+            UILabel *num = ck_label([NSString stringWithFormat:@"%d", s + 1], f_disp(15, UIFontWeightHeavy), C_SUB);
+            num.textAlignment = NSTextAlignmentRight; fix_w(num, 20);
+            UITextField *f = [[UITextField alloc] init];
+            f.text = self.macros[s]; f.textColor = rgb(C_INK); f.font = f_body(15, UIFontWeightSemibold);
+            ck_box(f, UIColor.whiteColor, rgb(C_EDGE), 1, 10);
+            f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 1)]; f.leftViewMode = UITextFieldViewModeAlways;
+            f.returnKeyType = UIReturnKeyDone; f.delegate = self; f.autocorrectionType = UITextAutocorrectionTypeNo;
+            f.tag = s;
+            f.accessibilityLabel = [NSString stringWithFormat:@"%@ %d", [self t:@"Quick chat line" zh:@"快捷聊天"], s + 1];
+            [f addTarget:self action:@selector(macroEdited:) forControlEvents:UIControlEventEditingChanged];
+            fix_h(f, 40);
+            NSString *mk = [NSString stringWithFormat:@"macro_%d", s];
+            CKButton *combo = [self keyButton:ct_combo(ct_macro(s), self.zh) tap:^(CKButton *b) {
+                [w capture:YES got:^(NSArray<NSNumber *> *c) {
+                    [NSUserDefaults.standardUserDefaults setObject:[c componentsJoinedByString:@"+"] forKey:mk];
+                    [b setTitle:ct_combo(c, w.zh) forState:UIControlStateNormal];
+                }];
+            }];
+            [combo setTitleColor:rgb(C_SUB) forState:UIControlStateNormal];
+            UIStackView *r = hstack(@[num, f, combo], 10);
+            [f.widthAnchor constraintEqualToAnchor:combo.widthAnchor multiplier:2.2 / 1.2].active = YES;
+            r.layoutMargins = UIEdgeInsetsMake(3, 0, 3, 0); r.layoutMarginsRelativeArrangement = YES;
+            [self.content addArrangedSubview:r];
+        }
+    } else if ([tab isEqualToString:@"gamma"]) {
+        UIImage *art = [UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"launcher_keyart.png"]];
+        UIImageView *before = [[UIImageView alloc] initWithImage:art ? gamma_img(art, 1) : nil], *after = [[UIImageView alloc] initWithImage:art ? gamma_img(art, [self.o[@"gamma"] floatValue]) : nil];
+        UIView *sl = [self slider:0.5 hi:3 step:0.1 key:@"gamma" low:nil high:nil fmt:^NSString *(float v) {
+            if (art) after.image = gamma_img(art, v);
+            return [NSString stringWithFormat:@"%.1f", v]; }];
+        CKButton *def = ck_light([self t:@"Default gamma" zh:@"默认亮度"], ^(CKButton *b) { w.o[@"gamma"] = @1.0; [w fillTab]; });
+        [self row:@"Gamma" control:hstack(@[sl, def], 10)];
+        [sl setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+        NSMutableArray *figs = [NSMutableArray array];
+        for (UIImageView *iv in @[before, after]) {
+            iv.contentMode = UIViewContentModeScaleAspectFill; iv.clipsToBounds = YES; iv.layer.cornerRadius = 10;
+            fix_h(iv, 96);
+            [figs addObject:vstack(@[iv, ck_label(iv == before ? [self t:@"Original" zh:@"原图"] : [self t:@"Corrected" zh:@"校正"], f_body(13, UIFontWeightSemibold), C_SUB)], 4)];
+        }
+        UIStackView *two = hstack(figs, 12);
+        two.distribution = UIStackViewDistributionFillEqually; two.alignment = UIStackViewAlignmentTop;
+        two.layoutMargins = UIEdgeInsetsMake(4, 0, 4, 0); two.layoutMarginsRelativeArrangement = YES;
+        [self.content addArrangedSubview:two];
     }
 }
+- (void)macroEdited:(UITextField *)f { if (f.tag >= 0 && f.tag < (NSInteger)self.macros.count) self.macros[(NSUInteger)f.tag] = f.text ?: @""; }
 - (BOOL)textFieldShouldReturn:(UITextField *)f { [f resignFirstResponder]; return NO; }
-- (void)done {
+- (void)askRepair {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil
+        message:[self t:@"Copy every game file again from the app? It runs at the next Play." zh:@"从应用中重新复制所有游戏文件？会在下次开始游戏时进行。"]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:[self t:@"Cancel" zh:@"取消"] style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:[self t:@"Repair" zh:@"修复"] style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        // no data folder: the next Play copies the game files out of the app again (LoginVC go); hud_layout.txt stays
+        [NSFileManager.defaultManager removeItemAtPath:[docs() stringByAppendingPathComponent:@"game/data"] error:nil];
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+- (void)close:(BOOL)saved {
     [self.view endEditing:YES];
-    BOOL changed = NO;
-    for (int s = 0; s < CT_MACROS && _us.length >= 0x58 + (s + 1) * 0x400; s++) {     // UTF-16LE, zero padded, 511 chars at most
-        NSString *m = _text[s].text ?: @"";
-        if ([m isEqualToString:[self macroText:s]]) continue;
-        if (m.length > 511) m = [m substringToIndex:511];
-        NSData *u = [m dataUsingEncoding:NSUTF16LittleEndianStringEncoding] ?: [NSData data];
-        NSUInteger o = 0x58 + s * 0x400;
-        [_us resetBytesInRange:NSMakeRange(o, 0x400)];
-        [_us replaceBytesInRange:NSMakeRange(o, MIN(u.length, 0x3fe)) withBytes:u.bytes];
-        changed = YES;
+    if (saved) {
+        NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+        for (NSString *k in SettingsVC.defaults) [d setObject:self.o[k] forKey:k];
+        NSString *ct = self.o[@"controltype"];
+        [d setObject:ct forKey:@"controltype"];
+        [d setBool:[ct isEqualToString:@"mobile"] forKey:@"touchmobile"];
+        [d setObject:self.zh ? @"zh" : @"en" forKey:@"lang"];
+        hud_opacity_set([self.o[@"opacity"] floatValue]);
+        BOOL changed = NO;
+        for (int s = 0; s < CT_MACROS && self.us.length >= 0x58 + (s + 1) * 0x400; s++) {     // UTF-16LE, zero padded, 511 chars at most
+            NSString *m = self.macros[s];
+            if ([m isEqualToString:[self macroText:s]]) continue;
+            if (m.length > 511) m = [m substringToIndex:511];
+            NSData *u = [m dataUsingEncoding:NSUTF16LittleEndianStringEncoding] ?: [NSData data];
+            NSUInteger o = 0x58 + s * 0x400;
+            [self.us resetBytesInRange:NSMakeRange(o, 0x400)];
+            [self.us replaceBytesInRange:NSMakeRange(o, MIN(u.length, 0x3fe)) withBytes:u.bytes];
+            changed = YES;
+        }
+        if (changed) {
+            [NSFileManager.defaultManager createDirectoryAtPath:[self.usPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+            [self.us writeToFile:self.usPath atomically:YES];
+        }
     }
-    if (changed) {
-        [NSFileManager.defaultManager createDirectoryAtPath:[self.usPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
-        [_us writeToFile:self.usPath atomically:YES];
-    }
-    [self dismissViewControllerAnimated:YES completion:nil];
+    void (^closed)(BOOL) = self.closed;
+    [self dismissViewControllerAnimated:YES completion:^{ if (closed) closed(saved); }];
 }
 - (BOOL)prefersStatusBarHidden { return YES; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
 
-// ---- Settings screen: Android's Settings > graphics (6 Nov 2026, the user: "add the graphics settings on ios").
-// Saved in NSUserDefaults and applied at Play (LoginVC go): wide / fps / scale -> CK_WIDE / CK_VSYNC / CK_SCALE +
-// CrazyKart.ini VSync / MaxFps; detail / gamma -> UserSetting.bin 0x18 / 0x1c. Same keys and ranges as Android.
-static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto (VSync: the screen's rate)
-@interface SettingsVC : UIViewController
+// ---- the launcher (the design): logo + server + Play on the left, the sign-in card or the racer's profile card (site
+// profile look) on the right; first start: language -> control type -> HUD editor (keyboard / controller: a note)
+@interface LoginVC : UIViewController <UITextFieldDelegate>
+@property (strong) NSUserDefaults *prefs;
 @property BOOL zh;
+@property int srv;
+@property (copy) NSString *sessionKey;                  // signed in without "Remember": this run only
+@property int sessionSrv;
+@property unsigned base, accent;                        // the racer's site profile theme
+@property BOOL rememberOn;
+@property (copy) NSString *skinFor;                     // the user whose look is loading / shown
+@property (strong) UITextField *user, *pass;
+@property (strong) UILabel *formError, *signInFirst, *status, *verText, *serverName, *playText, *cardName;
+@property (strong) UIProgressView *bar;
+@property (strong) UIView *formCard, *profile, *overlay, *note, *serverList;
+@property (strong) CKButton *serverPill, *playBtn, *signInBtn, *signOutBtn, *rememberBtn;
+@property (strong) UIImageView *playIcon, *cover, *avatar;
 @end
-@implementation SettingsVC {
-    UISegmentedControl *_wide, *_detail, *_fps, *_lean, *_etc2, *_fx, *_tc;
-    UISlider *_scale, *_gamma;
-    UILabel *_scaleLabel, *_gammaLabel;
-}
+@implementation LoginVC
 - (NSString *)t:(NSString *)en zh:(NSString *)zh { return self.zh ? zh : en; }
-- (UILabel *)label:(NSString *)t size:(CGFloat)s color:(UIColor *)c {
-    UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:s]; return l;
-}
-- (UISegmentedControl *)segments:(NSArray<NSString *> *)items selected:(NSInteger)sel {
-    UISegmentedControl *c = [[UISegmentedControl alloc] initWithItems:items];
-    c.selectedSegmentIndex = sel;
-    c.selectedSegmentTintColor = rgb(0xF5C21B);
-    [c setTitleTextAttributes:@{NSForegroundColorAttributeName: rgb(0x131A2E)} forState:UIControlStateSelected];
-    [c setTitleTextAttributes:@{NSForegroundColorAttributeName: rgb(0xB7C4E8)} forState:UIControlStateNormal];
-    [c.heightAnchor constraintEqualToConstant:34].active = YES;
-    return c;
-}
-- (UISlider *)slider:(float)lo hi:(float)hi value:(float)v {
-    UISlider *sl = [[UISlider alloc] init];
-    sl.minimumValue = lo; sl.maximumValue = hi; sl.value = v; sl.minimumTrackTintColor = rgb(0xF5C21B);
-    [sl addTarget:self action:@selector(showValues) forControlEvents:UIControlEventValueChanged];
-    return sl;
+- (NSString *)name:(int)i { return self.zh ? (i ? @"香港" : @"印度") : (i ? @"Hong Kong" : @"India"); }
+static NSArray *theme_colours(NSString *theme) {        // accent, band (the launcher's profile-theme-* colours)
+    if ([theme isEqualToString:@"sunset"]) return @[@0xE2551B, @0xFFB38A];
+    if ([theme isEqualToString:@"mint"]) return @[@0x10917D, @0x8FE0CF];
+    if ([theme isEqualToString:@"grape"]) return @[@0x7A3FD1, @0xC9B0F2];
+    if ([theme isEqualToString:@"gold"]) return @[@0xC98F00, @0xF5C21B];
+    return @[@0x1A4FD6, @0x8FD3F2];                         // sky (the site's default)
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = rgb(0x0E1F5C);
-    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    UIStackView *st = [[UIStackView alloc] init];
-    st.axis = UILayoutConstraintAxisVertical; st.spacing = 8;
-    UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
-    [done setTitle:[self t:@"Done" zh:@"完成"] forState:UIControlStateNormal];
-    done.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightHeavy];
-    [done setTitleColor:rgb(0x131A2E) forState:UIControlStateNormal];
-    done.backgroundColor = rgb(0xF5C21B); done.layer.cornerRadius = 19;
-    [done.widthAnchor constraintEqualToConstant:110].active = YES; [done.heightAnchor constraintEqualToConstant:38].active = YES;
-    [done addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside];
-    UIStackView *head = [[UIStackView alloc] initWithArrangedSubviews:@[[self label:[self t:@"SETTINGS" zh:@"设置"] size:20 color:UIColor.whiteColor], [[UIView alloc] init], done]];
-    head.alignment = UIStackViewAlignmentCenter;
-    [st addArrangedSubview:head];
+    self.prefs = NSUserDefaults.standardUserDefaults;
+    self.zh = [[self.prefs stringForKey:@"lang"] isEqualToString:@"zh"];
+    self.srv = (int)MAX(0, MIN(1, [self.prefs integerForKey:@"server"]));
+    self.sessionKey = @""; self.sessionSrv = -1;
+    self.rememberOn = [self.prefs objectForKey:@"remember"] ? [self.prefs boolForKey:@"remember"] : YES;
+    NSArray *th = theme_colours([self.prefs stringForKey:@"theme"] ?: @"sky");
+    self.base = [th[0] unsignedIntValue]; self.accent = [th[1] unsignedIntValue];
+    [self build];
+}
+- (void)build {
+    for (UIView *v in self.view.subviews) [v removeFromSuperview];
+    self.overlay = nil; self.note = nil; self.serverList = nil;
+    __weak LoginVC *w = self;
+    UIImageView *logo = [[UIImageView alloc] initWithImage:[UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"launcher_logo.png"]]];
+    logo.contentMode = UIViewContentModeScaleAspectFit;
+    logo.accessibilityLabel = @"CrazyKart Legacy";
+    fix_h(logo, 100);
 
-    _wide = [self segments:@[[self t:@"Fill screen" zh:@"全屏"], [self t:@"16:9 with bars" zh:@"16:9 黑边"]]
-                  selected:([d objectForKey:@"wide"] ? [d boolForKey:@"wide"] : YES) ? 0 : 1];
-    NSInteger scale = [d objectForKey:@"scale"] ? [d integerForKey:@"scale"] : 100;
-    _scale = [self slider:50 hi:100 value:(float)scale];
-    _scaleLabel = [self label:@"" size:13 color:rgb(0xB7C4E8)];
-    _detail = [self segments:@[[self t:@"High" zh:@"高"], [self t:@"Middle" zh:@"中"]] selected:[d integerForKey:@"detail"] == 1 ? 1 : 0];
-    NSInteger fps = [d integerForKey:@"fps"], fsel = 0;
-    for (int i = 1; i < 5; i++) if (GFX_FPS[i] == fps) fsel = i;
-    _fps = [self segments:@[[self t:@"Auto" zh:@"自动"], @"30", @"60", @"90", @"120"] selected:fsel];
-    // race speed-ups (gpu_wgpu.c), as Android: less vertex data per draw / DXT textures as ETC2
-    _lean = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"lean"] ? 0 : 1];
-    _etc2 = [self segments:@[[self t:@"On" zh:@"开"], [self t:@"Off" zh:@"关"]] selected:[d boolForKey:@"etc2"] ? 0 : 1];
-    // Effects (d3d9.c), as Android: Fewer = no additive glows in races
-    _fx = [self segments:@[[self t:@"All" zh:@"全部"], [self t:@"Fewer" zh:@"精简"]]
-                selected:([d objectForKey:@"effects"] ? [d boolForKey:@"effects"] : YES) ? 0 : 1];
-    // Touch controls (touch_ui.c), as Android: Mobile = AUTO GAS + TAP DRIFT switches on the race screen
-    _tc = [self segments:@[[self t:@"Classic" zh:@"经典"], [self t:@"Mobile" zh:@"手游"]] selected:[d boolForKey:@"touchmobile"] ? 1 : 0];
-    float gamma = [d objectForKey:@"gamma"] ? [d floatForKey:@"gamma"] : 1.0f;
-    _gamma = [self slider:0.5f hi:3.0f value:gamma];
-    _gammaLabel = [self label:@"" size:13 color:rgb(0xB7C4E8)];
-    UIButton *defGamma = [UIButton buttonWithType:UIButtonTypeSystem];
-    [defGamma setTitle:[self t:@"Default gamma" zh:@"默认亮度"] forState:UIControlStateNormal];
-    [defGamma setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    defGamma.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-    [defGamma addTarget:self action:@selector(defaultGamma) forControlEvents:UIControlEventTouchUpInside];
-    for (UIView *v in @[[self label:[self t:@"Screen" zh:@"画面"] size:13 color:rgb(0xF5C21B)], _wide,
-                        _scaleLabel, _scale,
-                        [self label:[self t:@"Graphics detail" zh:@"画质"] size:13 color:rgb(0xF5C21B)], _detail,
-                        [self label:[self t:@"Compact 3D data" zh:@"精简3D数据"] size:13 color:rgb(0xF5C21B)], _lean,
-                        [self label:[self t:@"Compressed textures" zh:@"纹理压缩"] size:13 color:rgb(0xF5C21B)], _etc2,
-                        [self label:[self t:@"Effects" zh:@"特效"] size:13 color:rgb(0xF5C21B)], _fx,
-                        [self label:[self t:@"Touch controls" zh:@"触屏操作"] size:13 color:rgb(0xF5C21B)], _tc,
-                        [self label:[self t:@"Frame rate cap" zh:@"帧率上限"] size:13 color:rgb(0xF5C21B)], _fps,
-                        _gammaLabel, _gamma, defGamma]) [st addArrangedSubview:v];
-    [self showValues];
+    // server: a pill that opens the list above it (signed in and out: the sign-in goes to the picked server)
+    self.serverPill = ck_button(^(CKButton *b) { [w pickServer]; });
+    self.serverName = ck_label(@"", f_disp(17, UIFontWeightHeavy), 0xFFFFFF);
+    UIStackView *sp = hstack(@[ck_icon_view(IC_SERVER, 0xA9BDB0, 20), self.serverName, ck_icon_view(IC_CHEV_UP, 0xCFDCD3, 20)], 12);
+    [self.serverName setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    sp.userInteractionEnabled = NO;
+    sp.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.serverPill addSubview:sp];
+    [NSLayoutConstraint activateConstraints:@[[sp.leadingAnchor constraintEqualToAnchor:self.serverPill.leadingAnchor constant:16],
+        [sp.trailingAnchor constraintEqualToAnchor:self.serverPill.trailingAnchor constant:-14], [sp.centerYAnchor constraintEqualToAnchor:self.serverPill.centerYAnchor]]];
+    fix_h(self.serverPill, 48);
+    self.serverPill.layer.cornerRadius = 24;
 
-    UIScrollView *sc = [[UIScrollView alloc] init];
-    for (UIView *v in @[sc, st]) v.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:sc]; [sc addSubview:st];
+    self.playBtn = ck_button(^(CKButton *b) { [w go]; });
+    self.playIcon = ck_icon_view(IC_PLAY, C_INK, 22);
+    self.playText = ck_label([self t:@"Play" zh:@"开始游戏"], f_disp(24, UIFontWeightHeavy), C_INK);
+    UIStackView *pc = hstack(@[self.playIcon, self.playText], 10);
+    pc.userInteractionEnabled = NO;
+    pc.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.playBtn addSubview:pc];
+    [NSLayoutConstraint activateConstraints:@[[pc.centerXAnchor constraintEqualToAnchor:self.playBtn.centerXAnchor], [pc.centerYAnchor constraintEqualToAnchor:self.playBtn.centerYAnchor]]];
+    fix_h(self.playBtn, 56);
+    self.playBtn.layer.cornerRadius = 28;
+    self.signInFirst = ck_label(@"", f_body(13, UIFontWeightBold), C_MUTED);
+    self.signInFirst.textAlignment = NSTextAlignmentCenter;
+    self.status = ck_label(@"", f_body(13, UIFontWeightSemibold), C_MUTED);
+    self.status.textAlignment = NSTextAlignmentCenter; self.status.numberOfLines = 0; self.status.hidden = YES;
+    self.bar = [[UIProgressView alloc] init];
+    self.bar.progressTintColor = rgb(C_YELLOW); self.bar.hidden = YES;
+
+    CKButton *set = ck_pill([self t:@"Settings" zh:@"设置"], f_disp(15, UIFontWeightBold), 0xFFFFFF, [UIColor colorWithWhite:0 alpha:0.25], [UIColor colorWithWhite:1 alpha:0.16], 44,
+                            ^(CKButton *b) { [w openSettings]; });
+    [set setImage:ck_icon(IC_GEAR, 0xFFFFFF, 20) forState:UIControlStateNormal];
+    set.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
+    set.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 24);
+    NSString *ver = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
+    self.verText = ck_label([[self t:@"Launcher " zh:@"启动器 "] stringByAppendingString:ver], f_body(12, UIFontWeightSemibold), C_MUTED);
+    self.verText.textAlignment = NSTextAlignmentRight;
+    UIStackView *tools = hstack(@[set, self.verText], 8);
+    [self.verText setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+
+    UIStackView *left = vstack(@[logo, self.serverPill, self.playBtn, self.signInFirst, self.status, self.bar, tools], 10);
+    [left setCustomSpacing:16 afterView:logo];
+    [left setCustomSpacing:4 afterView:self.playBtn];
+    fix_w(left, 330);
+
+    self.formCard = [self signInCard];
+    self.profile = [self profileCard];
+    UIStackView *cards = vstack(@[self.formCard, self.profile], 0);
+    UIView *right = [[UIView alloc] init];
+    cards.translatesAutoresizingMaskIntoConstraints = NO;
+    [right addSubview:cards];
+    NSLayoutYAxisAnchor *kb = right.bottomAnchor;                    // iOS 15+: the card moves up over the keyboard
+    if (@available(iOS 15.0, *)) kb = self.view.keyboardLayoutGuide.topAnchor;
+    NSLayoutConstraint *mid = [cards.centerYAnchor constraintEqualToAnchor:right.centerYAnchor];
+    mid.priority = UILayoutPriorityDefaultLow;
+    [NSLayoutConstraint activateConstraints:@[mid, [cards.leadingAnchor constraintEqualToAnchor:right.leadingAnchor], [cards.trailingAnchor constraintEqualToAnchor:right.trailingAnchor],
+        [cards.topAnchor constraintGreaterThanOrEqualToAnchor:right.topAnchor], [cards.bottomAnchor constraintLessThanOrEqualToAnchor:kb constant:-8]]];
+
+    UIStackView *main = hstack(@[left, right], 28);
+    main.alignment = UIStackViewAlignmentCenter;
+    main.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:main];
     UILayoutGuide *g = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
-        [sc.leadingAnchor constraintEqualToAnchor:g.leadingAnchor], [sc.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
-        [sc.topAnchor constraintEqualToAnchor:g.topAnchor], [sc.bottomAnchor constraintEqualToAnchor:g.bottomAnchor],
-        [st.topAnchor constraintEqualToAnchor:sc.topAnchor constant:12], [st.bottomAnchor constraintEqualToAnchor:sc.bottomAnchor constant:-16],
-        [st.centerXAnchor constraintEqualToAnchor:sc.centerXAnchor], [st.widthAnchor constraintLessThanOrEqualToConstant:520],
-        [st.widthAnchor constraintLessThanOrEqualToAnchor:sc.widthAnchor constant:-32]]];
-    NSLayoutConstraint *w = [st.widthAnchor constraintEqualToConstant:520];
-    w.priority = UILayoutPriorityDefaultHigh; w.active = YES;
+        [main.leadingAnchor constraintEqualToAnchor:g.leadingAnchor constant:16], [main.trailingAnchor constraintEqualToAnchor:g.trailingAnchor constant:-16],
+        [main.topAnchor constraintEqualToAnchor:g.topAnchor constant:12], [main.bottomAnchor constraintEqualToAnchor:g.bottomAnchor constant:-12],
+        [right.heightAnchor constraintEqualToAnchor:main.heightAnchor]]];
+    [self showSignedIn];
 }
-- (void)showValues {
-    int pc = (int)(lroundf(_scale.value / 5.0f) * 5);                  // 50 .. 100 in 5 % steps, as Android
-    _scaleLabel.text = [NSString stringWithFormat:@"%@%d%%%@", [self t:@"Render quality  " zh:@"渲染质量  "], pc,
-                        pc < 100 ? [self t:@"  (faster, softer 3D)" zh:@"  （更流畅，3D 较模糊）"] : @""];
-    _gammaLabel.text = [NSString stringWithFormat:@"%@  %.1f", [self t:@"Gamma" zh:@"亮度"], roundf(_gamma.value * 10) / 10];
-}
-- (void)defaultGamma { _gamma.value = 1.0f; [self showValues]; }
-- (void)done {
-    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    [d setBool:_wide.selectedSegmentIndex == 0 forKey:@"wide"];
-    [d setInteger:(NSInteger)(lroundf(_scale.value / 5.0f) * 5) forKey:@"scale"];
-    [d setInteger:_detail.selectedSegmentIndex forKey:@"detail"];
-    [d setInteger:GFX_FPS[_fps.selectedSegmentIndex] forKey:@"fps"];
-    [d setBool:_lean.selectedSegmentIndex == 0 forKey:@"lean"];
-    [d setBool:_etc2.selectedSegmentIndex == 0 forKey:@"etc2"];
-    [d setBool:_fx.selectedSegmentIndex == 0 forKey:@"effects"];
-    [d setBool:_tc.selectedSegmentIndex == 1 forKey:@"touchmobile"];
-    [d setFloat:roundf(_gamma.value * 10) / 10 forKey:@"gamma"];
-    [self dismissViewControllerAnimated:YES completion:nil];
-}
-- (BOOL)prefersStatusBarHidden { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
-@end
-
-@interface LoginVC : UIViewController <UITextFieldDelegate>
-@end
-@implementation LoginVC {
-    UITextField *_user, *_pass;
-    UISegmentedControl *_server, *_lang;
-    UISwitch *_remember;
-    UIButton *_play;
-    UILabel *_status;
-    NSUserDefaults *_prefs;
-    UIScrollView *_notesView;
-    UILabel *_notesText;
-    UIView *_card, *_form, *_rem;                       // account card (the PC launcher's) or the username/password form
-    UIImageView *_cardCover, *_cardAvatar, *_cardFrame;
-    UILabel *_cardName;
-    NSString *_skinFor;                                 // the user whose look is loading / shown
-}
-- (UITextField *)field:(NSString *)ph secure:(BOOL)sec {
-    UITextField *f = [[UITextField alloc] init];
-    f.placeholder = ph; f.secureTextEntry = sec; f.textColor = UIColor.whiteColor;
-    f.attributedPlaceholder = [[NSAttributedString alloc] initWithString:ph attributes:@{NSForegroundColorAttributeName: rgb(0xB7C4E8)}];
-    f.backgroundColor = [UIColor colorWithWhite:0 alpha:0.25]; f.layer.cornerRadius = 22; f.layer.borderWidth = 1;
-    f.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
-    f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 16, 1)]; f.leftViewMode = UITextFieldViewModeAlways;
-    f.delegate = self; f.returnKeyType = sec ? UIReturnKeyGo : UIReturnKeyNext;
-    f.autocapitalizationType = UITextAutocapitalizationTypeNone; f.autocorrectionType = UITextAutocorrectionTypeNo;
-    [f.heightAnchor constraintEqualToConstant:44].active = YES;
-    return f;
-}
-- (UILabel *)label:(NSString *)t {
-    UILabel *l = [[UILabel alloc] init];
-    l.text = t; l.textColor = rgb(0xB7C4E8); l.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+- (UIView *)fieldLabel:(NSString *)s {
+    UILabel *l = ck_label(s, f_disp(13, UIFontWeightBold), C_MUTED);
     return l;
 }
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    _prefs = NSUserDefaults.standardUserDefaults;
-    self.view.backgroundColor = rgb(0x0E1F5C);
-    UIImageView *art = [[UIImageView alloc] initWithImage:[UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"launcher_keyart.png"]]];
-    art.contentMode = UIViewContentModeScaleAspectFill; art.clipsToBounds = YES;
-    UIView *side = [[UIView alloc] init];
-    side.backgroundColor = rgb(0x131A2E);
-    for (UIView *v in @[art, side]) { v.translatesAutoresizingMaskIntoConstraints = NO; [self.view addSubview:v]; }
-    [NSLayoutConstraint activateConstraints:@[
-        [art.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor], [art.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [art.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor], [art.trailingAnchor constraintEqualToAnchor:side.leadingAnchor],
-        [side.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor], [side.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [side.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor], [side.widthAnchor constraintEqualToConstant:360]]];
-    UIStackView *st = [[UIStackView alloc] init];
-    st.axis = UILayoutConstraintAxisVertical; st.spacing = 8; st.translatesAutoresizingMaskIntoConstraints = NO;
-    UIScrollView *sc = [[UIScrollView alloc] init];
-    sc.translatesAutoresizingMaskIntoConstraints = NO;
-    [side addSubview:sc]; [sc addSubview:st];
-    UILayoutGuide *g = side.safeAreaLayoutGuide;
-    [NSLayoutConstraint activateConstraints:@[
-        [sc.leadingAnchor constraintEqualToAnchor:g.leadingAnchor], [sc.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
-        [sc.topAnchor constraintEqualToAnchor:g.topAnchor], [sc.bottomAnchor constraintEqualToAnchor:g.bottomAnchor],
-        [st.leadingAnchor constraintEqualToAnchor:sc.leadingAnchor constant:22], [st.trailingAnchor constraintEqualToAnchor:sc.trailingAnchor constant:-22],
-        [st.topAnchor constraintEqualToAnchor:sc.topAnchor constant:16], [st.bottomAnchor constraintEqualToAnchor:sc.bottomAnchor constant:-16],
-        [st.widthAnchor constraintEqualToAnchor:sc.widthAnchor constant:-44]]];
-    _user = [self field:@"Username" secure:NO];
-    _user.text = [_prefs stringForKey:@"user"];
-    _pass = [self field:[_prefs stringForKey:@"key"].length ? @"••••••••  saved" : @"Password" secure:YES];
-    _server = [[UISegmentedControl alloc] initWithItems:@[@"India", @"Hong Kong"]];
-    _server.selectedSegmentIndex = [_prefs integerForKey:@"server"];
-    _lang = [[UISegmentedControl alloc] initWithItems:@[@"English", @"中文"]];
-    _lang.selectedSegmentIndex = [[_prefs stringForKey:@"lang"] isEqualToString:@"zh"] ? 1 : 0;
-    for (UISegmentedControl *s in @[_server, _lang]) {
-        s.selectedSegmentTintColor = rgb(0xF5C21B);
-        [s setTitleTextAttributes:@{NSForegroundColorAttributeName: rgb(0x131A2E)} forState:UIControlStateSelected];
-        [s setTitleTextAttributes:@{NSForegroundColorAttributeName: rgb(0xB7C4E8)} forState:UIControlStateNormal];
-    }
-    _remember = [[UISwitch alloc] init];
-    _remember.on = [_prefs objectForKey:@"remember"] ? [_prefs boolForKey:@"remember"] : YES;
-    _remember.onTintColor = rgb(0xF5C21B);
-    UIStackView *rem = [[UIStackView alloc] initWithArrangedSubviews:@[_remember, [self label:@"Remember this phone (30 days)"]]];
-    rem.spacing = 10; rem.alignment = UIStackViewAlignmentCenter;
-    _status = [self label:@""]; _status.numberOfLines = 0; _status.textColor = rgb(0xFFAB8F);
-    _play = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_play setTitle:@"Play" forState:UIControlStateNormal];
-    _play.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightHeavy];
-    [_play setTitleColor:rgb(0x131A2E) forState:UIControlStateNormal];
-    _play.backgroundColor = rgb(0xF5C21B); _play.layer.cornerRadius = 26;
-    [_play.heightAnchor constraintEqualToConstant:52].active = YES;
-    [_play addTarget:self action:@selector(go) forControlEvents:UIControlEventTouchUpInside];
-    _rem = rem;
-    UIStackView *form = [[UIStackView alloc] initWithArrangedSubviews:@[[self label:@"Username"], _user, [self label:@"Password"], _pass]];
-    form.axis = UILayoutConstraintAxisVertical; form.spacing = 8; _form = form;
-    _card = [self accountCard];
-    for (UIView *v in @[_card, _form, [self label:@"Server"], _server,
-                        [self label:@"Language"], _lang, rem, _status, _play]) [st addArrangedSubview:v];
-    [_server addTarget:self action:@selector(serverChanged) forControlEvents:UIControlEventValueChanged];
-    [self showSignedIn];
-    UIButton *hud = [UIButton buttonWithType:UIButtonTypeSystem];        // race HUD layout editor
-    [hud setTitle:@"HUD layout" forState:UIControlStateNormal];
-    hud.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
-    [hud setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    hud.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08]; hud.layer.cornerRadius = 20;
-    hud.layer.borderWidth = 1; hud.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
-    [hud.heightAnchor constraintEqualToConstant:40].active = YES;
-    [hud addTarget:self action:@selector(openHud) forControlEvents:UIControlEventTouchUpInside];
-    UIButton *ctl = [UIButton buttonWithType:UIButtonTypeSystem];        // keyboards + controllers, chat macros
-    [ctl setTitle:@"Controls" forState:UIControlStateNormal];
-    ctl.titleLabel.font = hud.titleLabel.font;
-    [ctl setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    ctl.backgroundColor = hud.backgroundColor; ctl.layer.cornerRadius = 20;
-    ctl.layer.borderWidth = 1; ctl.layer.borderColor = hud.layer.borderColor;
-    [ctl.heightAnchor constraintEqualToConstant:40].active = YES;
-    [ctl addTarget:self action:@selector(openControls) forControlEvents:UIControlEventTouchUpInside];
-    UIButton *gfx = [UIButton buttonWithType:UIButtonTypeSystem];        // graphics (Android's Settings)
-    [gfx setTitle:@"Settings" forState:UIControlStateNormal];
-    gfx.titleLabel.font = hud.titleLabel.font;
-    [gfx setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    gfx.backgroundColor = hud.backgroundColor; gfx.layer.cornerRadius = 20;
-    gfx.layer.borderWidth = 1; gfx.layer.borderColor = hud.layer.borderColor;
-    [gfx.heightAnchor constraintEqualToConstant:40].active = YES;
-    [gfx addTarget:self action:@selector(openSettings) forControlEvents:UIControlEventTouchUpInside];
-    UIStackView *tools = [[UIStackView alloc] initWithArrangedSubviews:@[hud, ctl, gfx]];
-    tools.spacing = 8; tools.distribution = UIStackViewDistributionFillEqually;
-    [st addArrangedSubview:tools];
-    // patch notes (the PC launcher's list, site patchnotes.json): a card on the key art's right, last copy kept offline
-    _notesView = [[UIScrollView alloc] init];
-    _notesView.translatesAutoresizingMaskIntoConstraints = NO; _notesView.showsVerticalScrollIndicator = NO;
-    _notesView.backgroundColor = [rgb(0x131A2E) colorWithAlphaComponent:0.7]; _notesView.layer.cornerRadius = 16;
-    _notesView.layer.borderWidth = 1; _notesView.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
-    _notesText = [[UILabel alloc] init];
-    _notesText.numberOfLines = 0; _notesText.translatesAutoresizingMaskIntoConstraints = NO;
-    [_notesView addSubview:_notesText]; [self.view addSubview:_notesView];
-    UILayoutGuide *sa = self.view.safeAreaLayoutGuide;
-    [NSLayoutConstraint activateConstraints:@[
-        [_notesView.trailingAnchor constraintEqualToAnchor:side.leadingAnchor constant:-16],
-        [_notesView.topAnchor constraintEqualToAnchor:sa.topAnchor constant:16], [_notesView.bottomAnchor constraintEqualToAnchor:sa.bottomAnchor constant:-16],
-        [_notesView.widthAnchor constraintEqualToConstant:300],
-        [_notesView.leadingAnchor constraintGreaterThanOrEqualToAnchor:sa.leadingAnchor constant:16],
-        [_notesText.leadingAnchor constraintEqualToAnchor:_notesView.leadingAnchor constant:16],
-        [_notesText.topAnchor constraintEqualToAnchor:_notesView.topAnchor constant:12],
-        [_notesText.bottomAnchor constraintEqualToAnchor:_notesView.bottomAnchor constant:-14],
-        [_notesText.widthAnchor constraintEqualToAnchor:_notesView.widthAnchor constant:-32]]];
-    [_lang addTarget:self action:@selector(showNotes) forControlEvents:UIControlEventValueChanged];
-    [self showNotes];
-    NSURLRequest *rq = [NSURLRequest requestWithURL:[NSURL URLWithString:@"https://crazykartlegacy.com/patchnotes.json"]
-                                        cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:8];
-    [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
-        if (!d || [(NSHTTPURLResponse *)r statusCode] != 200) return;
-        if (![[NSJSONSerialization JSONObjectWithData:d options:0 error:nil] isKindOfClass:NSArray.class]) return;
-        dispatch_async(dispatch_get_main_queue(), ^{ [self->_prefs setObject:d forKey:@"notes"]; [self showNotes]; });
-    }] resume];
+- (UITextField *)field:(BOOL)secret {
+    UITextField *f = [[UITextField alloc] init];
+    f.secureTextEntry = secret; f.textColor = UIColor.whiteColor; f.font = f_body(16, UIFontWeightSemibold);
+    ck_box(f, [UIColor colorWithWhite:0 alpha:0.25], [UIColor colorWithWhite:1 alpha:0.14], 1, 12);
+    f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 1)]; f.leftViewMode = UITextFieldViewModeAlways;
+    f.delegate = self; f.returnKeyType = secret ? UIReturnKeyGo : UIReturnKeyNext;
+    f.autocapitalizationType = UITextAutocapitalizationTypeNone; f.autocorrectionType = UITextAutocorrectionTypeNo;
+    fix_h(f, 44);
+    return f;
 }
-static NSArray *theme_colours(NSString *theme) {        // accent, band (the launcher's profile-theme-* colours)
-    if ([theme isEqualToString:@"sunset"]) return @[rgb(0xE2551B), rgb(0xFFB38A)];
-    if ([theme isEqualToString:@"mint"]) return @[rgb(0x10917D), rgb(0x8FE0CF)];
-    if ([theme isEqualToString:@"grape"]) return @[rgb(0x7A3FD1), rgb(0xC9B0F2)];
-    if ([theme isEqualToString:@"gold"]) return @[rgb(0xC98F00), rgb(0xF5C21B)];
-    return @[rgb(0x1A4FD6), rgb(0x8FD3F2)];                 // sky (the site's default)
+- (UIView *)signInCard {
+    __weak LoginVC *w = self;
+    self.user = [self field:NO];
+    self.user.text = [self.prefs stringForKey:@"user"];
+    self.user.textContentType = UITextContentTypeUsername;
+    self.pass = [self field:YES];
+    self.pass.textContentType = UITextContentTypePassword;
+    CKButton *eye = ck_button(^(CKButton *b) {
+        w.pass.secureTextEntry = !w.pass.secureTextEntry;
+        BOOL shown = !w.pass.secureTextEntry;
+        [b setImage:ck_icon(shown ? IC_EYE_OFF : IC_EYE, shown ? C_YELLOW : C_MUTED, 19) forState:UIControlStateNormal];
+        b.accessibilityLabel = shown ? [w t:@"Hide password" zh:@"隐藏密码"] : [w t:@"Show password" zh:@"显示密码"];
+    });
+    [eye setImage:ck_icon(IC_EYE, C_MUTED, 19) forState:UIControlStateNormal];
+    eye.frame = CGRectMake(0, 0, 44, 44);
+    eye.accessibilityLabel = [self t:@"Show password" zh:@"显示密码"];
+    self.pass.rightView = eye; self.pass.rightViewMode = UITextFieldViewModeAlways;
+    UIStackView *c1 = vstack(@[[self fieldLabel:[self t:@"Username" zh:@"账号"]], self.user], 4), *c2 = vstack(@[[self fieldLabel:[self t:@"Password" zh:@"密码"]], self.pass], 4);
+    UIStackView *grid = hstack(@[c1, c2], 10);
+    grid.distribution = UIStackViewDistributionFillEqually; grid.alignment = UIStackViewAlignmentFill;
+    self.rememberBtn = ck_button(^(CKButton *b) {
+        w.rememberOn = !w.rememberOn;
+        [b setImage:check_img(w.rememberOn, C_YELLOW, 0x000000, 0.25, 0x707070, C_INK) forState:UIControlStateNormal];
+    });
+    [self.rememberBtn setImage:check_img(self.rememberOn, C_YELLOW, 0x000000, 0.25, 0x707070, C_INK) forState:UIControlStateNormal];
+    NSMutableAttributedString *rt = [[NSMutableAttributedString alloc] initWithString:[self t:@"Remember this device" zh:@"在此设备上记住我"]
+                                                                          attributes:@{NSForegroundColorAttributeName: UIColor.whiteColor, NSFontAttributeName: f_body(14, UIFontWeightSemibold)}];
+    [rt appendAttributedString:[[NSAttributedString alloc] initWithString:[self t:@" (30 days)" zh:@"（30天）"]
+                                                               attributes:@{NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.6], NSFontAttributeName: f_body(13, UIFontWeightSemibold)}]];
+    [self.rememberBtn setAttributedTitle:rt forState:UIControlStateNormal];
+    self.rememberBtn.titleEdgeInsets = UIEdgeInsetsMake(0, 10, 0, -10);
+    self.rememberBtn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    fix_h(self.rememberBtn, 36);
+    self.formError = ck_label(@"", f_body(13, UIFontWeightBold), C_ERROR);
+    self.formError.numberOfLines = 0; self.formError.hidden = YES;
+    self.signInBtn = ck_yellow([self t:@"Sign in" zh:@"登录"], 21, 50, ^(CKButton *b) { [w signIn]; });
+    UIStackView *on = vstack(@[grid, self.rememberBtn, self.formError, self.signInBtn], 10);
+    on.layoutMargins = UIEdgeInsetsMake(16, 18, 16, 18); on.layoutMarginsRelativeArrangement = YES;
+    UIView *chk = [[UIView alloc] init];
+    chk.backgroundColor = checker(5); fix_h(chk, 10);
+    UIStackView *c = vstack(@[on, chk], 0);
+    UIView *box = [[UIView alloc] init];
+    ck_box(box, [UIColor colorWithWhite:0 alpha:0.25], [UIColor colorWithWhite:1 alpha:0.14], 1, 16);
+    box.clipsToBounds = YES;
+    c.translatesAutoresizingMaskIntoConstraints = NO;
+    [box addSubview:c];
+    [NSLayoutConstraint activateConstraints:@[[c.leadingAnchor constraintEqualToAnchor:box.leadingAnchor], [c.trailingAnchor constraintEqualToAnchor:box.trailingAnchor],
+        [c.topAnchor constraintEqualToAnchor:box.topAnchor], [c.bottomAnchor constraintEqualToAnchor:box.bottomAnchor]]];
+    return box;
 }
-- (UIView *)accountCard {                               // as the PC launcher: cover, avatar (+ frame) half over it, name, Idle, Sign out
-    BOOL zh = _lang.selectedSegmentIndex == 1;
-    UIView *c = [[UIView alloc] init];
-    c.backgroundColor = [UIColor colorWithWhite:1 alpha:0.06]; c.layer.cornerRadius = 16; c.clipsToBounds = YES;
-    c.layer.borderWidth = 1; c.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
-    _cardCover = [[UIImageView alloc] init];
-    _cardCover.contentMode = UIViewContentModeScaleAspectFill; _cardCover.clipsToBounds = YES;
-    _cardCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0.2];
-    _cardAvatar = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"AppIcon"]];   // until the profile avatar loads
-    _cardAvatar.contentMode = UIViewContentModeScaleAspectFill; _cardAvatar.clipsToBounds = YES;
-    _cardAvatar.backgroundColor = rgb(0x0A0E18); _cardAvatar.layer.cornerRadius = 10;
-    _cardFrame = [[UIImageView alloc] init];
-    _cardFrame.contentMode = UIViewContentModeScaleAspectFit; _cardFrame.hidden = YES;
-    _cardName = [[UILabel alloc] init];
-    _cardName.font = [UIFont systemFontOfSize:17 weight:UIFontWeightHeavy]; _cardName.textColor = rgb(0x8FD3F2);
-    _cardName.shadowColor = [UIColor colorWithWhite:0 alpha:0.75]; _cardName.shadowOffset = CGSizeMake(0, 1);
-    UILabel *idle = [self label:zh ? @"●  空闲" : @"●  Idle"];
-    UIButton *signOutBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    [signOutBtn setTitle:zh ? @"退出登录" : @"Sign out" forState:UIControlStateNormal];
-    signOutBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightBold];
-    [signOutBtn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    signOutBtn.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4]; signOutBtn.layer.cornerRadius = 17;
-    signOutBtn.layer.borderWidth = 1; signOutBtn.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
-    signOutBtn.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
-    [signOutBtn addTarget:self action:@selector(signOut) forControlEvents:UIControlEventTouchUpInside];
-    for (UIView *v in @[_cardCover, _cardAvatar, _cardFrame, _cardName, idle, signOutBtn]) { v.translatesAutoresizingMaskIntoConstraints = NO; [c addSubview:v]; }
-    [NSLayoutConstraint activateConstraints:@[
-        [c.heightAnchor constraintEqualToConstant:106],
-        [_cardCover.leadingAnchor constraintEqualToAnchor:c.leadingAnchor], [_cardCover.trailingAnchor constraintEqualToAnchor:c.trailingAnchor],
-        [_cardCover.topAnchor constraintEqualToAnchor:c.topAnchor], [_cardCover.heightAnchor constraintEqualToConstant:64],
-        [_cardFrame.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:12], [_cardFrame.topAnchor constraintEqualToAnchor:c.topAnchor constant:36],
-        [_cardFrame.widthAnchor constraintEqualToConstant:62], [_cardFrame.heightAnchor constraintEqualToConstant:62],
-        [_cardAvatar.centerXAnchor constraintEqualToAnchor:_cardFrame.centerXAnchor], [_cardAvatar.centerYAnchor constraintEqualToAnchor:_cardFrame.centerYAnchor],
-        [_cardAvatar.widthAnchor constraintEqualToConstant:50], [_cardAvatar.heightAnchor constraintEqualToConstant:50],
-        [_cardName.leadingAnchor constraintEqualToAnchor:_cardFrame.trailingAnchor constant:10], [_cardName.topAnchor constraintEqualToAnchor:_cardCover.bottomAnchor constant:2],
-        [_cardName.trailingAnchor constraintLessThanOrEqualToAnchor:signOutBtn.leadingAnchor constant:-6],
-        [idle.leadingAnchor constraintEqualToAnchor:_cardName.leadingAnchor], [idle.topAnchor constraintEqualToAnchor:_cardName.bottomAnchor],
-        [signOutBtn.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-12], [signOutBtn.centerYAnchor constraintEqualToAnchor:_cardFrame.centerYAnchor constant:8],
-        [signOutBtn.heightAnchor constraintEqualToConstant:34]]];
-    return c;
+- (UIView *)profileCard {
+    __weak LoginVC *w = self;
+    UIView *gold = [[UIView alloc] init];
+    gold.backgroundColor = rgb(C_GOLD); fix_h(gold, 5);
+    self.cover = [[UIImageView alloc] init];
+    self.cover.contentMode = UIViewContentModeScaleAspectFill; self.cover.clipsToBounds = YES;
+    self.cover.backgroundColor = stripes(0x151515, [UIColor colorWithWhite:1 alpha:0.045], 20);
+    fix_h(self.cover, 150);
+    self.avatar = [[UIImageView alloc] initWithImage:[UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"launcher_avatar.png"]]];
+    self.avatar.contentMode = UIViewContentModeScaleAspectFill; self.avatar.clipsToBounds = YES;
+    self.avatar.layer.cornerRadius = 12; self.avatar.layer.borderWidth = 2; self.avatar.layer.borderColor = rgb(C_GOLD).CGColor;
+    fix_w(self.avatar, 60); fix_h(self.avatar, 60);
+    self.cardName = ck_label(@"", f_disp(22, UIFontWeightHeavy), self.accent);
+    self.cardName.lineBreakMode = NSLineBreakByTruncatingTail;
+    UIView *dot = [[UIView alloc] init];
+    dot.backgroundColor = rgb(0x8F9AA3); dot.layer.cornerRadius = 4.5; fix_w(dot, 9); fix_h(dot, 9);
+    UIStackView *idle = hstack(@[dot, ck_label([self t:@"Idle" zh:@"空闲"], f_body(14, UIFontWeightBold), 0xB5C2BA)], 7);
+    UIStackView *who = vstack(@[self.cardName, idle], 2);
+    who.alignment = UIStackViewAlignmentLeading;
+    self.signOutBtn = ck_pill([self t:@"Sign out" zh:@"退出登录"], f_body(14, UIFontWeightHeavy), 0xE6EFE9, UIColor.clearColor, nil, 44, ^(CKButton *b) { [w signOut]; });
+    UIStackView *row = hstack(@[self.avatar, who, self.signOutBtn], 12);
+    [who setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [who setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    row.layoutMargins = UIEdgeInsetsMake(14, 14, 18, 14); row.layoutMarginsRelativeArrangement = YES;
+    UIStackView *c = vstack(@[gold, self.cover, row], 0);
+    UIView *box = [[UIView alloc] init];
+    box.clipsToBounds = YES;
+    c.translatesAutoresizingMaskIntoConstraints = NO;
+    [box addSubview:c];
+    [NSLayoutConstraint activateConstraints:@[[c.leadingAnchor constraintEqualToAnchor:box.leadingAnchor], [c.trailingAnchor constraintEqualToAnchor:box.trailingAnchor],
+        [c.topAnchor constraintEqualToAnchor:box.topAnchor], [c.bottomAnchor constraintEqualToAnchor:box.bottomAnchor]]];
+    return box;
 }
-- (void)serverChanged { _status.text = @""; [self showSignedIn]; }
-- (void)signOut {                                       // the key goes; the username stays filled in
-    [_prefs removeObjectForKey:@"key"]; [_prefs removeObjectForKey:@"nick"];
-    _pass.placeholder = @"Password";
-    [self showSignedIn];
+// card or form: signed in = a launcher key for the server that is picked now
+- (NSString *)currentKey {
+    NSString *k = [self.prefs stringForKey:@"key"];
+    if (k.length && [self.prefs integerForKey:@"keyServer"] == self.srv) return k;
+    return self.sessionSrv == self.srv ? self.sessionKey : @"";
 }
-// card or form: signed in = a saved key for the server that is picked now
 - (void)showSignedIn {
-    BOOL zh = _lang.selectedSegmentIndex == 1, haveKey = [_prefs stringForKey:@"key"].length > 0;
-    BOOL signedIn = haveKey && _server.selectedSegmentIndex == [_prefs integerForKey:@"keyServer"];
-    _card.hidden = !signedIn; _form.hidden = signedIn; _rem.hidden = signedIn;
-    [_play setTitle:signedIn ? (zh ? @"开始游戏" : @"Play") : (zh ? @"登录" : @"Sign in") forState:UIControlStateNormal];
-    if (!signedIn && haveKey) { _status.text = zh ? @"请登录此服务器" : @"Sign in to this server"; _status.textColor = rgb(0xB7C4E8); }
-    if (!signedIn) return;
-    NSString *user = [_prefs stringForKey:@"user"] ?: @"";
-    _cardName.text = [_prefs stringForKey:@"nick"].length ? [_prefs stringForKey:@"nick"] : user;
-    [self loadSkin:user];
+    BOOL on = self.currentKey.length > 0;
+    self.serverName.text = [self name:self.srv];
+    self.formCard.hidden = on; self.profile.hidden = !on;
+    self.signInFirst.hidden = on;
+    self.signInFirst.text = !on && [self.prefs stringForKey:@"key"].length ? [self t:@"Sign in to this server first." zh:@"请先登录此服务器。"] : [self t:@"Sign in first." zh:@"请先登录。"];
+    self.playBtn.enabled = on;
+    self.playBtn.alpha = on ? 1 : 0.6;
+    self.playBtn.backgroundColor = on ? rgb(C_YELLOW) : [UIColor colorWithWhite:1 alpha:0.1];
+    if (on) step_shadow(self.playBtn, C_DEEP, 4); else self.playBtn.layer.shadowOpacity = 0;
+    self.playText.textColor = rgb(on ? C_INK : C_MUTED);
+    self.playIcon.image = ck_icon(IC_PLAY, on ? C_INK : C_MUTED, 22);
+    if (on) {
+        NSString *user = [self.prefs stringForKey:@"user"] ?: @"";
+        self.cardName.text = [self.prefs stringForKey:@"nick"].length ? [self.prefs stringForKey:@"nick"] : user;
+        [self loadSkin:user];
+    }
+    [self applyLook:on];
+}
+// signed in: the screen wears the racer's profile theme (the design's "account style"); signed out: the slab
+- (void)applyLook:(BOOL)on {
+    unsigned line = mixu(self.base, 0, 0.6);
+    self.view.backgroundColor = on ? stripes(mixu(self.base, 0, 0.86), [UIColor colorWithWhite:1 alpha:0.028], 28) : rgb(C_SLAB);
+    self.verText.textColor = rgb(on ? mixu(self.accent, 0x6B7280, 0.55) : C_MUTED);
+    ck_box(self.serverPill, [UIColor colorWithWhite:0 alpha:0.3], on ? rgb(line) : [UIColor colorWithWhite:1 alpha:0.16], 2, 24);
+    ck_box(self.profile, rgb(mixu(self.base, 0, 0.8)), rgb(self.accent), 2, 18);
+    self.cardName.textColor = rgb(self.accent);
+    ck_box(self.signOutBtn, rgb(mixu(self.base, 0, 0.72)), rgb(mixu(self.base, 0, 0.5)), 1.5, 22);
+    self.avatar.backgroundColor = rgb(self.accent);
+}
+- (void)pickServer {
+    if (self.serverList) { [self.serverList removeFromSuperview]; self.serverList = nil; return; }
+    __weak LoginVC *w = self;
+    BOOL on = self.currentKey.length > 0;
+    CKButton *shade = ck_button(^(CKButton *b) { [w.serverList removeFromSuperview]; w.serverList = nil; });   // a tap outside closes it
+    shade.frame = self.view.bounds;
+    shade.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    UIStackView *list = vstack(@[], 0);
+    ck_box(list, on ? rgb(mixu(self.base, 0, 0.8)) : rgb(C_INK), on ? rgb(mixu(self.base, 0, 0.6)) : [UIColor colorWithWhite:1 alpha:0.16], 2, 16);
+    list.clipsToBounds = YES;
+    for (int i = 0; i < 2; i++) {
+        BOOL sel = i == self.srv;
+        CKButton *r = ck_button(^(CKButton *b) {
+            [w.serverList removeFromSuperview]; w.serverList = nil;
+            if (i == w.srv) return;
+            w.srv = i;
+            [w.prefs setInteger:i forKey:@"server"];
+            w.status.hidden = YES;
+            [w showSignedIn];
+        });
+        UIStackView *rc = hstack(@[ck_label([self name:i], f_body(16, UIFontWeightHeavy), 0xFFFFFF)], 8);
+        if (sel) [rc addArrangedSubview:ck_icon_view(IC_CHECK, on ? self.accent : C_YELLOW, 20)];
+        rc.userInteractionEnabled = NO;
+        rc.translatesAutoresizingMaskIntoConstraints = NO;
+        [r addSubview:rc];
+        [NSLayoutConstraint activateConstraints:@[[rc.leadingAnchor constraintEqualToAnchor:r.leadingAnchor constant:16],
+            [rc.trailingAnchor constraintEqualToAnchor:r.trailingAnchor constant:-16], [rc.centerYAnchor constraintEqualToAnchor:r.centerYAnchor]]];
+        r.backgroundColor = sel ? (on ? rgb(mixu(self.base, 0, 0.7)) : [UIColor colorWithWhite:1 alpha:0.1]) : UIColor.clearColor;
+        fix_h(r, 46);
+        [list addArrangedSubview:r];
+    }
+    CGRect pill = [self.serverPill convertRect:self.serverPill.bounds toView:self.view];
+    list.frame = CGRectMake(pill.origin.x, pill.origin.y - 8 - 92, pill.size.width, 92);
+    [shade addSubview:list];
+    [self.view addSubview:shade];
+    self.serverList = shade;
+}
+- (void)formErr:(NSString *)m { self.formError.text = m; self.formError.hidden = NO; }
+- (void)signIn {
+    NSString *account = [[self.user.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] lowercaseString] ?: @"";
+    NSString *password = self.pass.text ?: @"";
+    self.user.layer.borderColor = (account.length ? [UIColor colorWithWhite:1 alpha:0.14] : rgb(C_ERROR)).CGColor;
+    self.pass.layer.borderColor = (password.length ? [UIColor colorWithWhite:1 alpha:0.14] : rgb(C_ERROR)).CGColor;
+    if (!account.length || !password.length) { [self formErr:[self t:@"Enter your username and password." zh:@"请输入账号和密码。"]]; return; }
+    self.formError.hidden = YES;
+    self.signInBtn.enabled = NO;
+    [self.signInBtn setTitle:[self t:@"Signing in..." zh:@"正在登录..."] forState:UIControlStateNormal];
+    [self.view endEditing:YES];
+    int s = self.srv;
+    BOOL rem = self.rememberOn;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *err = nil, *err2 = nil;
+        NSDictionary *r = wire_request(HOSTS[s], account, password, 0x6f01, &err);
+        NSDictionary *p = r ? wire_request(HOSTS[s], account, r[@"key"], 0x6f03, &err2) : nil;     // only for the nickname (the card's name)
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.signInBtn.enabled = YES;
+            [self.signInBtn setTitle:[self t:@"Sign in" zh:@"登录"] forState:UIControlStateNormal];
+            if (!r) { [self formErr:err ?: [self t:@"Cannot reach the server." zh:@"无法连接服务器。"]]; return; }
+            [self.prefs setObject:account forKey:@"user"]; [self.prefs setInteger:s forKey:@"server"]; [self.prefs setBool:rem forKey:@"remember"];
+            if ([p[@"nick"] length]) [self.prefs setObject:p[@"nick"] forKey:@"nick"]; else [self.prefs removeObjectForKey:@"nick"];
+            if (rem) { [self.prefs setObject:r[@"key"] forKey:@"key"]; [self.prefs setInteger:s forKey:@"keyServer"]; }
+            else { [self.prefs removeObjectForKey:@"key"]; self.sessionKey = r[@"key"]; self.sessionSrv = s; }
+            self.pass.text = @"";
+            self.skinFor = nil;
+            [self showSignedIn];
+        });
+    });
+}
+- (void)signOut {                                        // the key goes; the username stays filled in
+    [self.prefs removeObjectForKey:@"key"]; [self.prefs removeObjectForKey:@"nick"];
+    self.sessionKey = @""; self.sessionSrv = -1; self.skinFor = nil;
+    self.cover.image = nil;
+    self.avatar.image = [UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"launcher_avatar.png"]];
+    [self showSignedIn];
 }
 static UIImage *url_image(id u) {                        // SVG frames / backgrounds: UIImage cannot draw them -> nil
     if (![u isKindOfClass:NSString.class] || ![u length]) return nil;
     NSData *d = [NSData dataWithContentsOfURL:[NSURL URLWithString:u]];
     return d ? [UIImage imageWithData:d] : nil;
 }
-- (void)loadSkin:(NSString *)name {                     // the site profile's look: theme colours, cover, avatar, frame
-    if (!name.length || [name isEqualToString:_skinFor]) return;
-    _skinFor = name;
+- (void)loadSkin:(NSString *)name {                     // the site profile's look: theme colours, cover, avatar
+    if (!name.length || [name isEqualToString:self.skinFor]) return;
+    self.skinFor = name;
     NSString *url = [@"https://crazykartlegacy.com/api/launcher/skin/" stringByAppendingString:
                      [name stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
     NSURLRequest *rq = [NSURLRequest requestWithURL:[NSURL URLWithString:url] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:8];
+    __weak LoginVC *w = self;
     [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
         NSDictionary *s = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
         if (![s isKindOfClass:NSDictionary.class] || ![s[@"ok"] boolValue]) return;    // offline: the plain card
-        NSArray *col = theme_colours([s[@"theme"] isKindOfClass:NSString.class] ? s[@"theme"] : @"sky");
+        NSString *theme = [s[@"theme"] isKindOfClass:NSString.class] ? s[@"theme"] : @"sky";
         UIImage *cover = [s[@"cover"] isKindOfClass:NSDictionary.class] ? url_image(s[@"cover"][@"url"]) : nil;
-        UIImage *avatar = url_image(s[@"avatar"]), *frame = url_image(s[@"frame"]);
+        UIImage *avatar = url_image(s[@"avatar"]);
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (![name isEqualToString:self->_skinFor]) return;   // signed out / switched while it loaded
-            self->_card.layer.borderWidth = 2; self->_card.layer.borderColor = [col[1] CGColor];
-            self->_cardName.textColor = col[1];
-            self->_cardCover.backgroundColor = col[0];
-            if (cover) self->_cardCover.image = cover;
-            if (avatar) self->_cardAvatar.image = avatar;
-            if (frame) { self->_cardFrame.image = frame; self->_cardFrame.hidden = NO; }
+            LoginVC *me = w;
+            if (!me || ![name isEqualToString:me.skinFor]) return;   // signed out / switched while it loaded
+            [me.prefs setObject:theme forKey:@"theme"];
+            NSArray *th = theme_colours(theme);
+            me.base = [th[0] unsignedIntValue]; me.accent = [th[1] unsignedIntValue];
+            if (cover) me.cover.image = cover;
+            if (avatar) me.avatar.image = avatar;
+            [me applyLook:me.currentKey.length > 0];
         });
     }] resume];
 }
-static BOOL has_cjk(NSString *s) {
-    for (NSUInteger i = 0; i < s.length; i++) { unichar c = [s characterAtIndex:i]; if ((c >= 0x3000 && c <= 0x9fff) || (c >= 0xff00 && c <= 0xffef)) return YES; }
-    return NO;
-}
-- (void)showNotes {                     // each line of the file is in English or Chinese: the launcher language's
-    NSData *d = [_prefs dataForKey:@"notes"];
-    NSArray *a = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
-    _notesView.hidden = ![a isKindOfClass:NSArray.class] || !a.count;
-    if (_notesView.hidden) return;
-    BOOL zh = _lang.selectedSegmentIndex == 1;
-    NSMutableAttributedString *t = [[NSMutableAttributedString alloc] init];
-    void (^add)(NSString *, UIFont *, UIColor *, CGFloat) = ^(NSString *x, UIFont *f, UIColor *c, CGFloat before) {
-        NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
-        ps.paragraphSpacingBefore = before; ps.lineSpacing = 2;
-        [t appendAttributedString:[[NSAttributedString alloc] initWithString:[x stringByAppendingString:@"\n"]
-            attributes:@{NSFontAttributeName: f, NSForegroundColorAttributeName: c, NSParagraphStyleAttributeName: ps}]];
-    };
-    add(zh ? @"更新公告" : @"PATCH NOTES", [UIFont systemFontOfSize:16 weight:UIFontWeightHeavy], rgb(0xF5C21B), 0);
-    for (NSUInteger i = 0; i < MIN(a.count, 8); i++) {
-        NSDictionary *n = a[i];
-        if (![n isKindOfClass:NSDictionary.class]) continue;
-        add([NSString stringWithFormat:@"%@  ·  %@", n[@"version"] ?: @"", n[@"date"] ?: @""], [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold], rgb(0xB7C4E8), i ? 12 : 6);
-        if ([n[@"title"] isKindOfClass:NSString.class]) add(n[@"title"], [UIFont systemFontOfSize:14 weight:UIFontWeightBold], UIColor.whiteColor, 0);
-        for (id line in ([n[@"items"] isKindOfClass:NSArray.class] ? n[@"items"] : @[]))
-            if ([line isKindOfClass:NSString.class] && has_cjk(line) == zh)
-                add([@"•  " stringByAppendingString:line], [UIFont systemFontOfSize:12], rgb(0xDDE4F7), 3);
-    }
-    _notesText.attributedText = t;
-}
 - (void)openSettings {
     SettingsVC *vc = [[SettingsVC alloc] init];
-    vc.zh = _lang.selectedSegmentIndex == 1;
+    vc.zh = self.zh;
+    __weak LoginVC *w = self;
+    vc.closed = ^(BOOL saved) {
+        BOOL zh = [[w.prefs stringForKey:@"lang"] isEqualToString:@"zh"];
+        if (saved && zh != w.zh) { w.zh = zh; [w build]; }      // the launcher comes back in the new language
+    };
     vc.modalPresentationStyle = UIModalPresentationFullScreen;
     [self presentViewController:vc animated:YES completion:nil];
 }
-- (void)openControls {
-    ControlsVC *vc = [[ControlsVC alloc] init];
-    vc.zh = _lang.selectedSegmentIndex == 1;
-    vc.modalPresentationStyle = UIModalPresentationFullScreen;
-    [self presentViewController:vc animated:YES completion:nil];
-}
-- (void)openHud {
-    HudEditorVC *vc = [[HudEditorVC alloc] init];
-    vc.modalPresentationStyle = UIModalPresentationFullScreen;
-    [self presentViewController:vc animated:YES completion:nil];
-}
-- (BOOL)textFieldShouldReturn:(UITextField *)f {        // Return: username -> password, password -> keyboard down + Play
-    if (f == _user) { [_pass becomeFirstResponder]; return NO; }
+- (BOOL)textFieldShouldReturn:(UITextField *)f {        // Return: username -> password, password -> keyboard down + Sign in
+    if (f == self.user) { [self.pass becomeFirstResponder]; return NO; }
     [f resignFirstResponder];
-    if (_play.enabled) [self go];
+    if (self.signInBtn.enabled) [self signIn];
     return NO;
 }
 - (void)viewDidAppear:(BOOL)a {
@@ -1755,61 +2334,199 @@ static BOOL has_cjk(NSString *s) {
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self.view action:@selector(endEditing:)];
     tap.cancelsTouchesInView = NO;                           // a tap outside the fields closes the keyboard; buttons still work
     if (!self.view.gestureRecognizers.count) [self.view addGestureRecognizer:tap];
-    if (![_prefs objectForKey:@"controltype"]) [self askControls];
+    if (self.overlay || self.presentedViewController) return;
+    if (![self.prefs objectForKey:@"lang"]) [self showLanguage];
+    else if (![self.prefs objectForKey:@"controltype"]) [self showControlType];
 }
-// control type: asked once, at the first start (the user, 12 Nov 2026), as Android: Classic -> the HUD editor;
-// Mobile -> Mobile controls on + the editor with the on-screen buttons only; Keyboard / controller -> opacity 0
-- (void)askControls {
-    BOOL zh = _lang.selectedSegmentIndex == 1;
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:zh ? @"选择操作方式" : @"How do you want to play?" message:nil
-                                                        preferredStyle:UIAlertControllerStyleAlert];
-    NSArray *names = zh ? @[@"经典（触屏按键，按住油门）", @"手游（自动油门，轻点漂移）", @"键盘 / 手柄"]
-                        : @[@"Classic (touch buttons, hold to drive)", @"Mobile (auto gas, tap to drift)", @"Keyboard / controller"];
-    for (NSInteger i = 0; i < 3; i++)
-        [a addAction:[UIAlertAction actionWithTitle:names[(NSUInteger)i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) { [self setControls:i]; }]];
-    [self presentViewController:a animated:YES completion:nil];
+
+// ---- first start (the design): a light dialog on the night blue
+- (UIStackView *)dialog:(CGFloat)width {
+    UIView *f = [[UIView alloc] initWithFrame:self.view.bounds];
+    f.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    f.backgroundColor = rgb(C_NIGHT);
+    UIStackView *d = vstack(@[], 12);
+    d.alignment = UIStackViewAlignmentCenter;
+    d.backgroundColor = rgb(C_PAPER); d.layer.cornerRadius = 16; step_shadow(d, C_LINE, 4);
+    d.layoutMarginsRelativeArrangement = YES;
+    d.translatesAutoresizingMaskIntoConstraints = NO;
+    [f addSubview:d];
+    [NSLayoutConstraint activateConstraints:@[[d.centerXAnchor constraintEqualToAnchor:f.centerXAnchor], [d.centerYAnchor constraintEqualToAnchor:f.centerYAnchor],
+        [d.widthAnchor constraintLessThanOrEqualToAnchor:f.widthAnchor constant:-32]]];
+    NSLayoutConstraint *wc = [d.widthAnchor constraintEqualToConstant:width];
+    wc.priority = UILayoutPriorityDefaultHigh; wc.active = YES;
+    [self.overlay removeFromSuperview];
+    [self.view addSubview:f];
+    self.overlay = f;
+    return d;
 }
-- (void)setControls:(NSInteger)w {
-    [_prefs setObject:(w == 1 ? @"mobile" : w == 2 ? @"keyboard" : @"classic") forKey:@"controltype"];
-    [_prefs setBool:w == 1 forKey:@"touchmobile"];
-    if (w == 2) {                                            // hud_layout.txt: only its touch_opacity line changes
-        NSString *path = [[docs() stringByAppendingPathComponent:@"game"] stringByAppendingPathComponent:@"hud_layout.txt"];
-        NSMutableString *t = [NSMutableString string];
-        NSString *old = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
-        for (NSString *line in [old componentsSeparatedByString:@"\n"]) {
-            NSString *l = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-            if (l.length && ![l hasPrefix:@"touch_opacity"]) [t appendFormat:@"%@\n", l];
-        }
-        [t appendString:@"touch_opacity 0.00\n"];
-        [NSFileManager.defaultManager createDirectoryAtPath:[path stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
-        [t writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return;
+- (void)closeOverlay { [self.overlay removeFromSuperview]; self.overlay = nil; }
+- (void)showLanguage {
+    UIStackView *d = [self dialog:540];
+    d.layoutMargins = UIEdgeInsetsMake(22, 32, 20, 32);
+    UIImageView *logo = [[UIImageView alloc] initWithImage:[UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"launcher_logo.png"]]];
+    logo.contentMode = UIViewContentModeScaleAspectFit; fix_h(logo, 76);
+    NSMutableAttributedString *t = [[NSMutableAttributedString alloc] initWithString:@"选择语言 · Choose your language"
+                                                                         attributes:@{NSFontAttributeName: f_disp(24, UIFontWeightHeavy), NSForegroundColorAttributeName: rgb(C_INK)}];
+    [t addAttribute:NSForegroundColorAttributeName value:rgb(C_EDGE) range:NSMakeRange(5, 1)];
+    UILabel *h = [[UILabel alloc] init]; h.attributedText = t; h.adjustsFontSizeToFitWidth = YES;
+    __weak LoginVC *w = self;
+    NSMutableArray *cards = [NSMutableArray array];
+    for (int i = 0; i < 2; i++) {
+        CKButton *b = ck_button(^(CKButton *x) { [w setLanguage:i == 0]; });
+        ck_box(b, UIColor.whiteColor, rgb(C_LINE), 2, 16); step_shadow(b, C_LINE, 4);
+        UIStackView *s = vstack(@[ck_label(i == 0 ? @"中文" : @"English", f_disp(32, UIFontWeightHeavy), C_INK),
+                                  ck_label(i == 0 ? @"简体中文" : @"English", f_body(13, UIFontWeightSemibold), C_SUB)], 2);
+        s.alignment = UIStackViewAlignmentCenter; s.userInteractionEnabled = NO;
+        s.translatesAutoresizingMaskIntoConstraints = NO;
+        [b addSubview:s];
+        [NSLayoutConstraint activateConstraints:@[[s.centerXAnchor constraintEqualToAnchor:b.centerXAnchor], [s.centerYAnchor constraintEqualToAnchor:b.centerYAnchor]]];
+        fix_h(b, 100);
+        [cards addObject:b];
     }
+    UIStackView *two = hstack(cards, 16);
+    two.distribution = UIStackViewDistributionFillEqually;
+    for (UIView *v in @[logo, h, two, ck_label(@"以后可以在 设置 中更改。   You can change this later in Settings.", f_body(13, UIFontWeightSemibold), C_SUB)]) [d addArrangedSubview:v];
+    [two.widthAnchor constraintEqualToAnchor:d.layoutMarginsGuide.widthAnchor].active = YES;
+}
+- (void)setLanguage:(BOOL)cn {
+    [self.prefs setObject:cn ? @"zh" : @"en" forKey:@"lang"];
+    if (cn != self.zh) { self.zh = cn; [self build]; }
+    if (![self.prefs objectForKey:@"controltype"]) [self showControlType]; else [self closeOverlay];
+}
+// control type (the user, 12 Nov 2026): Classic -> the HUD editor; Mobile -> Mobile touch controls on (AUTO GAS +
+// TAP DRIFT) + the editor; Keyboard / controller -> on-screen controls at opacity 0 (hud_layout.txt touch_opacity)
+- (UIImageView *)pic:(NSString *)name {
+    UIImageView *v = [[UIImageView alloc] initWithImage:[UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:[name stringByAppendingString:@".png"]]]];
+    v.translatesAutoresizingMaskIntoConstraints = NO;
+    return v;
+}
+- (void)place:(UIView *)v into:(UIView *)box x:(CGFloat)x y:(CGFloat)y w:(CGFloat)wd h:(CGFloat)ht right:(BOOL)r {
+    v.translatesAutoresizingMaskIntoConstraints = NO;
+    [box addSubview:v];
+    [NSLayoutConstraint activateConstraints:@[r ? [v.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-x] : [v.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:x],
+        [v.topAnchor constraintEqualToAnchor:box.topAnchor constant:y], [v.widthAnchor constraintEqualToConstant:wd], [v.heightAnchor constraintEqualToConstant:ht]]];
+}
+- (UIView *)typeCard:(int)k {
+    __weak LoginVC *w = self;
+    CKButton *b = ck_button(^(CKButton *x) { [w setControls:k]; });
+    ck_box(b, UIColor.whiteColor, rgb(C_LINE), 2, 16); step_shadow(b, C_LINE, 4);
+    UIView *pv = [[UIView alloc] init];
+    pv.backgroundColor = rgb(0x111827); pv.layer.cornerRadius = 10; pv.clipsToBounds = YES;
+    fix_h(pv, 120);
+    if (k == 2) {
+        UIStackView *ic = hstack(@[ck_icon_view(IC_PAD, C_YELLOW, 64), ck_icon_view(IC_KEYBOARD, C_MUTED, 56)], 14);
+        ic.translatesAutoresizingMaskIntoConstraints = NO;
+        [pv addSubview:ic];
+        [NSLayoutConstraint activateConstraints:@[[ic.centerXAnchor constraintEqualToAnchor:pv.centerXAnchor], [ic.centerYAnchor constraintEqualToAnchor:pv.centerYAnchor]]];
+    } else {
+        for (int i = 0; i < 2; i++) {                                   // the race HUD's dashed boxes
+            UIView *d = [[UIView alloc] init];
+            CAShapeLayer *sl = [CAShapeLayer layer];
+            sl.strokeColor = [UIColor colorWithWhite:1 alpha:0.35].CGColor; sl.fillColor = UIColor.clearColor.CGColor;
+            sl.lineDashPattern = @[@3, @2];
+            CGSize s = i ? CGSizeMake(34, 30) : CGSizeMake(46, 16);
+            sl.path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0.5, 0.5, s.width - 1, s.height - 1) cornerRadius:4].CGPath;
+            [d.layer addSublayer:sl];
+            [self place:d into:pv x:(i ? 8 : 6) y:6 w:s.width h:s.height right:(i == 1)];
+        }
+        if (k == 1) {
+            [self place:[self pic:@"touch_autogas"] into:pv x:8 y:60 w:18 h:18 right:NO];
+            [self place:[self pic:@"touch_tapdrift"] into:pv x:30 y:60 w:18 h:18 right:NO];
+            UIView *ring = [[UIView alloc] init];
+            ring.layer.borderWidth = 2; ring.layer.borderColor = rgb(C_YELLOW).CGColor; ring.layer.cornerRadius = 8;
+            [self place:ring into:pv x:4 y:56 w:48 h:26 right:NO];
+        }
+        [self place:[self pic:@"touch_left"] into:pv x:5 y:84 w:28 h:28 right:NO];
+        [self place:[self pic:@"touch_right"] into:pv x:38 y:84 w:28 h:28 right:NO];
+        [self place:[self pic:@"touch_gas"] into:pv x:5 y:84 w:28 h:28 right:YES];
+        [self place:[self pic:@"touch_brake"] into:pv x:38 y:90 w:21 h:21 right:YES];
+        [self place:[self pic:@"touch_drift"] into:pv x:6 y:54 w:25 h:25 right:YES];
+        [self place:[self pic:@"touch_item"] into:pv x:37 y:62 w:22 h:22 right:YES];
+    }
+    NSArray *names = @[[self t:@"Classic" zh:@"经典"], [self t:@"Mobile" zh:@"手游"], [self t:@"Keyboard / controller" zh:@"键盘 / 手柄"]];
+    NSArray *subs = @[[self t:@"Touch buttons, hold to drive. Arrange your HUD and buttons next." zh:@"触屏按键，按住油门。下一步调整 HUD 和按键。"],
+                      [self t:@"Auto gas, tap to drift: two switches above the steering. Arrange your HUD and buttons next." zh:@"自动油门，轻点漂移：方向键上方有两个开关。下一步调整 HUD 和按键。"],
+                      [self t:@"On-screen controls hidden (0% opacity)." zh:@"隐藏屏幕按键（透明度 0%）。"]];
+    UILabel *sub = ck_label(subs[k], f_body(13, UIFontWeightSemibold), C_SUB);
+    sub.numberOfLines = 0;
+    UIStackView *s = vstack(@[pv, ck_label(names[k], f_disp(20, UIFontWeightHeavy), C_INK), sub], 8);
+    s.userInteractionEnabled = NO;
+    s.translatesAutoresizingMaskIntoConstraints = NO;
+    [b addSubview:s];
+    [NSLayoutConstraint activateConstraints:@[[s.leadingAnchor constraintEqualToAnchor:b.leadingAnchor constant:10], [s.trailingAnchor constraintEqualToAnchor:b.trailingAnchor constant:-10],
+        [s.topAnchor constraintEqualToAnchor:b.topAnchor constant:10], [s.bottomAnchor constraintLessThanOrEqualToAnchor:b.bottomAnchor constant:-12]]];
+    return b;
+}
+- (void)showControlType {
+    UIStackView *d = [self dialog:760];
+    d.layoutMargins = UIEdgeInsetsMake(18, 24, 16, 24);
+    UIStackView *head = vstack(@[ck_label([self t:@"STEP 2 OF 3" zh:@"第 2 步，共 3 步"], f_disp(13, UIFontWeightBold), C_SUB),
+                                 ck_label([self t:@"How do you want to play?" zh:@"选择操作方式"], f_disp(26, UIFontWeightHeavy), C_INK)], 2);
+    head.alignment = UIStackViewAlignmentCenter;
+    UIStackView *three = hstack(@[[self typeCard:0], [self typeCard:1], [self typeCard:2]], 14);
+    three.distribution = UIStackViewDistributionFillEqually; three.alignment = UIStackViewAlignmentFill;
+    for (UIView *v in @[head, three, ck_label([self t:@"You can change this later in Settings › Controls." zh:@"以后可以在 设置 › 按键 中更改。"], f_body(13, UIFontWeightSemibold), C_SUB)])
+        [d addArrangedSubview:v];
+    [three.widthAnchor constraintEqualToAnchor:d.layoutMarginsGuide.widthAnchor].active = YES;
+    [three.heightAnchor constraintGreaterThanOrEqualToConstant:210].active = YES;
+}
+- (void)setControls:(int)k {
+    NSString *type = k == 1 ? @"mobile" : k == 2 ? @"keyboard" : @"classic";
+    [self.prefs setObject:type forKey:@"controltype"];
+    [self.prefs setBool:k == 1 forKey:@"touchmobile"];
+    [self closeOverlay];
+    hud_opacity_set(k == 2 ? 0 : 0.6f);
+    if (k == 2) { [self showKeyboardNote]; return; }
     HudEditorVC *vc = [[HudEditorVC alloc] init];
-    vc.mobileOnly = w == 1;
+    vc.mode = type; vc.first = YES;
     vc.modalPresentationStyle = UIModalPresentationFullScreen;
     [self presentViewController:vc animated:YES completion:nil];
+}
+- (void)showKeyboardNote {
+    __weak LoginVC *w = self;
+    UILabel *m = ck_label([self t:@"On-screen controls are hidden for keyboard / controller. Change it in Settings › Controls."
+                               zh:@"已为键盘 / 手柄隐藏屏幕按键。可以在 设置 › 按键 中更改。"], f_body(14, UIFontWeightBold), 0xFFFFFF);
+    m.numberOfLines = 0;
+    CKButton *x = ck_button(^(CKButton *b) { [w.note removeFromSuperview]; w.note = nil; });
+    [x setImage:ck_icon(IC_CLOSE, 0xFFFFFF, 16) forState:UIControlStateNormal];
+    x.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08]; x.layer.cornerRadius = 20;
+    fix_w(x, 40); fix_h(x, 40);
+    x.accessibilityLabel = [self t:@"Dismiss" zh:@"关闭"];
+    UIStackView *n = hstack(@[ck_icon_view(IC_PAD, C_YELLOW, 22), m, x], 12);
+    n.layoutMargins = UIEdgeInsetsMake(8, 16, 8, 8); n.layoutMarginsRelativeArrangement = YES;
+    ck_box(n, rgb(C_INK), [UIColor colorWithWhite:1 alpha:0.16], 1, 16);
+    n.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.note removeFromSuperview];
+    [self.view addSubview:n];
+    self.note = n;
+    [NSLayoutConstraint activateConstraints:@[[n.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [n.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:10],
+        [n.widthAnchor constraintLessThanOrEqualToConstant:560], [n.widthAnchor constraintLessThanOrEqualToAnchor:self.view.widthAnchor constant:-32]]];
 }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 - (BOOL)prefersStatusBarHidden { return YES; }
 - (void)say:(NSString *)t error:(BOOL)err {
-    dispatch_async(dispatch_get_main_queue(), ^{ self->_status.text = t; self->_status.textColor = err ? rgb(0xFFAB8F) : rgb(0xB7C4E8); });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.status.text = t; self.status.textColor = err ? rgb(C_ERROR) : rgb(C_MUTED);
+        self.status.hidden = !t.length;
+    });
 }
 - (void)fail:(NSString *)t badLogin:(BOOL)bad {
-    if (bad) [_prefs removeObjectForKey:@"key"];
-    dispatch_async(dispatch_get_main_queue(), ^{ self->_play.enabled = YES; if (bad) [self showSignedIn]; });   // the card gives way to the form
-    [self say:t error:YES];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (bad) { [self.prefs removeObjectForKey:@"key"]; self.sessionKey = @""; self.sessionSrv = -1; }   // a refused key signs the player out
+        [self showSignedIn];
+        if (bad) { [self formErr:t]; self.status.hidden = YES; }     // the card gives way to the form
+    });
+    if (!bad) [self say:t error:YES];
 }
 - (void)go {
-    NSString *account = [[_user.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] lowercaseString] ?: @"";
-    NSString *password = _pass.text ?: @"";
-    int srv = (int)_server.selectedSegmentIndex;
-    BOOL zh = _lang.selectedSegmentIndex == 1, remember = _remember.on;
-    NSString *savedKey = [_prefs stringForKey:@"key"] ?: @"";
-    BOOL same = [account isEqualToString:[_prefs stringForKey:@"user"] ?: @""] && srv == [_prefs integerForKey:@"keyServer"];
-    if (!account.length || (!password.length && (!savedKey.length || !same))) { [self say:@"Enter your account and password." error:YES]; return; }
-    _play.enabled = NO;
-    [self.view endEditing:YES];
+    NSString *key = self.currentKey;
+    if (!key.length) { [self showSignedIn]; return; }
+    NSString *account = [self.prefs stringForKey:@"user"] ?: @"";
+    int srv = self.srv;
+    BOOL zh = self.zh;
+    self.playBtn.enabled = NO;
+    self.playBtn.alpha = 0.7;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSFileManager *fm = NSFileManager.defaultManager;
         NSString *game = [docs() stringByAppendingPathComponent:@"game"];
@@ -1831,12 +2548,17 @@ static BOOL has_cjk(NSString *s) {
         NSString *usf = [game stringByAppendingPathComponent:@"UserSetting.bin"];
         NSMutableData *us = [NSMutableData dataWithContentsOfFile:usf] ?: [NSMutableData dataWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:@"UserSetting.bin"]];
         NSUserDefaults *gd = NSUserDefaults.standardUserDefaults;        // the Settings screen (SettingsVC)
-        if (us.length >= 0x20) {
+        if (us.length >= 0x30) {
             uint32_t win = 0, res = 4;
             [us replaceBytesInRange:NSMakeRange(0x04, 4) withBytes:&win];
             [us replaceBytesInRange:NSMakeRange(0x10, 4) withBytes:&res];
             if ([gd objectForKey:@"detail"]) { uint32_t det = (uint32_t)MIN(1, MAX(0, [gd integerForKey:@"detail"])); [us replaceBytesInRange:NSMakeRange(0x18, 4) withBytes:&det]; }
             if ([gd objectForKey:@"gamma"]) { float gm = MIN(3.0f, MAX(0.5f, [gd floatForKey:@"gamma"])); [us replaceBytesInRange:NSMakeRange(0x1c, 4) withBytes:&gm]; }
+            // Settings > Sound: 0x20 u8 music on, 0x24 u32 music volume 0-10, 0x28 u8 effects on, 0x2c u32 effects volume
+            if ([gd objectForKey:@"music"]) { uint8_t on = [gd boolForKey:@"music"]; [us replaceBytesInRange:NSMakeRange(0x20, 1) withBytes:&on]; }
+            if ([gd objectForKey:@"musicVol"]) { uint32_t v = (uint32_t)MIN(10, MAX(0, [gd integerForKey:@"musicVol"])); [us replaceBytesInRange:NSMakeRange(0x24, 4) withBytes:&v]; }
+            if ([gd objectForKey:@"sfx"]) { uint8_t on = [gd boolForKey:@"sfx"]; [us replaceBytesInRange:NSMakeRange(0x28, 1) withBytes:&on]; }
+            if ([gd objectForKey:@"sfxVol"]) { uint32_t v = (uint32_t)MIN(10, MAX(0, [gd integerForKey:@"sfxVol"])); [us replaceBytesInRange:NSMakeRange(0x2c, 4) withBytes:&v]; }
             [us writeToFile:usf atomically:YES];
         }
         NSString *inif = [game stringByAppendingPathComponent:@"CrazyKart.ini"];
@@ -1849,19 +2571,11 @@ static BOOL has_cjk(NSString *s) {
         [self say:@"Loading the shop..." error:NO];
         shop_sync(game, API[srv]);
         [self say:@"Signing in..." error:NO];
-        NSString *err = nil, *key = savedKey;
-        if (password.length || !same) {
-            NSDictionary *r = wire_request(HOSTS[srv], account, password, 0x6f01, &err);
-            if (!r) { [self fail:err badLogin:[err hasPrefix:@"Wrong"]]; return; }
-            key = r[@"key"];
-        }
-        NSDictionary *p = wire_request(HOSTS[srv], account, key, 0x6f03, &err);
+        NSString *err = nil;
+        NSDictionary *p = wire_request(HOSTS[srv], account, key, 0x6f03, &err);     // fresh one-time pass, like the launcher's Play
         if (!p) { [self fail:err badLogin:[err hasPrefix:@"Wrong"] || [err hasPrefix:@"Sign-in refused"]]; return; }
-        [self->_prefs setObject:account forKey:@"user"]; [self->_prefs setInteger:srv forKey:@"server"];
-        [self->_prefs setBool:remember forKey:@"remember"]; [self->_prefs setObject:zh ? @"zh" : @"en" forKey:@"lang"];
-        if ([p[@"nick"] length]) [self->_prefs setObject:p[@"nick"] forKey:@"nick"];   // the account card's name
-        if (remember) { [self->_prefs setObject:key forKey:@"key"]; [self->_prefs setInteger:srv forKey:@"keyServer"]; }
-        else [self->_prefs removeObjectForKey:@"key"];
+        [self.prefs setInteger:srv forKey:@"server"];
+        if ([p[@"nick"] length]) [self.prefs setObject:p[@"nick"] forKey:@"nick"];   // the account card's name
         snprintf(g_args, sizeof g_args, "-u %s -password %s -ad %s -port 6910 -wnd 1", account.UTF8String, [p[@"pass"] UTF8String], HOSTS[srv].UTF8String);
         snprintf(g_game_dir_s, sizeof g_game_dir_s, "%s", game.UTF8String);
         g_web_api = API[srv]; g_web_user = account; g_web_key = key; g_web_lang = zh ? @"zh" : @"en"; g_web_game = game;   // web panels

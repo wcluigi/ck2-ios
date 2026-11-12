@@ -27,7 +27,7 @@ APP=build/ios/Payload/CK2.app
 rm -rf build/ios/Payload && mkdir -p $APP/image
 $CC -arch arm64 -isysroot $SDK -miphoneos-version-min=14.0 -o $APP/CK2 $O/*.o "$LIB" -dead_strip \
   -framework UIKit -framework Foundation -framework QuartzCore -framework Metal -framework CoreGraphics \
-  -framework AudioToolbox -framework AVFoundation -framework GameController -framework WebKit -lobjc -lc++
+  -framework AudioToolbox -framework AVFoundation -framework GameController -framework WebKit -framework PhotosUI -lobjc -lc++
 # the app's files: lifted image + phone assets (as package_apk.sh puts them in the APK) and the game data
 cp out_m/image.bin out_m/imports.txt out_m/modules.txt $APP/image/
 cp android/assets/* $APP/image/
