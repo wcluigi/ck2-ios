@@ -2079,14 +2079,16 @@ static NSArray *theme_colours(NSString *theme) {        // accent, band (the lau
     if (@available(iOS 15.0, *)) kb = self.view.keyboardLayoutGuide.topAnchor;
     NSLayoutConstraint *mid = [cards.centerYAnchor constraintEqualToAnchor:right.centerYAnchor];
     mid.priority = UILayoutPriorityDefaultLow;
-    [NSLayoutConstraint activateConstraints:@[mid, [cards.leadingAnchor constraintEqualToAnchor:right.leadingAnchor], [cards.trailingAnchor constraintEqualToAnchor:right.trailingAnchor],
-        [cards.topAnchor constraintGreaterThanOrEqualToAnchor:right.topAnchor], [cards.bottomAnchor constraintLessThanOrEqualToAnchor:kb constant:-8]]];
 
     UIStackView *main = hstack(@[left, right], 28);
     main.alignment = UIStackViewAlignmentCenter;
     main.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:main];
     UILayoutGuide *g = self.view.safeAreaLayoutGuide;
+    // only now: the keyboard guide belongs to self.view, and a constraint to a view outside its tree throws (the 12 Nov
+    // design-test IPA closed at launch: the card was activated against the guide before main was added)
+    [NSLayoutConstraint activateConstraints:@[mid, [cards.leadingAnchor constraintEqualToAnchor:right.leadingAnchor], [cards.trailingAnchor constraintEqualToAnchor:right.trailingAnchor],
+        [cards.topAnchor constraintGreaterThanOrEqualToAnchor:right.topAnchor], [cards.bottomAnchor constraintLessThanOrEqualToAnchor:kb constant:-8]]];
     [NSLayoutConstraint activateConstraints:@[
         [main.leadingAnchor constraintEqualToAnchor:g.leadingAnchor constant:16], [main.trailingAnchor constraintEqualToAnchor:g.trailingAnchor constant:-16],
         [main.topAnchor constraintEqualToAnchor:g.topAnchor constant:12], [main.bottomAnchor constraintEqualToAnchor:g.bottomAnchor constant:-12],
