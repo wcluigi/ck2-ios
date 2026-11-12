@@ -118,18 +118,24 @@ public class LoginActivity extends Activity {
         scroll.addView(box);
 
 
-        box.addView(label(t("Username", "用户名")));
+        // signed in (a remembered key for the picked server): the account card, as the PC launcher shows it; else the form
+        accountCard = accountCard();
+        box.addView(accountCard, new LinearLayout.LayoutParams(-1, -2));
+        form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        box.addView(form, new LinearLayout.LayoutParams(-1, -2));
+        form.addView(label(t("Username", "用户名")));
         user = field(false);
         user.setText(prefs.getString("user", ""));
-        box.addView(user, fieldParams());
-        box.addView(label(t("Password", "密码")));
+        form.addView(user, fieldParams());
+        form.addView(label(t("Password", "密码")));
         pass = field(true);
         // "Remember" keeps the 30-day launcher key, never the password: say so instead of an empty box
         if (!prefs.getString("key", "").isEmpty()) {
             pass.setHint(t("••••••••  saved", "••••••••  已保存"));
             pass.setHintTextColor(MUTED);
         }
-        box.addView(pass, fieldParams());
+        form.addView(pass, fieldParams());
 
         box.addView(label(t("Server", "服务器")));
         servers = new RadioGroup(this);
@@ -228,8 +234,9 @@ public class LoginActivity extends Activity {
         olp.leftMargin = dp(16); olp.bottomMargin = dp(16);
         hero.addView(online, olp);
         servers.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
-            public void onCheckedChanged(RadioGroup g, int id) { online.setVisibility(View.GONE); refreshOnline(); }
+            public void onCheckedChanged(RadioGroup g, int id) { online.setVisibility(View.GONE); refreshOnline(); status.setText(""); showSignedIn(); }
         });
+        showSignedIn();
         ui.post(onlineTick);
         patchNotes(hero);
         setContentView(root);
@@ -773,6 +780,141 @@ public class LoginActivity extends Activity {
         return v;
     }
 
+    // ---- the account card (12 Nov 2026, the user: signed in = no username / password fields, the card the PC launcher
+    // shows, in the racer's own site profile look: GET <site>/api/launcher/skin/<user> -> theme, cover, avatar, frame)
+    LinearLayout form;
+    FrameLayout accountCard;
+    ImageView cardCover, cardAvatar, cardFrame;
+    TextView cardName;
+    static final String SITE = "https://crazykartlegacy.com";
+    static int[] themeColours(String theme) {                 // accent, band (the launcher's profile-theme-* colours)
+        if ("sunset".equals(theme)) return new int[]{0xFFE2551B, 0xFFFFB38A};
+        if ("mint".equals(theme)) return new int[]{0xFF10917D, 0xFF8FE0CF};
+        if ("grape".equals(theme)) return new int[]{0xFF7A3FD1, 0xFFC9B0F2};
+        if ("gold".equals(theme)) return new int[]{0xFFC98F00, 0xFFF5C21B};
+        return new int[]{0xFF1A4FD6, 0xFF8FD3F2};             // sky (the site's default)
+    }
+    FrameLayout accountCard() {
+        FrameLayout c = new FrameLayout(this);
+        c.setBackground(round(GLASS, GLASS_LINE, 16));
+        c.setClipToOutline(true);
+        cardCover = new ImageView(this);
+        cardCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cardCover.setBackgroundColor(0x33000000);
+        c.addView(cardCover, new FrameLayout.LayoutParams(-1, dp(64), Gravity.TOP));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        FrameLayout av = new FrameLayout(this);
+        cardAvatar = new ImageView(this);
+        cardAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cardAvatar.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));   // the app icon until the profile avatar loads
+        cardAvatar.setBackground(round(0xFF0A0E18, GLASS_LINE, 10));
+        cardAvatar.setClipToOutline(true);
+        av.addView(cardAvatar, new FrameLayout.LayoutParams(dp(50), dp(50), Gravity.CENTER));
+        cardFrame = new ImageView(this);
+        cardFrame.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        cardFrame.setVisibility(View.GONE);
+        av.addView(cardFrame, new FrameLayout.LayoutParams(dp(62), dp(62), Gravity.CENTER));
+        row.addView(av, new LinearLayout.LayoutParams(dp(62), dp(62)));
+        LinearLayout who = new LinearLayout(this);
+        who.setOrientation(LinearLayout.VERTICAL);
+        who.setPadding(dp(10), 0, dp(6), 0);
+        cardName = new TextView(this);
+        cardName.setTypeface(baloo800);
+        cardName.setTextSize(17);
+        cardName.setSingleLine(true);
+        cardName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cardName.setTextColor(themeColours("sky")[1]);
+        cardName.setShadowLayer(dp(3), 0, dp(1), 0xC0000000);
+        who.addView(cardName);
+        TextView st = new TextView(this);
+        st.setText("●  " + t("Idle", "空闲"));
+        st.setTextColor(MUTED);
+        st.setTypeface(nunito);
+        st.setTextSize(12);
+        who.addView(st);
+        row.addView(who, new LinearLayout.LayoutParams(0, -2, 1));
+        Button out = new Button(this);
+        out.setText(t("Sign out", "退出登录"));
+        out.setAllCaps(false);
+        out.setTypeface(baloo);
+        out.setTextSize(13);
+        out.setTextColor(Color.WHITE);
+        out.setStateListAnimator(null);
+        out.setBackground(round(0x66000000, GLASS_LINE, 999));
+        out.setPadding(dp(14), 0, dp(14), 0);
+        out.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            prefs.edit().remove("key").remove("nick").apply();   // the key goes; the username stays filled in
+            pass.setHint("");
+            showSignedIn();
+        } });
+        row.addView(out, new LinearLayout.LayoutParams(-2, dp(34)));
+        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        rlp.topMargin = dp(34);                                    // the avatar half over the cover, as on the PC
+        c.addView(row, rlp);
+        return c;
+    }
+    // card or form: signed in = a saved key for the server that is picked now
+    void showSignedIn() {
+        boolean in = !prefs.getString("key", "").isEmpty() && servers.getCheckedRadioButtonId() - 100 == prefs.getInt("keyServer", -1);
+        accountCard.setVisibility(in ? View.VISIBLE : View.GONE);
+        form.setVisibility(in ? View.GONE : View.VISIBLE);
+        remember.setVisibility(in ? View.GONE : View.VISIBLE);
+        play.setText(in ? t("Play", "开始游戏") : t("Sign in", "登录"));
+        if (!in && !prefs.getString("key", "").isEmpty())         // another server than the saved sign-in: its password
+            status.setText(t("Sign in to this server", "请登录此服务器"));
+        if (in) {
+            cardName.setText(prefs.getString("nick", prefs.getString("user", "")));
+            loadSkin(prefs.getString("user", ""));
+        }
+    }
+    String skinFor;                                             // the user whose look is loading / shown
+    void loadSkin(final String name) {
+        if (name.isEmpty() || name.equals(skinFor)) return;
+        skinFor = name;
+        new Thread(new Runnable() { public void run() {
+            try {
+                org.json.JSONObject s = new org.json.JSONObject(new String(fetch(SITE + "/api/launcher/skin/" + java.net.URLEncoder.encode(name, "UTF-8")), StandardCharsets.UTF_8));
+                if (!s.optBoolean("ok")) return;
+                final int[] col = themeColours(s.optString("theme", "sky"));
+                org.json.JSONObject cv = s.optJSONObject("cover");
+                final android.graphics.Bitmap cover = cv != null ? bitmap(cv.optString("url")) : null;
+                final android.graphics.Bitmap avatar = s.isNull("avatar") ? null : bitmap(s.optString("avatar"));
+                final android.graphics.Bitmap frame = s.isNull("frame") ? null : bitmap(s.optString("frame"));
+                runOnUiThread(new Runnable() { public void run() {
+                    if (!name.equals(skinFor)) return;              // signed out / switched while it loaded
+                    GradientDrawable bg = round(GLASS, 0, 16);
+                    bg.setStroke(dp(2), col[1]);
+                    accountCard.setBackground(bg);
+                    cardName.setTextColor(col[1]);
+                    cardCover.setBackgroundColor(col[0]);
+                    if (cover != null) cardCover.setImageBitmap(cover);
+                    if (avatar != null) cardAvatar.setImageBitmap(avatar);
+                    if (frame != null) { cardFrame.setImageBitmap(frame); cardFrame.setVisibility(View.VISIBLE); }
+                } });
+            } catch (Exception e) { /* offline: the plain card */ }
+        } }).start();
+    }
+    static byte[] fetch(String url) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        try { return readStream(c.getInputStream()); } finally { c.disconnect(); }
+    }
+    static byte[] readStream(java.io.InputStream in) throws Exception {
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        byte[] b = new byte[16384];
+        for (int n; (n = in.read(b)) > 0; ) o.write(b, 0, n);
+        in.close();
+        return o.toByteArray();
+    }
+    static android.graphics.Bitmap bitmap(String url) {
+        if (url == null || url.isEmpty() || "null".equals(url)) return null;
+        try { byte[] d = fetch(url); return android.graphics.BitmapFactory.decodeByteArray(d, 0, d.length); } catch (Exception e) { return null; }
+    }
+
     GradientDrawable round(int fill, int stroke, int radiusDp) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(fill);
@@ -910,6 +1052,7 @@ public class LoginActivity extends Activity {
                 Reply p = request(HOSTS[srv], account, key, 0x6f03);    // fresh one-time pass, like the launcher's Play
                 if (p.error != null) { fail(p.error, p.result != 0); return; }
                 SharedPreferences.Editor ed = prefs.edit().putString("user", account).putInt("server", srv).putBoolean("remember", remember.isChecked());
+                if (!p.nickname.isEmpty()) ed.putString("nick", p.nickname);   // the account card's name
                 if (remember.isChecked()) ed.putString("key", key).putInt("keyServer", srv); else ed.remove("key");
                 ed.apply();
                 phoneDisplay();
@@ -1167,6 +1310,7 @@ public class LoginActivity extends Activity {
     void fail(final String msg, final boolean badLogin) {
         if (badLogin) prefs.edit().remove("key").apply();         // a refused key signs the player out
         runOnUiThread(new Runnable() { public void run() {
+            if (badLogin) { pass.setHint(""); showSignedIn(); }  // the card gives way to the form
             status.setTextColor(ERROR);
             status.setText(msg);
             bar.setVisibility(View.GONE);

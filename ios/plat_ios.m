@@ -700,6 +700,7 @@ static NSDictionary *wire_request(NSString *host, NSString *account, NSString *s
                     unsigned long long k = 0;
                     if (b + 9 <= m) for (int i = 7; i >= 0; i--) k = (k << 8) | p[b + 1 + i];
                     out = @{@"pass": [[NSString alloc] initWithBytes:p + 10 length:(NSUInteger)(a - 10) encoding:NSUTF8StringEncoding] ?: @"",
+                            @"nick": (b <= m ? [[NSString alloc] initWithBytes:p + a + 1 length:(NSUInteger)(b - a - 1) encoding:NSUTF8StringEncoding] : nil) ?: @"",
                             @"key": [NSString stringWithFormat:@"%llu", k]};
                 }
             }
@@ -1467,6 +1468,10 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     NSUserDefaults *_prefs;
     UIScrollView *_notesView;
     UILabel *_notesText;
+    UIView *_card, *_form, *_rem;                       // account card (the PC launcher's) or the username/password form
+    UIImageView *_cardCover, *_cardAvatar, *_cardFrame;
+    UILabel *_cardName;
+    NSString *_skinFor;                                 // the user whose look is loading / shown
 }
 - (UITextField *)field:(NSString *)ph secure:(BOOL)sec {
     UITextField *f = [[UITextField alloc] init];
@@ -1536,8 +1541,14 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
     _play.backgroundColor = rgb(0xF5C21B); _play.layer.cornerRadius = 26;
     [_play.heightAnchor constraintEqualToConstant:52].active = YES;
     [_play addTarget:self action:@selector(go) forControlEvents:UIControlEventTouchUpInside];
-    for (UIView *v in @[[self label:@"Username"], _user, [self label:@"Password"], _pass, [self label:@"Server"], _server,
+    _rem = rem;
+    UIStackView *form = [[UIStackView alloc] initWithArrangedSubviews:@[[self label:@"Username"], _user, [self label:@"Password"], _pass]];
+    form.axis = UILayoutConstraintAxisVertical; form.spacing = 8; _form = form;
+    _card = [self accountCard];
+    for (UIView *v in @[_card, _form, [self label:@"Server"], _server,
                         [self label:@"Language"], _lang, rem, _status, _play]) [st addArrangedSubview:v];
+    [_server addTarget:self action:@selector(serverChanged) forControlEvents:UIControlEventValueChanged];
+    [self showSignedIn];
     UIButton *hud = [UIButton buttonWithType:UIButtonTypeSystem];        // race HUD layout editor
     [hud setTitle:@"HUD layout" forState:UIControlStateNormal];
     hud.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
@@ -1591,6 +1602,100 @@ static const int GFX_FPS[] = {0, 30, 60, 90, 120};                  // 0 = Auto 
         if (!d || [(NSHTTPURLResponse *)r statusCode] != 200) return;
         if (![[NSJSONSerialization JSONObjectWithData:d options:0 error:nil] isKindOfClass:NSArray.class]) return;
         dispatch_async(dispatch_get_main_queue(), ^{ [self->_prefs setObject:d forKey:@"notes"]; [self showNotes]; });
+    }] resume];
+}
+static NSArray *theme_colours(NSString *theme) {        // accent, band (the launcher's profile-theme-* colours)
+    if ([theme isEqualToString:@"sunset"]) return @[rgb(0xE2551B), rgb(0xFFB38A)];
+    if ([theme isEqualToString:@"mint"]) return @[rgb(0x10917D), rgb(0x8FE0CF)];
+    if ([theme isEqualToString:@"grape"]) return @[rgb(0x7A3FD1), rgb(0xC9B0F2)];
+    if ([theme isEqualToString:@"gold"]) return @[rgb(0xC98F00), rgb(0xF5C21B)];
+    return @[rgb(0x1A4FD6), rgb(0x8FD3F2)];                 // sky (the site's default)
+}
+- (UIView *)accountCard {                               // as the PC launcher: cover, avatar (+ frame) half over it, name, Idle, Sign out
+    BOOL zh = _lang.selectedSegmentIndex == 1;
+    UIView *c = [[UIView alloc] init];
+    c.backgroundColor = [UIColor colorWithWhite:1 alpha:0.06]; c.layer.cornerRadius = 16; c.clipsToBounds = YES;
+    c.layer.borderWidth = 1; c.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+    _cardCover = [[UIImageView alloc] init];
+    _cardCover.contentMode = UIViewContentModeScaleAspectFill; _cardCover.clipsToBounds = YES;
+    _cardCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0.2];
+    _cardAvatar = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"AppIcon"]];   // until the profile avatar loads
+    _cardAvatar.contentMode = UIViewContentModeScaleAspectFill; _cardAvatar.clipsToBounds = YES;
+    _cardAvatar.backgroundColor = rgb(0x0A0E18); _cardAvatar.layer.cornerRadius = 10;
+    _cardFrame = [[UIImageView alloc] init];
+    _cardFrame.contentMode = UIViewContentModeScaleAspectFit; _cardFrame.hidden = YES;
+    _cardName = [[UILabel alloc] init];
+    _cardName.font = [UIFont systemFontOfSize:17 weight:UIFontWeightHeavy]; _cardName.textColor = rgb(0x8FD3F2);
+    _cardName.shadowColor = [UIColor colorWithWhite:0 alpha:0.75]; _cardName.shadowOffset = CGSizeMake(0, 1);
+    UILabel *idle = [self label:zh ? @"●  空闲" : @"●  Idle"];
+    UIButton *signOutBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    [signOutBtn setTitle:zh ? @"退出登录" : @"Sign out" forState:UIControlStateNormal];
+    signOutBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightBold];
+    [signOutBtn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    signOutBtn.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4]; signOutBtn.layer.cornerRadius = 17;
+    signOutBtn.layer.borderWidth = 1; signOutBtn.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+    signOutBtn.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
+    [signOutBtn addTarget:self action:@selector(signOut) forControlEvents:UIControlEventTouchUpInside];
+    for (UIView *v in @[_cardCover, _cardAvatar, _cardFrame, _cardName, idle, signOutBtn]) { v.translatesAutoresizingMaskIntoConstraints = NO; [c addSubview:v]; }
+    [NSLayoutConstraint activateConstraints:@[
+        [c.heightAnchor constraintEqualToConstant:106],
+        [_cardCover.leadingAnchor constraintEqualToAnchor:c.leadingAnchor], [_cardCover.trailingAnchor constraintEqualToAnchor:c.trailingAnchor],
+        [_cardCover.topAnchor constraintEqualToAnchor:c.topAnchor], [_cardCover.heightAnchor constraintEqualToConstant:64],
+        [_cardFrame.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:12], [_cardFrame.topAnchor constraintEqualToAnchor:c.topAnchor constant:36],
+        [_cardFrame.widthAnchor constraintEqualToConstant:62], [_cardFrame.heightAnchor constraintEqualToConstant:62],
+        [_cardAvatar.centerXAnchor constraintEqualToAnchor:_cardFrame.centerXAnchor], [_cardAvatar.centerYAnchor constraintEqualToAnchor:_cardFrame.centerYAnchor],
+        [_cardAvatar.widthAnchor constraintEqualToConstant:50], [_cardAvatar.heightAnchor constraintEqualToConstant:50],
+        [_cardName.leadingAnchor constraintEqualToAnchor:_cardFrame.trailingAnchor constant:10], [_cardName.topAnchor constraintEqualToAnchor:_cardCover.bottomAnchor constant:2],
+        [_cardName.trailingAnchor constraintLessThanOrEqualToAnchor:signOutBtn.leadingAnchor constant:-6],
+        [idle.leadingAnchor constraintEqualToAnchor:_cardName.leadingAnchor], [idle.topAnchor constraintEqualToAnchor:_cardName.bottomAnchor],
+        [signOutBtn.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-12], [signOutBtn.centerYAnchor constraintEqualToAnchor:_cardFrame.centerYAnchor constant:8],
+        [signOutBtn.heightAnchor constraintEqualToConstant:34]]];
+    return c;
+}
+- (void)serverChanged { _status.text = @""; [self showSignedIn]; }
+- (void)signOut {                                       // the key goes; the username stays filled in
+    [_prefs removeObjectForKey:@"key"]; [_prefs removeObjectForKey:@"nick"];
+    _pass.placeholder = @"Password";
+    [self showSignedIn];
+}
+// card or form: signed in = a saved key for the server that is picked now
+- (void)showSignedIn {
+    BOOL zh = _lang.selectedSegmentIndex == 1, haveKey = [_prefs stringForKey:@"key"].length > 0;
+    BOOL signedIn = haveKey && _server.selectedSegmentIndex == [_prefs integerForKey:@"keyServer"];
+    _card.hidden = !signedIn; _form.hidden = signedIn; _rem.hidden = signedIn;
+    [_play setTitle:signedIn ? (zh ? @"开始游戏" : @"Play") : (zh ? @"登录" : @"Sign in") forState:UIControlStateNormal];
+    if (!signedIn && haveKey) { _status.text = zh ? @"请登录此服务器" : @"Sign in to this server"; _status.textColor = rgb(0xB7C4E8); }
+    if (!signedIn) return;
+    NSString *user = [_prefs stringForKey:@"user"] ?: @"";
+    _cardName.text = [_prefs stringForKey:@"nick"].length ? [_prefs stringForKey:@"nick"] : user;
+    [self loadSkin:user];
+}
+static UIImage *url_image(id u) {                        // SVG frames / backgrounds: UIImage cannot draw them -> nil
+    if (![u isKindOfClass:NSString.class] || ![u length]) return nil;
+    NSData *d = [NSData dataWithContentsOfURL:[NSURL URLWithString:u]];
+    return d ? [UIImage imageWithData:d] : nil;
+}
+- (void)loadSkin:(NSString *)name {                     // the site profile's look: theme colours, cover, avatar, frame
+    if (!name.length || [name isEqualToString:_skinFor]) return;
+    _skinFor = name;
+    NSString *url = [@"https://crazykartlegacy.com/api/launcher/skin/" stringByAppendingString:
+                     [name stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
+    NSURLRequest *rq = [NSURLRequest requestWithURL:[NSURL URLWithString:url] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:8];
+    [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        NSDictionary *s = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+        if (![s isKindOfClass:NSDictionary.class] || ![s[@"ok"] boolValue]) return;    // offline: the plain card
+        NSArray *col = theme_colours([s[@"theme"] isKindOfClass:NSString.class] ? s[@"theme"] : @"sky");
+        UIImage *cover = [s[@"cover"] isKindOfClass:NSDictionary.class] ? url_image(s[@"cover"][@"url"]) : nil;
+        UIImage *avatar = url_image(s[@"avatar"]), *frame = url_image(s[@"frame"]);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (![name isEqualToString:self->_skinFor]) return;   // signed out / switched while it loaded
+            self->_card.layer.borderWidth = 2; self->_card.layer.borderColor = [col[1] CGColor];
+            self->_cardName.textColor = col[1];
+            self->_cardCover.backgroundColor = col[0];
+            if (cover) self->_cardCover.image = cover;
+            if (avatar) self->_cardAvatar.image = avatar;
+            if (frame) { self->_cardFrame.image = frame; self->_cardFrame.hidden = NO; }
+        });
     }] resume];
 }
 static BOOL has_cjk(NSString *s) {
@@ -1692,8 +1797,8 @@ static BOOL has_cjk(NSString *s) {
 }
 - (void)fail:(NSString *)t badLogin:(BOOL)bad {
     if (bad) [_prefs removeObjectForKey:@"key"];
+    dispatch_async(dispatch_get_main_queue(), ^{ self->_play.enabled = YES; if (bad) [self showSignedIn]; });   // the card gives way to the form
     [self say:t error:YES];
-    dispatch_async(dispatch_get_main_queue(), ^{ self->_play.enabled = YES; });
 }
 - (void)go {
     NSString *account = [[_user.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] lowercaseString] ?: @"";
@@ -1754,6 +1859,7 @@ static BOOL has_cjk(NSString *s) {
         if (!p) { [self fail:err badLogin:[err hasPrefix:@"Wrong"] || [err hasPrefix:@"Sign-in refused"]]; return; }
         [self->_prefs setObject:account forKey:@"user"]; [self->_prefs setInteger:srv forKey:@"server"];
         [self->_prefs setBool:remember forKey:@"remember"]; [self->_prefs setObject:zh ? @"zh" : @"en" forKey:@"lang"];
+        if ([p[@"nick"] length]) [self->_prefs setObject:p[@"nick"] forKey:@"nick"];   // the account card's name
         if (remember) { [self->_prefs setObject:key forKey:@"key"]; [self->_prefs setInteger:srv forKey:@"keyServer"]; }
         else [self->_prefs removeObjectForKey:@"key"];
         snprintf(g_args, sizeof g_args, "-u %s -password %s -ad %s -port 6910 -wnd 1", account.UTF8String, [p[@"pass"] UTF8String], HOSTS[srv].UTF8String);
