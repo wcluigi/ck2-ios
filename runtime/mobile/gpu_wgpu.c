@@ -747,11 +747,56 @@ static void *pipe_warm(void *arg) {
     return 0;
 }
 void *pipe_warm_entry(void *a) { return pipe_warm(a); }
+// Races never wait for a pipeline (12 Nov 2026: the 1.4.8 client's new effects -- own nitro flame, Green Arrow, item
+// effects -- were not in the shipped list and each first use froze the race ~0.7 s on Mali): a missing one is built on
+// this thread and that draw is skipped until it is ready (the effect shows a moment late, once per install). Menus still
+// build on the spot: a missing menu piece would look broken.
+typedef struct { GState s; WGPUPrimitiveTopology topo; int hd; u32 k0, k1; } PipeJob;
+static PipeJob g_pjobs[64]; static int g_npjobs, g_pjthread;      // [0] = building now, the rest queued
+static pthread_mutex_t g_pjmu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_pjcv = PTHREAD_COND_INITIALIZER;
+static void *pipe_worker(void *a) {
+    (void)a;
+    for (;;) {
+        pthread_mutex_lock(&g_pjmu);
+        while (!g_npjobs) pthread_cond_wait(&g_pjcv, &g_pjmu);
+        PipeJob j = g_pjobs[0];
+        pthread_mutex_unlock(&g_pjmu);
+        u64 t0 = us_now();
+        if (!pipe_find(j.k0, j.k1)) pipe_add(j.k0, j.k1, pipe_create(&j.s, j.topo, j.hd), g_fs_fast <= 0);
+        rt_log("gpu: race pipeline built in the background in %u ms\n", (u32)((us_now() - t0) / 1000));
+        pthread_mutex_lock(&g_pjmu);
+        memmove(g_pjobs, g_pjobs + 1, (size_t)--g_npjobs * sizeof *g_pjobs);
+        pthread_mutex_unlock(&g_pjmu);
+    }
+    return 0;
+}
+static int pipe_queue(const GState *s, WGPUPrimitiveTopology topo, int hd, u32 k0, u32 k1) {    // 0 = build it now
+    int ok = 1;
+    pthread_mutex_lock(&g_pjmu);
+    for (int i = 0; i < g_npjobs; i++) if (g_pjobs[i].k0 == k0 && g_pjobs[i].k1 == k1) goto out;
+    if (!g_pjthread) {
+        pthread_t t; pthread_attr_t at;
+        pthread_attr_init(&at);
+        pthread_attr_setstacksize(&at, 16u << 20);                     // shader compiles need a big stack (iOS)
+        g_pjthread = pthread_create(&t, &at, pipe_worker, 0) ? -1 : 1;
+        if (g_pjthread > 0) pthread_detach(t);
+        pthread_attr_destroy(&at);
+    }
+    if (g_pjthread < 0 || g_npjobs == 64) { ok = 0; goto out; }
+    g_pjobs[g_npjobs++] = (PipeJob){*s, topo, hd, k0, k1};
+    pthread_cond_signal(&g_pjcv);
+out:
+    pthread_mutex_unlock(&g_pjmu);
+    return ok;
+}
+int hud_race_recent(u32 ms);
 static WGPURenderPipeline pipeline(const GState *s, WGPUPrimitiveTopology topo, int has_depth) {
     u32 k0, k1, src, dst;
     pipe_keys(s, topo, has_depth, &k0, &k1, &src, &dst);
     WGPURenderPipeline p = pipe_find(k0, k1);
     if (p) return p;
+    if (hud_race_recent(3000) && pipe_queue(s, topo, has_depth, k0, k1)) { g_perf.pipes_late++; return 0; }
     u64 t0 = us_now();
     p = pipe_create(s, topo, has_depth);
     g_perf.pipes++; g_perf.pipe_us += us_now() - t0;
@@ -1074,6 +1119,7 @@ void gpu_draw(const GDraw *d) {
     // only what changed since the last draw of this pass is set again (g_ps, cleared when a pass ends): at 1000 draws
     // a frame the repeated pipeline / texture / viewport / scissor / buffer calls were a large share of wgpu's time
     WGPURenderPipeline p = pipeline(s, topo, g_pass_depth != 0);
+    if (!p) return;                               // a race pipeline still being built (pipe_queue): this draw waits
     if (p != g_ps.pipe) { wgpuRenderPassEncoderSetPipeline(g_pass, p); g_ps.pipe = p; }
     wgpuRenderPassEncoderSetBindGroup(g_pass, 0, g_ubg, 1, &uoff);
     WGPUBindGroup tg = tex_group(t0, sampler(&s->samp[0]), t1, sampler(&s->samp[1]));

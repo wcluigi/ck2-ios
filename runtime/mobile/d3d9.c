@@ -906,9 +906,9 @@ static void perf_frame(void) {
     if (dt > 150000) {
         static int n;
         if (n++ < 200)
-            rt_log("slow frame %u ms: files %u (open %u ms, read %u ms) [%s, %s], textures %u (upload %u ms), pipelines %u (%u ms)\n",
+            rt_log("slow frame %u ms: files %u (open %u ms, read %u ms) [%s, %s], textures %u (upload %u ms), pipelines %u (%u ms, %u in the background)\n",
                    (u32)(dt / 1000), g_perf.files, (u32)(g_perf.file_us / 1000), (u32)(g_perf.read_us / 1000), g_perf.last[0], g_perf.last[1],
-                   g_perf.texs, (u32)(g_perf.up_us / 1000), g_perf.pipes, (u32)(g_perf.pipe_us / 1000));
+                   g_perf.texs, (u32)(g_perf.up_us / 1000), g_perf.pipes, (u32)(g_perf.pipe_us / 1000), g_perf.pipes_late);
     }
     // every 600 frames: average frame time and draw calls (what the drawing layer costs)
     static u32 nf, draws, passes, hits, culled, flat, dyn3d; static u64 t0;
@@ -925,7 +925,7 @@ void tui_frame(void);
 static void touch_overlay(void) {
     perf_frame();
     hud_frame();
-    tui_frame();                                 // Mobile touch controls: auto gas / tap drift hold keys without touches
+    tui_frame();                                 // Mobile touch controls: auto gas holds the throttle without touches
     int race = tui_active(), chan = hud_overlay_wanted();
     float px, py;
     int ptr = plat_pointer(&px, &py);                       // controller pointer (menus)

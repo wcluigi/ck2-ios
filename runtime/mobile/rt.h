@@ -103,6 +103,6 @@ u64 us_now(void);
 int guest_vsnprintf(char *out, int outsz, const char *fmt, u32 argp, int wide);
 extern int g_argc; extern char g_cmdline[1024];
 // per-frame cost counters for the slow-frame log (d3d9 Present): what the game loaded mid-race
-typedef struct { u32 pipes, texs, files, draws, passes, geom_hits, culled, flat, dyn3d; u64 pipe_us, file_us, read_us, up_us; char last[2][96]; } PerfFrame;
+typedef struct { u32 pipes, pipes_late, texs, files, draws, passes, geom_hits, culled, flat, dyn3d; u64 pipe_us, file_us, read_us, up_us; char last[2][96]; } PerfFrame;
 extern PerfFrame g_perf;
 void perf_file(const char *name, u64 us);
