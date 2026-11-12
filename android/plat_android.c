@@ -344,6 +344,7 @@ static void start_game(void) {
             if (!strncmp(line, "etc2=", 5)) setenv("CK_ETC2", line[5] == '1' ? "1" : "0", 1);     // Compressed textures
             if (!strncmp(line, "scale=", 6)) { char v[8]; snprintf(v, sizeof v, "%d", atoi(line + 6)); setenv("CK_SCALE", v, 1); }   // Render quality
             if (!strncmp(line, "effects=", 8)) setenv("CK_EFFECTS", line[8] == '0' ? "0" : "1", 1);   // Effects: All / Fewer
+            if (!strncmp(line, "touch=", 6)) setenv("CK_TOUCH", !strncmp(line + 6, "mobile", 6) ? "mobile" : "classic", 1);   // Touch controls
             if (!strncmp(line, "hz=", 3) && atoi(line + 3) >= 30) g_screen_hz = atoi(line + 3);
         }
         fclose(f);

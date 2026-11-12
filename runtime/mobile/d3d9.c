@@ -921,9 +921,11 @@ static void perf_frame(void) {
     }
     memset(&g_perf, 0, sizeof g_perf);
 }
+void tui_frame(void);
 static void touch_overlay(void) {
     perf_frame();
     hud_frame();
+    tui_frame();                                 // Mobile touch controls: auto gas / tap drift hold keys without touches
     int race = tui_active(), chan = hud_overlay_wanted();
     float px, py;
     int ptr = plat_pointer(&px, &py);                       // controller pointer (menus)

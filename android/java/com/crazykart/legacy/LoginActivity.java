@@ -521,6 +521,10 @@ public class LoginActivity extends Activity {
         card.addView(label(t("Effects", "特效")));
         final RadioGroup fx = segmented(new String[]{t("All", "全部"), t("Fewer", "精简")}, prefs.getBoolean("effects", true) ? 0 : 1);
         card.addView(fx, new LinearLayout.LayoutParams(-1, -2));
+        // Touch controls (touch_ui.c): Mobile = AUTO GAS + TAP DRIFT switches on the race screen (phone-style driving)
+        card.addView(label(t("Touch controls", "触屏操作")));
+        final RadioGroup tc = segmented(new String[]{t("Classic", "经典"), t("Mobile", "手游")}, prefs.getBoolean("touchmobile", false) ? 1 : 0);
+        card.addView(tc, new LinearLayout.LayoutParams(-1, -2));
         card.addView(label(t("Frame rate cap", "帧率上限")));
         String[] fpsNames = FPS_NAMES.clone();
         fpsNames[0] = t("Auto", "自动");
@@ -655,7 +659,7 @@ public class LoginActivity extends Activity {
             prefs.edit().putBoolean("wide", wide.getCheckedRadioButtonId() == 200)          // 3D fills the phone's screen
                     .putBoolean("vsync", FPS[f] == 0).putInt("scale", 50 + rq.getProgress() * 5).putBoolean("accessories", acc.getCheckedRadioButtonId() == 200)
                     .putBoolean("lean", lean.getCheckedRadioButtonId() == 200).putBoolean("etc2", etc2.getCheckedRadioButtonId() == 200)
-                    .putBoolean("effects", fx.getCheckedRadioButtonId() == 200).apply();                                   // Auto = synced to the screen
+                    .putBoolean("effects", fx.getCheckedRadioButtonId() == 200).putBoolean("touchmobile", tc.getCheckedRadioButtonId() == 201).apply();                                   // Auto = synced to the screen
             float g = (gs.getProgress() + 5) / 10f;
             try {
                 if (us != null && us.length >= 0x20) {
@@ -883,7 +887,8 @@ public class LoginActivity extends Activity {
                 FileOutputStream oo = new FileOutputStream(new File(getFilesDir(), "options.txt"));
                 oo.write(("vsync=" + (prefs.getBoolean("vsync", true) ? 1 : 0) + "\nhz=" + hz + "\nwide=" + (prefs.getBoolean("wide", true) ? 1 : 0) + "\nscale=" + prefs.getInt("scale", 100)
                         + "\nlean=" + (prefs.getBoolean("lean", false) ? 1 : 0) + "\netc2=" + (prefs.getBoolean("etc2", false) ? 1 : 0)
-                        + "\neffects=" + (prefs.getBoolean("effects", true) ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+                        + "\neffects=" + (prefs.getBoolean("effects", true) ? 1 : 0)
+                        + "\ntouch=" + (prefs.getBoolean("touchmobile", false) ? "mobile" : "classic") + "\n").getBytes(StandardCharsets.UTF_8));
                 oo.close();
                 runOnUiThread(new Runnable() { public void run() {
                     // the game's voice chat signs in to the server API with the launcher key, like the PC launcher
