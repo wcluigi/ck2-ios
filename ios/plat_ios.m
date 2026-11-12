@@ -877,6 +877,8 @@ static UIImage *hud_rgba(NSData *d) {
 
 @interface HudEditorVC : UIViewController
 @property (strong) NSMutableArray<HudElem *> *elems;
+@property (strong) NSMutableArray<HudElem *> *kept;     // not arranged in this session, saved as they were
+@property BOOL mobileOnly;                              // first start chose Mobile controls: the on-screen buttons only
 @property CGFloat opacity;
 @property (strong) HudElem *active;
 @property (strong) HudCanvas *canvas;
@@ -1009,6 +1011,15 @@ static UIImage *hud_rgba(NSData *d) {
         if (p.count < 4) continue;
         for (HudElem *e in self.elems) if ([e.name isEqualToString:p[0]]) { e.x = [p[1] doubleValue]; e.y = [p[2] doubleValue]; e.s = [p[3] doubleValue]; }
     }
+    // what this player arranges (12 Nov 2026), as Android: Mobile chosen at the first start = the on-screen buttons
+    // only; the Mobile switches only with Mobile controls on
+    self.kept = [NSMutableArray array];
+    BOOL mobileOn = self.mobileOnly || [NSUserDefaults.standardUserDefaults boolForKey:@"touchmobile"];
+    for (NSInteger i = (NSInteger)self.elems.count - 1; i >= 0; i--) {
+        HudElem *e = self.elems[(NSUInteger)i];
+        BOOL sw = [e.name isEqualToString:@"touch_autogas"] || [e.name isEqualToString:@"touch_tapdrift"];
+        if ((self.mobileOnly && !e.touch) || (sw && !mobileOn)) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
+    }
 }
 - (UILabel *)label:(NSString *)t color:(UIColor *)c {
     UILabel *l = [[UILabel alloc] init]; l.text = t; l.textColor = c; l.font = [UIFont boldSystemFontOfSize:13]; return l;
@@ -1082,7 +1093,7 @@ static UIImage *hud_rgba(NSData *d) {
 }
 - (void)save {
     NSMutableString *t = [NSMutableString stringWithString:@"# HUD layout from the editor: name x y scale (game pixels 1280x720, top-left)\n"];
-    for (HudElem *e in self.elems)
+    for (HudElem *e in [self.elems arrayByAddingObjectsFromArray:self.kept ?: @[]])
         if (e.x != e.sx || e.y != e.sy || e.s != 1) [t appendFormat:@"%@ %.1f %.1f %.3f\n", e.name, e.x, e.y, e.s];
     [t appendFormat:@"touch_opacity %.2f\n", self.opacity];
     [NSFileManager.defaultManager createDirectoryAtPath:[self.layoutPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
@@ -1639,6 +1650,40 @@ static BOOL has_cjk(NSString *s) {
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self.view action:@selector(endEditing:)];
     tap.cancelsTouchesInView = NO;                           // a tap outside the fields closes the keyboard; buttons still work
     if (!self.view.gestureRecognizers.count) [self.view addGestureRecognizer:tap];
+    if (![_prefs objectForKey:@"controltype"]) [self askControls];
+}
+// control type: asked once, at the first start (the user, 12 Nov 2026), as Android: Classic -> the HUD editor;
+// Mobile -> Mobile controls on + the editor with the on-screen buttons only; Keyboard / controller -> opacity 0
+- (void)askControls {
+    BOOL zh = _lang.selectedSegmentIndex == 1;
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:zh ? @"选择操作方式" : @"How do you want to play?" message:nil
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+    NSArray *names = zh ? @[@"经典（触屏按键，按住油门）", @"手游（自动油门，轻点漂移）", @"键盘 / 手柄"]
+                        : @[@"Classic (touch buttons, hold to drive)", @"Mobile (auto gas, tap to drift)", @"Keyboard / controller"];
+    for (NSInteger i = 0; i < 3; i++)
+        [a addAction:[UIAlertAction actionWithTitle:names[(NSUInteger)i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) { [self setControls:i]; }]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+- (void)setControls:(NSInteger)w {
+    [_prefs setObject:(w == 1 ? @"mobile" : w == 2 ? @"keyboard" : @"classic") forKey:@"controltype"];
+    [_prefs setBool:w == 1 forKey:@"touchmobile"];
+    if (w == 2) {                                            // hud_layout.txt: only its touch_opacity line changes
+        NSString *path = [[docs() stringByAppendingPathComponent:@"game"] stringByAppendingPathComponent:@"hud_layout.txt"];
+        NSMutableString *t = [NSMutableString string];
+        NSString *old = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
+        for (NSString *line in [old componentsSeparatedByString:@"\n"]) {
+            NSString *l = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (l.length && ![l hasPrefix:@"touch_opacity"]) [t appendFormat:@"%@\n", l];
+        }
+        [t appendString:@"touch_opacity 0.00\n"];
+        [NSFileManager.defaultManager createDirectoryAtPath:[path stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+        [t writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return;
+    }
+    HudEditorVC *vc = [[HudEditorVC alloc] init];
+    vc.mobileOnly = w == 1;
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:vc animated:YES completion:nil];
 }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 - (BOOL)prefersStatusBarHidden { return YES; }

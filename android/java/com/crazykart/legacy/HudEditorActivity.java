@@ -53,6 +53,7 @@ public class HudEditorActivity extends Activity {
     }
 
     final List<Elem> elems = new ArrayList<>();
+    final List<Elem> kept = new ArrayList<>();          // not arranged in this session, saved as they were
     float opacity = 0.6f;
     EditorView view;
     TextView info;
@@ -67,6 +68,16 @@ public class HudEditorActivity extends Activity {
         super.onCreate(b);
         loadElements();
         loadLayout();
+        // what this player can arrange (12 Nov 2026): Mobile controls chosen at the first start ("mobile" extra) =
+        // only the on-screen buttons; the Mobile switches only when Mobile controls are on. The rest is kept
+        // (saved unchanged), just not shown here.
+        boolean mobileOnly = getIntent().getBooleanExtra("mobile", false);
+        boolean mobileOn = mobileOnly || getSharedPreferences("login", MODE_PRIVATE).getBoolean("touchmobile", false);
+        for (int i = elems.size() - 1; i >= 0; i--) {
+            Elem e = elems.get(i);
+            boolean sw = e.name.equals("touch_autogas") || e.name.equals("touch_tapdrift");
+            if ((mobileOnly && !e.touch) || (sw && !mobileOn)) { kept.add(e); elems.remove(i); }
+        }
         loadPictures();
 
         FrameLayout root = new FrameLayout(this);
@@ -214,7 +225,9 @@ public class HudEditorActivity extends Activity {
 
     void save() {
         StringBuilder sb = new StringBuilder("# HUD layout from the editor: name x y scale (game pixels 1280x720, top-left)\n");
-        for (Elem e : elems)
+        List<Elem> all = new ArrayList<>(elems);
+        all.addAll(kept);
+        for (Elem e : all)
             if (e.x != e.sx || e.y != e.sy || e.s != 1)
                 sb.append(String.format(Locale.ROOT, "%s %.1f %.1f %.3f\n", e.name, e.x, e.y, e.s));
         sb.append(String.format(Locale.ROOT, "touch_opacity %.2f\n", opacity));

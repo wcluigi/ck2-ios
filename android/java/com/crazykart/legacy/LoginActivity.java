@@ -234,6 +234,43 @@ public class LoginActivity extends Activity {
         patchNotes(hero);
         setContentView(root);
         if (!prefs.contains("lang")) askLanguage();
+        else if (!prefs.contains("controltype")) askControls();
+    }
+
+    // ---- control type: asked once, at the first start, after the language (the user, 12 Nov 2026)
+    // Classic -> the HUD editor as it is; Mobile -> Mobile touch controls on + the editor with the on-screen buttons
+    // only; Keyboard / controller -> the on-screen controls at opacity 0 (hud_layout.txt touch_opacity).
+    void askControls() {
+        String[] items = {t("Classic  (touch buttons, hold to drive)", "经典  （触屏按键，按住油门）"),
+                          t("Mobile  (auto gas, tap to drift)", "手游  （自动油门，轻点漂移）"),
+                          t("Keyboard / controller", "键盘 / 手柄")};
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(t("How do you want to play?", "选择操作方式"))
+                .setCancelable(false)
+                .setItems(items, new android.content.DialogInterface.OnClickListener() {
+                    public void onClick(android.content.DialogInterface d, int w) { setControls(w); } })
+                .show();
+    }
+    void setControls(int w) {
+        prefs.edit().putString("controltype", w == 1 ? "mobile" : w == 2 ? "keyboard" : "classic").putBoolean("touchmobile", w == 1).apply();
+        if (w == 2) { setTouchOpacity(0); return; }
+        startActivity(new Intent(this, HudEditorActivity.class).putExtra("mobile", w == 1));
+    }
+    // hud_layout.txt keeps the HUD editor's positions; only its touch_opacity line changes
+    void setTouchOpacity(float a) {
+        File f = gameFile("hud_layout.txt");
+        byte[] old = readAll(f);
+        StringBuilder sb = new StringBuilder();
+        if (old != null)
+            for (String line : new String(old, StandardCharsets.UTF_8).split("\n"))
+                if (!line.trim().startsWith("touch_opacity") && !line.trim().isEmpty()) sb.append(line.trim()).append('\n');
+        sb.append(String.format(java.util.Locale.ROOT, "touch_opacity %.2f\n", a));
+        try {
+            f.getParentFile().mkdirs();
+            FileOutputStream o = new FileOutputStream(f);
+            o.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+            o.close();
+        } catch (Exception ignored) { }
     }
 
     @Override
@@ -358,7 +395,8 @@ public class LoginActivity extends Activity {
             o.write(iniSet(ib == null ? "" : new String(ib, StandardCharsets.UTF_8), "Language", cn ? 1 : 0).getBytes(StandardCharsets.UTF_8));
             o.close();
         } catch (Exception ignored) { }
-        if (cn != zh) recreate();
+        if (cn != zh) recreate();                                      // onCreate then asks the control type
+        else if (!prefs.contains("controltype")) askControls();
     }
 
     // ---- Graphics (the PC launcher's Display / Gamma settings that matter on a phone) ----------------------
