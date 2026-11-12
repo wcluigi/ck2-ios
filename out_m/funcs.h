@@ -15076,6 +15076,7 @@ void F_009e0490(CPU *c);
 void F_009e04f8(CPU *c);
 void F_009e0516(CPU *c);
 void F_009e0600(CPU *c);
+void F_009e0700(CPU *c);
 void F_009e0808(CPU *c);
 void F_009e085d(CPU *c);
 void F_009e0910(CPU *c);
