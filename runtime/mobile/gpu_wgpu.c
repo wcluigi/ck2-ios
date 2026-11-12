@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define SV(s) ((WGPUStringView){(s), WGPU_STRLEN})
 struct GpuTex {
@@ -630,8 +631,18 @@ void gpu_clear(u32 flags, u32 argb, float z, u32 stencil, const int *rects, int 
     g_pending_clear = 1; g_clear_flags = flags; g_clear_color = argb; g_clear_z = z;
     begin_pass();
 }
+void *plat_native_window(void);
 static void flush(void) {
     end_pass();
+    // in the background (no window: Android lost it, iOS left it) the game keeps running for its connection, but its
+    // frames go nowhere: drop them -- iOS forbids GPU work there. Textures and stored geometry are queue writes and wait
+    // for the next submit; the per-frame staging is skipped (it would pile up in wgpu's pending writes).
+    if (!plat_native_window()) {
+        if (g_enc) { wgpuCommandEncoderRelease(g_enc); g_enc = 0; }
+        g_voff = g_ioff = g_uoff = 0;
+        g_batch++;
+        return;
+    }
     if (g_voff) wgpuQueueWriteBuffer(g_q, g_vb, 0, g_vstage, g_voff);
     if (g_ioff) wgpuQueueWriteBuffer(g_q, g_ib, 0, g_istage, g_ioff);
     if (g_uoff) wgpuQueueWriteBuffer(g_q, g_ub, 0, g_ustage, g_uoff);
@@ -1193,7 +1204,7 @@ void gpu_present(void) {
     end_pass();
     if (g_scene_pending) scene_resolve();          // a frame that ended on 3D
     g_in_scene = 0;
-    if (!follow_window()) return;
+    if (!follow_window()) { usleep(33000); return; }   // background: ~30 frames a second keep the game talking to the server
     // scale the game's back buffer onto the surface, keeping its aspect ratio
     WGPUSurfaceTexture st = WGPU_SURFACE_TEXTURE_INIT;
     wgpuSurfaceGetCurrentTexture(g_surf, &st);

@@ -39,7 +39,12 @@ static int g_pw, g_ph;                   // its size in pixels
 static UIView *g_game_view;              // the game view: web panels go over it (plat_web_panel)
 static char g_game_dir_s[1024], g_image_dir_s[1024], g_files_s[1024], g_args[512];
 
-void *plat_native_window(void) { return (__bridge void *)g_layer; }
+// Home / app switcher (12 Nov 2026, the user: "every time i go home the game disconnects"): iOS suspended the app within
+// seconds, so the server dropped it. Now (AppDelegate) the app keeps running in the background on its audio (Info.plist
+// UIBackgroundModes audio; the output is silence there) and the game goes on without a window: no GPU work (iOS forbids
+// it in the background), ~30 frames a second (gpu_wgpu.c), its connection alive.
+static volatile int g_bg;
+void *plat_native_window(void) { return g_bg ? NULL : (__bridge void *)g_layer; }
 void plat_window_released(void) {}
 void plat_client_size(int *w, int *h) { *w = g_pw; *h = g_ph; }
 void plat_message_box(const char *title, const char *text) { NSLog(@"message box '%s': %s", title, text); }
@@ -146,7 +151,19 @@ static AudioUnit g_au;
 static OSStatus render(void *ref, AudioUnitRenderActionFlags *fl, const AudioTimeStamp *ts, UInt32 bus, UInt32 frames, AudioBufferList *io) {
     (void)ref; (void)fl; (void)ts; (void)bus;
     g_mix((float *)io->mBuffers[0].mData, (int)frames);
+    if (g_bg) memset(io->mBuffers[0].mData, 0, io->mBuffers[0].mDataByteSize);   // background: the game goes on, silently
     return noErr;
+}
+// the audio that keeps the app running in the background: Ambient (the game's own: obeys the silent switch, mixes with
+// music apps) cannot play there, so the app's session becomes Playback (mixing) while it is away; voice chat's
+// PlayAndRecord already can and is left alone
+static void bg_audio(int away) {
+    AVAudioSession *s = AVAudioSession.sharedInstance;
+    if (away && [s.category isEqualToString:AVAudioSessionCategoryAmbient])
+        [s setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
+    else if (!away && [s.category isEqualToString:AVAudioSessionCategoryPlayback])
+        [s setCategory:AVAudioSessionCategoryAmbient error:nil];
+    [s setActive:YES error:nil];
 }
 int plat_audio_start(void (*mix)(float *out, int frames), int *rate) {
     g_mix = mix;
@@ -2731,6 +2748,11 @@ static UIImage *url_image(id u) {                        // SVG frames / backgro
     for (GCController *c in GCController.controllers) pad_attach(c);
     [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
                                                 usingBlock:^(NSNotification *n) { pad_attach(n.object); }];
+    // Home / app switcher: keep running (see g_bg): the window goes, the audio keeps the app awake, silently
+    [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:NSOperationQueue.mainQueue
+                                                usingBlock:^(NSNotification *n) { g_bg = 1; bg_audio(1); NSLog(@"app: background (keeps running)"); }];
+    [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:NSOperationQueue.mainQueue
+                                                usingBlock:^(NSNotification *n) { bg_audio(0); g_bg = 0; NSLog(@"app: foreground"); }];
     return YES;
 }
 - (UIInterfaceOrientationMask)application:(UIApplication *)a supportedInterfaceOrientationsForWindow:(UIWindow *)w { return UIInterfaceOrientationMaskLandscape; }

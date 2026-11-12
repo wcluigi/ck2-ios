@@ -55,10 +55,14 @@ public class GameActivity extends NativeActivity {
         java.io.File ext = getExternalFilesDir(null);      // = NativeActivity's externalDataPath (plat_android.c game dir)
         web = new WebPanels(this, getIntent().getStringExtra("api"), user, key, getIntent().getStringExtra("lang"),
                 new java.io.File(ext != null ? ext : getFilesDir(), "game"));
+        // stays connected in the background (KeepAliveService); started here, while the game is on screen (Android 12+
+        // refuses foreground services started from the background)
+        try { startForegroundService(new android.content.Intent(this, KeepAliveService.class)); } catch (Exception e) { android.util.Log.w("ck2", "keep-alive service: " + e); }
     }
 
     @Override
     protected void onDestroy() {
+        stopService(new android.content.Intent(this, KeepAliveService.class));
         if (voice != null) voice.stop();
         if (web != null) web.closeAll();
         if (ui != null) ui.close();

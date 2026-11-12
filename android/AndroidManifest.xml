@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- app updates from the patch servers (LoginActivity.updateApp): Android asks the player to allow it once -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- stays connected in the background (KeepAliveService): a foreground service with a quiet notification -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
     <application android:label="Crazy Kart Legacy" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:hasCode="true" android:extractNativeLibs="false"
         android:usesCleartextTraffic="true">
@@ -32,5 +36,9 @@
             android:launchMode="singleTask">
             <meta-data android:name="android.app.lib_name" android:value="ck2" />
         </activity>
+        <service android:name=".KeepAliveService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the online race connection open while the game is in the background" />
+        </service>
     </application>
 </manifest>
