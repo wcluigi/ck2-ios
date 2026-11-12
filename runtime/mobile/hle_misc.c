@@ -89,6 +89,17 @@ HLE(o_SysReAllocString) {
 HLE(s_ShellExecuteA) { rt_log("ShellExecute(%s, %s) refused\n", ARG(1) ? GS(ARG(1)) : "", ARG(2) ? GS(ARG(2)) : ""); return 2; }
 HLE(s_PathFileExistsA) { char hp[1024]; host_path(GS(ARG(0)), hp, sizeof hp); struct stat st; return stat(hp, &st) == 0; }
 HLE(i_ImmGetContext) { return 0x7e000001; }
+// The game's text field turns the IME on when it takes the focus (SingleLineEdit 0x51fe8a, ImmSetOpenStatus 1). Right
+// after a tap that means the player tapped a text field: open the phone's text box, typed back into it without Enter
+// (12 Nov 2026, the user: phones could not type the nickname at account creation). Not right after the chat box.
+extern u32 g_tap_ms, g_chat_ms;
+void plat_open_text(void);
+HLE(i_ImmSetOpenStatus) {
+    static u32 last;
+    u32 now = ms_now();
+    if (ARG(1) && now - g_tap_ms < 600 && now - g_chat_ms > 1500 && now - last > 1500) { last = now; plat_open_text(); }
+    return 1;
+}
 HLE(a_fail) { return 0x80004005u; }     // E_FAIL: no AVI playback, the game skips its video
 HLE(u_URLDownloadToFileA) { rt_log("URLDownloadToFile(%s) refused\n", GS(ARG(1))); return 0x80004005u; }
 
@@ -132,7 +143,7 @@ static const HleDef defs[] = {
     DEF("shell32", "DragAcceptFiles", r0, 2), DEF("shell32", "DragFinish", r0, 1), DEF("shell32", "DragQueryFileA", r0, 4),
     DEF("shell32", "ShellExecuteA", s_ShellExecuteA, 6), DEF("shlwapi", "PathFileExistsA", s_PathFileExistsA, 1),
     DEF("imm32", "ImmGetContext", i_ImmGetContext, 1), DEF("imm32", "ImmReleaseContext", r1, 2), DEF("imm32", "ImmIsIME", r0, 1),
-    DEF("imm32", "ImmSetOpenStatus", r1, 2),
+    DEF("imm32", "ImmSetOpenStatus", i_ImmSetOpenStatus, 2),
     DEF("avifil32", "AVIFileInit", r0, 0), DEF("avifil32", "AVIFileExit", r0, 0), DEF("avifil32", "AVIStreamOpenFromFileA", a_fail, 6),
     DEF("avifil32", "AVIStreamRelease", r0, 1), DEF("avifil32", "AVIStreamGetFrameOpen", r0, 2), DEF("avifil32", "AVIStreamGetFrame", r0, 2),
     DEF("avifil32", "AVIStreamGetFrameClose", r0, 1), DEF("avifil32", "AVIStreamInfoA", a_fail, 3), DEF("avifil32", "AVIStreamLength", r0, 1),

@@ -16,6 +16,7 @@ import android.widget.EditText;
 // and the text goes back to the game as typed characters (nativeChat, registered by plat_android.c).
 public class GameActivity extends NativeActivity {
     static native void nativeChat(String text);       // "" = cancelled
+    static native void nativeText(String text);       // a game text field (nickname, room name...): no Enter
     static native void nativeWebReady(int hwnd);      // web panel drawn: GetPropA "ckready" (hle_user32.c)
     static native void nativeWebClose(int hwnd);      // the page's Close: WM_CLOSE to the panel
     VoiceChat voice;                                  // room voice chat (VoiceChat.java), the launcher's job on PC
@@ -143,6 +144,36 @@ public class GameActivity extends NativeActivity {
         });
         dlg.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
                 | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        dlg.show();
+        e.requestFocus();
+    }
+
+    // a game text field the player tapped (hle_misc.c ImmSetOpenStatus): the phone keyboard, typed into it on OK
+    public void openText() {
+        runOnUiThread(new Runnable() { public void run() { showText(); } });
+    }
+
+    void showText() {
+        final EditText e = new EditText(this);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_TEXT);
+        e.setImeOptions(EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        final AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Type")
+                .setView(e)
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface di, int w) { nativeText(e.getText().toString()); }
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        e.setOnEditorActionListener(new android.widget.TextView.OnEditorActionListener() {
+            public boolean onEditorAction(android.widget.TextView v, int id, android.view.KeyEvent ev) {
+                nativeText(e.getText().toString());
+                dlg.dismiss();
+                return true;
+            }
+        });
+        dlg.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
         dlg.show();
         e.requestFocus();
     }

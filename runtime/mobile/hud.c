@@ -305,7 +305,7 @@ void hud_rect(float x, float y, float w, float h, HudXf *xf) {
     int k = chan_part(x, y, x + w, y + h, 0);
     if (k >= 0) apply(xf, &g_part[k]);
 }
-void plat_open_chat(void);
+void open_chat(void);
 // a touch (touch_event): 1 = taken here (the chat button); else *x / *y are mapped to where the game has that control
 int hud_touch(int id, int act, int *px, int *py) {
     static int btn_ptr = -1;
@@ -334,7 +334,7 @@ int hud_touch(int id, int act, int *px, int *py) {
     *px = (int)(p->sx + (x - p->x) / p->s);
     *py = (int)(p->sy + (y - p->y) / p->s);
     // the chat line (ChatContentEdit, 330..835 x 677..710): the phone keyboard (its text is typed into it + Enter)
-    if (hit == CHAT && act == 1 && *px >= 300 && *px <= 840 && *py >= 674 && *py <= 712) plat_open_chat();
+    if (hit == CHAT && act == 1 && *px >= 300 && *px <= 840 && *py >= 674 && *py <= 712) open_chat();
     return 0;
 }
 // at Present (touch_overlay): the chat button

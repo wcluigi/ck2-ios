@@ -60,6 +60,23 @@ static void JNICALL native_chat(JNIEnv *env, jclass cls, jstring text) {
     ev_push(2, 0x0d, 1, 0, 0);              // Enter: send (an empty line just closes the chat line)
     ev_push(2, 0x0d, 0, 0, 0);
 }
+static void JNICALL native_text(JNIEnv *env, jclass cls, jstring text) {     // a text field: the characters, no Enter
+    (void)cls;
+    jsize n = text ? (*env)->GetStringLength(env, text) : 0;
+    const jchar *u = n ? (*env)->GetStringChars(env, text, 0) : 0;
+    for (jsize i = 0; i < n && i < 120; i++) ev_push(4, u[i], 0, 0, 0);
+    if (u) (*env)->ReleaseStringChars(env, text, u);
+    LOG("text field: %d characters typed", (int)n);
+}
+void plat_open_text(void) {                 // game thread -> GameActivity.openText()
+    JavaVM *vm = g_app->activity->vm;
+    JNIEnv *env;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK && (*vm)->AttachCurrentThread(vm, &env, 0) != JNI_OK) return;
+    jobject act = g_app->activity->clazz;
+    jmethodID m = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, act), "openText", "()V");
+    if (m) (*env)->CallVoidMethod(env, act, m);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
 void plat_open_chat(void) {                 // game thread
     JavaVM *vm = g_app->activity->vm;
     JNIEnv *env;
@@ -80,9 +97,10 @@ static void register_natives(struct android_app *app) {
     if ((*app->activity->vm)->AttachCurrentThread(app->activity->vm, &env, 0) != JNI_OK) return;
     jclass cls = (*env)->GetObjectClass(env, app->activity->clazz);
     JNINativeMethod m[] = {{"nativeChat", "(Ljava/lang/String;)V", (void *)native_chat},
+                           {"nativeText", "(Ljava/lang/String;)V", (void *)native_text},
                            {"nativeWebReady", "(I)V", (void *)native_web_ready},
                            {"nativeWebClose", "(I)V", (void *)native_web_close}};
-    if ((*env)->RegisterNatives(env, cls, m, 3) != 0) { (*env)->ExceptionClear(env); LOG("chat / web: RegisterNatives failed"); }
+    if ((*env)->RegisterNatives(env, cls, m, 4) != 0) { (*env)->ExceptionClear(env); LOG("chat / web: RegisterNatives failed"); }
 }
 void plat_fatal_hook(const char *msg) { __android_log_print(ANDROID_LOG_FATAL, "ck2", "%s", msg); }
 

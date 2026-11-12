@@ -32,6 +32,8 @@ int hud_touch(int id, int act, int *x, int *y);
 static int g_mouse_ptr = -1;        // the pointer that drives the mouse (first touch not on a race control)
 static int g_down_x, g_down_y;      // where that finger went down (lobby swipe)
 int ui_lobby_swipe(int x0, int y0, int x1, int y1);
+u32 g_tap_ms, g_chat_ms;            // last tap released / last chat box opened (hle_misc.c ImmSetOpenStatus, 12 Nov 2026)
+void open_chat(void) { g_chat_ms = ms_now(); plat_open_chat(); }
 static void pointer_hide(void);
 static void touch_event(int id, int act, int x, int y) {
     if (id != 9) pointer_hide();             // a finger: the controller pointer steps aside (9 = the pointer itself)
@@ -48,7 +50,7 @@ static void touch_event(int id, int act, int x, int y) {
     else if (ui_lobby_swipe(g_down_x, g_down_y, x, y)) {   // a swipe on the room list: page, and join nothing
         ui_mouse(0x200, 0, 0, 1); ui_mouse(0x202, 0, 0, 0); g_mouse_ptr = -1;
     }
-    else { ui_mouse(0x202, x, y, 0); g_mouse_ptr = -1; }
+    else { ui_mouse(0x202, x, y, 0); g_mouse_ptr = -1; g_tap_ms = ms_now(); }
 }
 
 
@@ -211,7 +213,7 @@ int input_code(int code, int down) {
         used = 1;
         if (g_bind[i].vk >= 0) { ev_push(2, g_bind[i].vk, down, 0, 0); continue; }
         ev_push(2, 0x0d, down, 0, 0);                           // chat: Enter, then the phone's text box
-        if (!down) plat_open_chat();
+        if (!down) open_chat();
     }
     return used;
 }

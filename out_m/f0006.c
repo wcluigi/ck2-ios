@@ -12726,7 +12726,7 @@ L_00440e2f:;
   /* 00440e45 push 1 */ { u32 v_ = 0x1u; esp -= 4; M32(esp) = v_; }
   /* 00440e47 call dword ptr [eax + 0xc] */ { const u32 m_ = (u32)(eax + 0xcu); u32 t_ = M32(m_); esp -= 4; M32(esp) = 0x440e4au; SAVEALL; call_ind(c, t_); RETCHK(0x440e4au, 0x440e47u); LOADALL; }
 L_00440e4a:;
-  /* 00440e4a jmp 0x9c5695 */ goto L_009c5695;
+  /* 00440e4a jmp 0x9c56a1 */ goto L_009c56a1;
 L_00440e6f:;
   /* 00440e6f mov edi, 0x1eff5550 */ { edi = (u32)(0x1eff5550u); }
   /* 00440e74 mov ecx, ebx */ { ecx = (u32)(ebx); }
@@ -13827,14 +13827,14 @@ L_009c1651:;
   /* 009c1657 add esp, 0x44 */ { u32 a_ = esp, b_ = 0x44u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
   /* 009c165a popal */ { edi = M32(esp); esi = M32(esp+4); ebp = M32(esp+8); ebx = M32(esp+16); edx = M32(esp+20); ecx = M32(esp+24); eax = M32(esp+28); esp += 32; }
   /* 009c165b jmp 0x440918 */ goto L_00440918;
-L_009c5695:;
-  /* 009c5695 mov ecx, dword ptr [esi + 0x10c] */ { const u32 m_ = (u32)(esi + 0x10cu); ecx = (u32)(M32(m_)); }
-  /* 009c569b test ecx, ecx */ { u32 a_ = ecx, b_ = ecx; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 009c569d je 0x9c56a6 */ if (ZF_) goto L_009c56a6;
-  /* 009c569f mov eax, ebx */ { eax = (u32)(ebx); }
-  /* 009c56a1 call 0x9c5650 */ esp -= 4; M32(esp) = 0x9c56a6u; SAVEALL; F_009c5650(c); ABI_CHECK(0x9c5650u, 0x9c56a1u); RETCHK(0x9c56a6u, 0x9c56a1u); LOADALL;
-L_009c56a6:;
-  /* 009c56a6 jmp 0x440e6f */ goto L_00440e6f;
+L_009c56a1:;
+  /* 009c56a1 mov ecx, dword ptr [esi + 0x10c] */ { const u32 m_ = (u32)(esi + 0x10cu); ecx = (u32)(M32(m_)); }
+  /* 009c56a7 test ecx, ecx */ { u32 a_ = ecx, b_ = ecx; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
+  /* 009c56a9 je 0x9c56b2 */ if (ZF_) goto L_009c56b2;
+  /* 009c56ab mov eax, ebx */ { eax = (u32)(ebx); }
+  /* 009c56ad call 0x9e0d40 */ esp -= 4; M32(esp) = 0x9c56b2u; SAVEALL; F_009e0d40(c); ABI_CHECK(0x9e0d40u, 0x9c56adu); RETCHK(0x9c56b2u, 0x9c56adu); LOADALL;
+L_009c56b2:;
+  /* 009c56b2 jmp 0x440e6f */ goto L_00440e6f;
 L_009dd1eb:;
   /* 009dd1eb mov ecx, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); ecx = (u32)(M32(m_)); }
   /* 009dd1ee mov eax, 1 */ { eax = (u32)(0x1u); }
