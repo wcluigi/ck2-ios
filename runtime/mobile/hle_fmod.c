@@ -88,9 +88,11 @@ static void pcm_trim(void) {       // drop least recently used unreferenced entr
 }
 
 // ---- mixer (audio thread) --------------------------------------------------------------------------
-static void gains(const Chan *c, float *l, float *r) {
-    float g = c->vol;
-    if (!c->is3d) { *l = *r = g; return; }
+// FMOD Ex pans a mono sound constant-power: centred = 0.707 in each speaker; stereo stays 1.0 per side. Measured on the
+// PC fmodex.dll (12 Nov 2026): 0.5 mono in -> 0.354 L/R, 0.5 stereo in -> 0.5. Effects are mono, music stereo.
+static void gains(const Chan *c, int mono, float *l, float *r) {
+    float g = c->vol, k = mono ? 1.0f : 1.41421356f;
+    if (!c->is3d) { *l = *r = g * k * 0.70710678f; return; }
     float d[3] = {c->p[0] - g_lpos[0], c->p[1] - g_lpos[1], c->p[2] - g_lpos[2]};
     float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), mind = 1.0f * g_distf;
     if (dist > mind) g *= mind / (mind + g_rolloff * (dist - mind));        // FMOD's default inverse rolloff
@@ -99,7 +101,7 @@ static void gains(const Chan *c, float *l, float *r) {
     float rn = sqrtf(rt[0] * rt[0] + rt[1] * rt[1] + rt[2] * rt[2]);
     float pan = dist > 1e-4f && rn > 1e-6f ? (d[0] * rt[0] + d[1] * rt[1] + d[2] * rt[2]) / (dist * rn) * 0.8f : 0;
     float a = (pan + 1) * 0.78539816f;          // constant power
-    *l = g * cosf(a) * 1.41421356f; *r = g * sinf(a) * 1.41421356f;
+    *l = g * cosf(a) * k; *r = g * sinf(a) * k;
 }
 static void mix(float *out, int frames) {
     memset(out, 0, sizeof(float) * 2 * (size_t)frames);
@@ -112,7 +114,7 @@ static void mix(float *out, int frames) {
         pcm_decode_to(s, (int)(c->pos + step * frames) + 2);
         if (!s->pcm || s->total < 1) { c->active = 0; c->ended = 1; continue; }
         float gl, gr;
-        gains(c, &gl, &gr);
+        gains(c, s->ch == 1, &gl, &gr);
         for (int i = 0; i < frames; i++) {
             int i0 = (int)c->pos;
             if (i0 >= s->total) {
@@ -303,13 +305,13 @@ HLE(fm_set3DSettings) {
 // debug: what starts playing (file, 3D distance, volume, rate) -- to find sounds that end up inaudible
 static void dbg_chan(const Chan *ch, const char *why) {
     static int n;
-    if (n >= 1500) return;
+    if (n >= 20000) return;                       // ~2 MB: enough to reach mid-race items (1500 ended before the first thunder)
     n++;
     const Pcm *p = &g_pcm[g_snd[ch->snd].pcm];
     const char *nm = strrchr(p->key, '/');
     float d[3] = {ch->p[0] - g_lpos[0], ch->p[1] - g_lpos[1], ch->p[2] - g_lpos[2]};
     float gl, gr;
-    gains(ch, &gl, &gr);
+    gains(ch, p->ch == 1, &gl, &gr);
     rt_log("fmod: %s %s mode %x 3d %d dist %.1f vol %.2f gain %.3f/%.3f freq %.0f loops %d\n", why, nm ? nm + 1 : p->key[0] ? p->key : "<memory>",
            ch->mode, ch->is3d, sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), ch->vol, gl, gr, ch->freq, ch->loops);
 }

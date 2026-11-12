@@ -550,8 +550,8 @@ public class LoginActivity extends Activity {
         else closeOverlay();
     }
 
-    // control type (the user, 12 Nov 2026): Classic -> the HUD editor; Mobile -> Mobile touch controls on (AUTO GAS +
-    // TAP DRIFT) + the editor; Keyboard / controller -> on-screen controls at opacity 0 (hud_layout.txt touch_opacity)
+    // control type (the user, 12 Nov 2026): Classic -> the HUD editor; Mobile -> Mobile touch controls on (AUTO GAS)
+    // + the editor; Keyboard / controller -> on-screen controls at opacity 0 (hud_layout.txt touch_opacity)
     void showControlType() {
         LinearLayout d = lightDialog(24, 18, 16);
         d.addView(text(t("STEP 2 OF 3", "第 2 步，共 3 步"), 13, SUB, baloo));
@@ -585,16 +585,15 @@ public class LoginActivity extends Activity {
             dashed(pv, 8, 6, 34, 30, true);
             if (w == 1) {
                 pic(pv, "touch_autogas.png", 8, 60, 18, false);
-                pic(pv, "touch_tapdrift.png", 30, 60, 18, false);
                 View ring = new View(this);
                 ring.setBackground(roundS(0, YELLOW, 2, 8));
-                FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(dp(48), dp(26));
+                FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(dp(26), dp(26));
                 rl.leftMargin = dp(4); rl.topMargin = dp(56);
                 pv.addView(ring, rl);
             }
             pic(pv, "touch_left.png", 5, 84, 28, false);
             pic(pv, "touch_right.png", 38, 84, 28, false);
-            pic(pv, "touch_gas.png", 5, 84, 28, true);
+            if (w != 1) pic(pv, "touch_gas.png", 5, 84, 28, true);        // Mobile: auto gas holds the throttle, no gas button
             pic(pv, "touch_brake.png", 38, 90, 21, true);
             pic(pv, "touch_drift.png", 6, 54, 25, true);
             pic(pv, "touch_item.png", 37, 62, 22, true);
@@ -602,7 +601,7 @@ public class LoginActivity extends Activity {
         b.addView(pv, new LinearLayout.LayoutParams(-1, dp(120)));
         String[] name = {t("Classic", "经典"), t("Mobile", "手游"), t("Keyboard / controller", "键盘 / 手柄")};
         String[] sub = {t("Touch buttons, hold to drive. Arrange your HUD and buttons next.", "触屏按键，按住油门。下一步调整 HUD 和按键。"),
-                        t("Auto gas, tap to drift: two switches above the steering. Arrange your HUD and buttons next.", "自动油门，轻点漂移：方向键上方有两个开关。下一步调整 HUD 和按键。"),
+                        t("Auto gas: no gas button, a switch above the steering turns it off. Arrange your HUD and buttons next.", "自动油门：没有油门键，方向键上方的开关可以关闭。下一步调整 HUD 和按键。"),
                         t("On-screen controls hidden (0% opacity).", "隐藏屏幕按键（透明度 0%）。")};
         b.addView(text(name[w], 20, INK, baloo800), lp(-2, -2, 0, dp(8), 0, 0));
         b.addView(text(sub[w], 13, SUB, nunito), lp(-1, -2, 0, dp(4), 0, 0));
@@ -1010,7 +1009,7 @@ public class LoginActivity extends Activity {
                     startActivity(new Intent(LoginActivity.this, HudEditorActivity.class).putExtra("mode", o.ctl));
                 } });
                 hc.addView(edit, new LinearLayout.LayoutParams(-2, dp(44)));
-                hc.addView(text("mobile".equals(o.ctl) ? t("Every HUD element and on-screen button, plus the Auto gas and Tap drift switches.", "全部 HUD 元素和屏幕按键，以及自动油门和轻点漂移开关。")
+                hc.addView(text("mobile".equals(o.ctl) ? t("Every HUD element and on-screen button, plus the Auto gas switch.", "全部 HUD 元素和屏幕按键，以及自动油门开关。")
                               : "keyboard".equals(o.ctl) ? t("On-screen buttons are hidden; the race HUD can still be moved.", "屏幕按键已隐藏；比赛 HUD 仍可移动。")
                               : t("Every HUD element and on-screen button.", "全部 HUD 元素和屏幕按键。"), 13, SUB, nunito), lp(-2, -2, 0, dp(4), 0, 0));
                 row(c, t("HUD layout", "HUD 布局"), hc);

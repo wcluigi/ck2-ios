@@ -28,12 +28,11 @@ static const Btn g_btn[] = {
     {0, 0x20, -5.55f, 1.15f, 0.6f, 7, 0x27b8cf, 0x0a4656},       // switch item
     {0, 0x1b, 7.94f, 8.93f, 0.45f, 5, 0x2f6fd8, 0x0b2468},       // Escape: the in-race menu (top centre)
     {0, -1, 9.0f, 8.93f, 0.45f, 6, 0x2f6fd8, 0x0b2468},          // chat: Enter + the phone keyboard (art reused by hud.c: keep at 8)
-    // "Mobile" touch controls only (launcher Settings > Touch controls, CK_TOUCH=mobile): two switches, tap = on / off
+    // "Mobile" touch controls only (launcher Settings > Touch controls, CK_TOUCH=mobile): the AUTO GAS switch, tap = on / off
     {"AUTO GAS", -2, 1.0f, 3.1f, 0.5f, 0, 0x3ccf52, 0x0c5a1c},
-    {"TAP DRIFT", -3, 2.25f, 3.1f, 0.5f, 0, 0xffa51f, 0x8a4200},
 };
 #define NB (int)(sizeof g_btn / sizeof g_btn[0])
-enum { B_LEFT, B_RIGHT, B_GAS, B_BRAKE, B_DRIFT, B_ITEM, B_SWAP, B_ESC, B_CHAT, B_AUTOGAS, B_TAPDRIFT };
+enum { B_LEFT, B_RIGHT, B_GAS, B_BRAKE, B_DRIFT, B_ITEM, B_SWAP, B_ESC, B_CHAT, B_AUTOGAS };
 #define NPTR 10
 static int g_ptr_btn[NPTR] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 static int g_down[NB];
@@ -42,11 +41,10 @@ static GpuTex *g_art[NB];
 // ---- "Mobile" controls (12 Nov 2026, the user: phone-style controls as a Settings choice) ----------------------------
 // AUTO GAS on: the throttle is held for you all race; holding brake lets go of it, so the kart brakes and then
 // reverses (the game's Down key, as on PC), and the throttle comes back when brake is released.
-// TAP DRIFT on: a tap of DRIFT while steering holds drift until the steering is let go or turned the other way (or
-// DRIFT is tapped again); a tap without steering is an ordinary press. Both switches remembered (<game>/touch_mobile.txt).
+// Remembered in <game>/touch_mobile.txt. (TAP DRIFT removed 12 Nov 2026, the user: DRIFT is the plain button again.)
 // Only presses the game's own keys: the race plays as with the buttons.
-static int g_mobile = -1, g_autogas = 1, g_tapdrift = 1;
-static int g_latch, g_latch_dir, g_tap_moment, g_prev[NB];
+static int g_mobile = -1, g_autogas = 1;
+static int g_prev[NB];
 static void mobile_load(void) {
     if (g_mobile >= 0) return;
     const char *e = getenv("CK_TOUCH");
@@ -56,7 +54,6 @@ static void mobile_load(void) {
     FILE *f = fopen(p, "r");
     while (f && fgets(line, sizeof line, f)) {
         if (!strncmp(line, "autogas=", 8)) g_autogas = line[8] != '0';
-        if (!strncmp(line, "tapdrift=", 9)) g_tapdrift = line[9] != '0';
     }
     if (f) fclose(f);
 }
@@ -64,12 +61,15 @@ static void mobile_save(void) {
     char p[600];
     snprintf(p, sizeof p, "%s/touch_mobile.txt", g_game_dir);
     FILE *f = fopen(p, "w");
-    if (f) { fprintf(f, "autogas=%d\ntapdrift=%d\n", g_autogas, g_tapdrift); fclose(f); }
+    if (f) { fprintf(f, "autogas=%d\n", g_autogas); fclose(f); }
 }
-static int shown_btn(int i) { mobile_load(); return i < B_AUTOGAS || g_mobile; }
+static int shown_btn(int i) {
+    mobile_load();
+    if (i == B_GAS && g_mobile && g_autogas) return 0;      // AUTO GAS on: the throttle is held for you, no gas button (12 Nov 2026, the user)
+    return i < B_AUTOGAS || g_mobile;
+}
 
-static const char *const g_names[NB] = {"touch_left", "touch_right", "touch_gas", "touch_brake", "touch_drift", "touch_item", "touch_swap", "touch_esc", "touch_chat",
-                                        "touch_autogas", "touch_tapdrift"};
+static const char *const g_names[NB] = {"touch_left", "touch_right", "touch_gas", "touch_brake", "touch_drift", "touch_item", "touch_swap", "touch_esc", "touch_chat", "touch_autogas"};
 static void geom(int i, float *cx, float *cy, float *r) {
     if (hud_touch_button(g_names[i], cx, cy, r)) return;      // placed by the player (HUD layout editor)
     int bw, bh;
@@ -99,24 +99,10 @@ static void sync_keys(void) {
     for (int p = 0; p < NPTR; p++) if (g_ptr_btn[p] >= 0) pressed[g_ptr_btn[p]] = 1;
     mobile_load();
     int mob = g_mobile && tui_input();
-    if (mob) {
-        if (pressed[B_AUTOGAS] && !g_prev[B_AUTOGAS]) { g_autogas = !g_autogas; mobile_save(); }
-        if (pressed[B_TAPDRIFT] && !g_prev[B_TAPDRIFT]) { g_tapdrift = !g_tapdrift; g_latch = 0; mobile_save(); }
-    }
-    int steer = pressed[B_LEFT] ? 0x25 : pressed[B_RIGHT] ? 0x27 : 0;
-    if (mob && g_tapdrift) {
-        if (pressed[B_DRIFT] && !g_prev[B_DRIFT]) {
-            if (g_latch) g_latch = 0;                                     // tapped again: drift ends
-            else if (steer) { g_latch = 1; g_latch_dir = steer; }         // tapped while steering: drift held
-            else g_tap_moment = 1;                                        // no steering: a plain press
-        }
-        if (!pressed[B_DRIFT]) g_tap_moment = 0;
-        if (g_latch && steer != g_latch_dir) g_latch = 0;                 // steering let go / turned the other way
-    } else { g_latch = 0; g_tap_moment = 0; }
+    if (mob && pressed[B_AUTOGAS] && !g_prev[B_AUTOGAS]) { g_autogas = !g_autogas; mobile_save(); }
     memcpy(g_prev, pressed, sizeof g_prev);
     for (int i = 0; i < NB; i++) {
         int want = pressed[i];
-        if (mob && g_tapdrift && i == B_DRIFT) want = g_latch || g_tap_moment;
         if (mob && g_autogas && i == B_GAS) want = pressed[B_GAS] || !pressed[B_BRAKE];   // brake held: brake, then reverse
         if (want == g_down[i]) continue;
         g_down[i] = want;
@@ -378,10 +364,8 @@ void tui_draw(void) {
         GpuTex *t = button_art(i);
         if (g_down[i]) r *= 0.92f;                   // pressed: a little smaller, brighter, more solid
         u32 c = (u32)(a * (g_down[i] ? 255 : 225)) << 24 | (g_down[i] ? 0xffffffu : 0xdedede);
-        if (i >= B_AUTOGAS) {                        // Mobile switches: lit = on, dark = off
-            int on = i == B_AUTOGAS ? g_autogas : g_tapdrift;
-            c = on ? ((u32)(a * 255) << 24 | 0xffffffu) : ((u32)(a * 170) << 24 | 0x555555u);
-        }
+        if (i == B_AUTOGAS)                          // Mobile switch: lit = on, dark = off
+            c = g_autogas ? ((u32)(a * 255) << 24 | 0xffffffu) : ((u32)(a * 170) << 24 | 0x555555u);
         vert(cx - r, cy - r, c, 0, 0); vert(cx + r, cy - r, c, 1, 0); vert(cx + r, cy + r, c, 1, 1);
         vert(cx - r, cy - r, c, 0, 0); vert(cx + r, cy + r, c, 1, 1); vert(cx - r, cy + r, c, 0, 1);
         flush_verts(t);

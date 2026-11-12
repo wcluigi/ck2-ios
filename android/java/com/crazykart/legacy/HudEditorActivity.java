@@ -73,10 +73,14 @@ public class HudEditorActivity extends Activity {
     static final String[][] ZH = {{"items", "道具栏"}, {"itemcount", "道具数量"}, {"place", "名次"}, {"ranking", "排名"}, {"time", "比赛时间"},
             {"minimap", "小地图"}, {"speedo", "速度表"}, {"touch_left", "左转"}, {"touch_right", "右转"}, {"touch_gas", "油门"}, {"touch_brake", "刹车"},
             {"touch_drift", "漂移"}, {"touch_item", "道具"}, {"touch_swap", "切换道具"}, {"touch_esc", "菜单"}, {"touch_chat", "聊天"},
-            {"chat", "比赛聊天"}, {"announce", "公告"}, {"touch_autogas", "自动油门"}, {"touch_tapdrift", "轻点漂移"}};
+            {"chat", "比赛聊天"}, {"announce", "公告"}, {"touch_autogas", "自动油门"}};
 
     File gameDir() { return new File(getExternalFilesDir(null), "game"); }
     File layoutFile() { return new File(gameDir(), "hud_layout.txt"); }
+    boolean autoGasOn() {                                // touch_ui.c touch_mobile.txt: on unless "autogas=0"
+        try { return !new String(java.nio.file.Files.readAllBytes(new File(gameDir(), "touch_mobile.txt").toPath())).contains("autogas=0"); }
+        catch (Exception e) { return true; }
+    }
     File iconFile(String name, String ext) { return new File(new File(gameDir(), "touch_icons"), name + ext); }
 
     @Override
@@ -88,16 +92,16 @@ public class HudEditorActivity extends Activity {
         loadElements();
         loadLayout();
         // what this player can arrange (the launcher design, 12 Nov 2026): every HUD element and on-screen button; the
-        // AUTO GAS / TAP DRIFT switches only with Mobile controls ("mode" extra, else the saved choice). The switches
-        // are kept (saved unchanged) when not shown.
+        // AUTO GAS switch only with Mobile controls ("mode" extra, else the saved choice). The switch is kept
+        // (saved unchanged) when not shown.
         String mode = getIntent().getStringExtra("mode");
         boolean mobileOn = mode != null ? mode.equals("mobile") : prefs.getBoolean("touchmobile", false);
         boolean first = getIntent().getBooleanExtra("first", false);      // the first start's step 3: Skip, not Back
         for (int i = elems.size() - 1; i >= 0; i--) {
             Elem e = elems.get(i);
             if (zh) for (String[] z : ZH) if (z[0].equals(e.name)) e.label = z[1];
-            boolean sw = e.name.equals("touch_autogas") || e.name.equals("touch_tapdrift");
-            if (sw && !mobileOn) { kept.add(e); elems.remove(i); }
+            if (e.name.equals("touch_autogas") && !mobileOn) { kept.add(e); elems.remove(i); }
+            else if (e.name.equals("touch_gas") && mobileOn && autoGasOn()) { kept.add(e); elems.remove(i); }   // auto gas: no gas button in the race
         }
         loadPictures();
 
@@ -452,8 +456,8 @@ public class HudEditorActivity extends Activity {
                     c.drawRoundRect(r, 8, 8, guide);
                 }
                 if (!e.touch) c.drawText(e.label, r.left + 8, r.top + text.getTextSize() + 2, text);      // HUD boxes: their name
-                else if (e.name.equals("touch_autogas") || e.name.equals("touch_tapdrift")) {          // the switches: a tag under
-                    String tag = e.name.equals("touch_autogas") ? t("AUTO GAS", "自动油门") : t("TAP DRIFT", "轻点漂移");
+                else if (e.name.equals("touch_autogas")) {          // the switch: a tag under
+                    String tag = t("AUTO GAS", "自动油门");
                     c.drawText(tag, r.centerX() - text.measureText(tag) / 2, r.bottom + text.getTextSize() + 2, text);
                 }
             }

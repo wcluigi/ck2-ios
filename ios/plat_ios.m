@@ -2,7 +2,7 @@
 // input.c), drawn through WebGPU on Metal. Built by ios/build_ios.sh on a macOS runner (.github/workflows/ios.yml) into
 // an unsigned .ipa that Sideloadly / AltStore sign. Launcher: sign-in (Launcher/login.js protocol, as LoginActivity),
 // the game data copied from the app on the first start, the phone's settings file, the server's shop (ShopSync).
-// Not yet here (Android has them): updates from the patch servers, voice chat, HUD editor, Settings panel.
+// Not yet here (Android has them): updates from the patch servers.
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -554,8 +554,8 @@ void plat_web_panel(uint32_t hwnd, const char *page, int x, int y, int w, int h,
 }
 
 // ---- server-asked popups (9 Nov 2026, the user: "renaming should open that rename we did"): ckweb --popup <name> on PC,
-// WebPanels.openPopup on Android. The server asks through the launcher's voice poll ("popup"); this app has no voice, so
-// it polls with X-CK-Voice: none (popups only, never a voice peer). web/<name>/index.html centred at ckweb's size for
+// WebPanels.openPopup on Android. The server asks through the launcher's voice poll ("popup"), which is also the voice
+// switchboard (voice_state). web/<name>/index.html centred at ckweb's size for
 // it, shown at "ready" (or after 2.5 s); "state" / "submit" {name} ask the popup's API, "close" closes it. ----
 @interface CKPopup : NSObject <WKScriptMessageHandler>
 @property (nonatomic, copy) NSString *api;
@@ -625,6 +625,98 @@ static void popup_open(NSString *name) {        // main thread
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (g_popup == p) p.web.alpha = 1; });
 }
 
+// ---- room voice chat (12 Nov 2026, the user: "no microphone voice on ios, fix it"): Android's VoiceChat.java -- the
+// launcher's voice-page.js (image/voice-page.js, the APK asset) in a hidden WKWebView does the WebRTC peer audio; the
+// server poll below is the switchboard (room, who has voice on, connection setup messages). The microphone is asked
+// when the page first needs it (voice switched on in a room); refused = still hears the room.
+// shortcut: STUN only like the launcher, no TURN relay -- players behind blocking NATs hear nobody
+static NSString *const VOICE_ICE = @"[{\"urls\":[\"stun:stun.cloudflare.com:3478\",\"stun:stun.l.google.com:19302\"]},{\"urls\":\"stun:stun.miwifi.com:3478\"}]";
+static NSString *const VOICE_BRIDGE = @"window.voice={onState:function(f){window.__ckState=f;},"
+    "signal:function(to,data){window.webkit.messageHandlers.ckvoice.postMessage(JSON.stringify({op:'signal',body:JSON.stringify({to:to,data:data})}));return Promise.resolve(true);},"
+    "status:function(t){window.webkit.messageHandlers.ckvoice.postMessage(JSON.stringify({op:'status',body:String(t)}));},"
+    "speak:function(on){window.webkit.messageHandlers.ckvoice.postMessage(JSON.stringify({op:'speak',body:on?'{\"on\":true}':'{\"on\":false}'}));}};";
+@interface CKVoice : NSObject <WKScriptMessageHandler, WKUIDelegate>
+@property (nonatomic, strong) WKWebView *web;
+@end
+static CKVoice *g_voice;
+static dispatch_queue_t g_voice_posts;           // setup messages in order
+static void voice_post(NSString *path, NSString *body) {
+    if (!g_web_api || !g_web_user || !g_web_key) return;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ g_voice_posts = dispatch_queue_create("ck2voice.posts", DISPATCH_QUEUE_SERIAL); });
+    dispatch_async(g_voice_posts, ^{
+        NSMutableURLRequest *rq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[g_web_api stringByAppendingString:path]]];
+        rq.HTTPMethod = @"POST";
+        rq.timeoutInterval = 8;
+        rq.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+        [rq setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        [rq setValue:[@"Bearer " stringByAppendingString:g_web_key] forHTTPHeaderField:@"Authorization"];
+        [rq setValue:g_web_user forHTTPHeaderField:@"X-CK-User"];
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) { dispatch_semaphore_signal(done); }] resume];
+        dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)10 * NSEC_PER_SEC));
+    });
+}
+@implementation CKVoice
+- (void)userContentController:(WKUserContentController *)uc didReceiveScriptMessage:(WKScriptMessage *)msg {
+    NSData *d = [msg.body isKindOfClass:NSString.class] ? [(NSString *)msg.body dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    NSDictionary *m = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+    if (![m isKindOfClass:NSDictionary.class] || ![m[@"op"] isKindOfClass:NSString.class] || ![m[@"body"] isKindOfClass:NSString.class]) return;
+    NSString *op = m[@"op"], *body = m[@"body"];
+    if ([op isEqualToString:@"signal"]) voice_post(@"/launcher/voice/signal", body);
+    else if ([op isEqualToString:@"speak"]) voice_post(@"/launcher/voice/speak", body);
+    else if ([op isEqualToString:@"status"] && body.length) fprintf(stderr, "ck2voice: %s\n", body.UTF8String);
+}
+// iOS 15+: the page's microphone request gets no second (WebKit) prompt; iOS asks once itself (NSMicrophoneUsageDescription)
+- (void)webView:(WKWebView *)w requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)o initiatedByFrame:(WKFrameInfo *)f
+           type:(WKMediaCaptureType)type decisionHandler:(void (^)(WKPermissionDecision))decide API_AVAILABLE(ios(15.0)) {
+    decide(type == WKMediaCaptureTypeMicrophone ? WKPermissionDecisionGrant : WKPermissionDecisionDeny);
+}
+@end
+static void voice_mic_session(void) {            // main thread, once voice is on: record + play, game sound stays on the speaker
+    static BOOL done;
+    if (done) return;
+    done = YES;
+    NSError *e = nil;
+    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayAndRecord
+        withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionMixWithOthers |
+                    AVAudioSessionCategoryOptionAllowBluetooth | AVAudioSessionCategoryOptionAllowBluetoothA2DP error:&e];
+    [[AVAudioSession sharedInstance] setActive:YES error:nil];
+    if (e) fprintf(stderr, "ck2voice: audio session: %s\n", e.localizedDescription.UTF8String);
+}
+static void voice_state(NSDictionary *st) {      // main thread: the poll's answer to the page
+    if (!g_game_view) return;
+    if (!g_voice) {
+        NSString *page = [NSString stringWithContentsOfFile:[NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"image/voice-page.js"]
+                                                   encoding:NSUTF8StringEncoding error:nil];
+        if (!page) return;
+        CKVoice *v = [[CKVoice alloc] init];
+        WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
+        cfg.allowsInlineMediaPlayback = YES;
+        cfg.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+        [cfg.userContentController addUserScript:[[WKUserScript alloc] initWithSource:VOICE_BRIDGE
+            injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+        [cfg.userContentController addScriptMessageHandler:v name:@"ckvoice"];
+        v.web = [[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 2, 2) configuration:cfg];
+        v.web.UIDelegate = v;
+        v.web.alpha = 0.02;                      // in the window (an off-window view gets its timers / media paused), not seen
+        v.web.userInteractionEnabled = NO;
+        [g_game_view addSubview:v.web];
+        // an https origin: getUserMedia needs a secure context
+        [v.web loadHTMLString:[NSString stringWithFormat:@"<!doctype html><html><head><meta charset=\"utf-8\"></head><body><script>%@</script></body></html>", page]
+                      baseURL:[NSURL URLWithString:@"https://voice.ck2.local/"]];
+        g_voice = v;
+    }
+    if ([st[@"on"] respondsToSelector:@selector(boolValue)] && [st[@"on"] boolValue]) voice_mic_session();
+    NSMutableDictionary *m = [st mutableCopy];
+    m[@"ice"] = [NSJSONSerialization JSONObjectWithData:[VOICE_ICE dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    m[@"audio"] = @{@"noise": @"standard", @"voiceVolume": @100, @"micVolume": @100};   // no RNNoise files in the app
+    NSData *j = [NSJSONSerialization dataWithJSONObject:m options:0 error:nil];
+    if (!j) return;
+    NSString *js = [NSString stringWithFormat:@"window.__ckState&&window.__ckState(%@)", [[NSString alloc] initWithData:j encoding:NSUTF8StringEncoding]];
+    [g_voice.web evaluateJavaScript:js completionHandler:nil];
+}
+
 static void popup_poll(void) {                   // its own thread, for the whole game
     NSString *rev = @"";
     for (;;) {
@@ -635,7 +727,6 @@ static void popup_poll(void) {                   // its own thread, for the whol
         [rq setValue:[@"Bearer " stringByAppendingString:g_web_key] forHTTPHeaderField:@"Authorization"];
         [rq setValue:g_web_user forHTTPHeaderField:@"X-CK-User"];
         [rq setValue:[g_web_lang isEqualToString:@"zh"] ? @"cn" : @"en" forHTTPHeaderField:@"X-CK-Lang"];
-        [rq setValue:@"none" forHTTPHeaderField:@"X-CK-Voice"];
         NSUserDefaults *ud = NSUserDefaults.standardUserDefaults;        // Settings > Game (the server reads them from this poll)
         [rq setValue:[ud stringForKey:@"ping"] ?: @"room,race" forHTTPHeaderField:@"X-CK-Ping"];
         [rq setValue:([ud objectForKey:@"accessories"] ? [ud boolForKey:@"accessories"] : YES) ? @"on" : @"off" forHTTPHeaderField:@"X-CK-Accessories"];
@@ -655,6 +746,7 @@ static void popup_poll(void) {                   // its own thread, for the whol
         if ([st[@"rev"] isKindOfClass:NSString.class]) rev = st[@"rev"];
         NSString *name = [st[@"popup"] isKindOfClass:NSString.class] ? st[@"popup"] : nil;
         if (name.length) dispatch_async(dispatch_get_main_queue(), ^{ popup_open(name); });
+        dispatch_async(dispatch_get_main_queue(), ^{ voice_state(st); });
     }
 }
 static void popup_poll_start(void) {
@@ -1195,8 +1287,8 @@ static UIImage *icon_cut(UIImage *src) {
             CGFloat dash[] = {5, 4}; [shape setLineDash:dash count:2 phase:0]; shape.lineWidth = 1; [shape stroke];
         }
         if (!e.touch) [e.label drawAtPoint:CGPointMake(r.origin.x + 4, r.origin.y + 2) withAttributes:ta];     // HUD boxes: their name
-        else if ([e.name isEqualToString:@"touch_autogas"] || [e.name isEqualToString:@"touch_tapdrift"]) {   // the switches: a tag under
-            NSString *tag = [e.name isEqualToString:@"touch_autogas"] ? (vc.zh ? @"自动油门" : @"AUTO GAS") : (vc.zh ? @"轻点漂移" : @"TAP DRIFT");
+        else if ([e.name isEqualToString:@"touch_autogas"]) {   // the switch: a tag under
+            NSString *tag = vc.zh ? @"自动油门" : @"AUTO GAS";
             CGSize ts = [tag sizeWithAttributes:ta];
             [tag drawAtPoint:CGPointMake(CGRectGetMidX(r) - ts.width / 2, CGRectGetMaxY(r) + 2) withAttributes:ta];
         }
@@ -1259,7 +1351,7 @@ static NSDictionary *hud_zh(void) {
     return @{@"items": @"道具栏", @"itemcount": @"道具数量", @"place": @"名次", @"ranking": @"排名", @"time": @"比赛时间", @"minimap": @"小地图",
              @"speedo": @"速度表", @"touch_left": @"左转", @"touch_right": @"右转", @"touch_gas": @"油门", @"touch_brake": @"刹车", @"touch_drift": @"漂移",
              @"touch_item": @"道具", @"touch_swap": @"切换道具", @"touch_esc": @"菜单", @"touch_chat": @"聊天", @"chat": @"比赛聊天", @"announce": @"公告",
-             @"touch_autogas": @"自动油门", @"touch_tapdrift": @"轻点漂移"};
+             @"touch_autogas": @"自动油门"};
 }
 
 @implementation HudEditorVC
@@ -1296,13 +1388,16 @@ static NSDictionary *hud_zh(void) {
         for (HudElem *e in self.elems) if ([e.name isEqualToString:p[0]]) { e.x = [p[1] doubleValue]; e.y = [p[2] doubleValue]; e.s = [p[3] doubleValue]; }
     }
     // what this player arranges (the launcher design, 12 Nov 2026), as Android: every HUD element and on-screen button;
-    // the AUTO GAS / TAP DRIFT switches only with Mobile controls
+    // the AUTO GAS switch only with Mobile controls
     self.kept = [NSMutableArray array];
     BOOL mobileOn = self.mode ? [self.mode isEqualToString:@"mobile"] : [NSUserDefaults.standardUserDefaults boolForKey:@"touchmobile"];
     for (NSInteger i = (NSInteger)self.elems.count - 1; i >= 0; i--) {
         HudElem *e = self.elems[(NSUInteger)i];
-        BOOL sw = [e.name isEqualToString:@"touch_autogas"] || [e.name isEqualToString:@"touch_tapdrift"];
-        if (sw && !mobileOn) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
+        BOOL sw = [e.name isEqualToString:@"touch_autogas"];
+        // auto gas (touch_ui.c touch_mobile.txt, on unless "autogas=0"): no gas button in the race
+        BOOL gas = [e.name isEqualToString:@"touch_gas"] && mobileOn && ![[NSString stringWithContentsOfFile:[docs() stringByAppendingPathComponent:@"game/touch_mobile.txt"]
+                                                                         encoding:NSUTF8StringEncoding error:nil] ?: @"" containsString:@"autogas=0"];
+        if ((sw && !mobileOn) || gas) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
     }
 }
 - (UILabel *)label:(NSString *)t color:(unsigned)c { return ck_label(t, f_body(13, UIFontWeightHeavy), c); }
@@ -1871,7 +1966,7 @@ static UIImage *gamma_img(UIImage *src, float g) {
         edit.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
         edit.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 26);
         step_shadow(edit, C_SLAB, 4);
-        UILabel *scope = ck_label([ct isEqualToString:@"mobile"] ? [self t:@"Every HUD element and on-screen button, plus the Auto gas and Tap drift switches." zh:@"全部 HUD 元素和屏幕按键，以及自动油门和轻点漂移开关。"]
+        UILabel *scope = ck_label([ct isEqualToString:@"mobile"] ? [self t:@"Every HUD element and on-screen button, plus the Auto gas switch." zh:@"全部 HUD 元素和屏幕按键，以及自动油门开关。"]
                                   : [ct isEqualToString:@"keyboard"] ? [self t:@"On-screen buttons are hidden; the race HUD can still be moved." zh:@"屏幕按键已隐藏；比赛 HUD 仍可移动。"]
                                   : [self t:@"Every HUD element and on-screen button." zh:@"全部 HUD 元素和屏幕按键。"], f_body(13, UIFontWeightSemibold), C_SUB);
         scope.numberOfLines = 0;
@@ -2414,8 +2509,8 @@ static UIImage *url_image(id u) {                        // SVG frames / backgro
     if (cn != self.zh) { self.zh = cn; [self build]; }
     if (![self.prefs objectForKey:@"controltype"]) [self showControlType]; else [self closeOverlay];
 }
-// control type (the user, 12 Nov 2026): Classic -> the HUD editor; Mobile -> Mobile touch controls on (AUTO GAS +
-// TAP DRIFT) + the editor; Keyboard / controller -> on-screen controls at opacity 0 (hud_layout.txt touch_opacity)
+// control type (the user, 12 Nov 2026): Classic -> the HUD editor; Mobile -> Mobile touch controls on (AUTO GAS)
+// + the editor; Keyboard / controller -> on-screen controls at opacity 0 (hud_layout.txt touch_opacity)
 - (UIImageView *)pic:(NSString *)name {
     UIImageView *v = [[UIImageView alloc] initWithImage:[UIImage imageWithContentsOfFile:[bundle_image() stringByAppendingPathComponent:[name stringByAppendingString:@".png"]]]];
     v.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2452,21 +2547,20 @@ static UIImage *url_image(id u) {                        // SVG frames / backgro
         }
         if (k == 1) {
             [self place:[self pic:@"touch_autogas"] into:pv x:8 y:60 w:18 h:18 right:NO];
-            [self place:[self pic:@"touch_tapdrift"] into:pv x:30 y:60 w:18 h:18 right:NO];
             UIView *ring = [[UIView alloc] init];
             ring.layer.borderWidth = 2; ring.layer.borderColor = rgb(C_YELLOW).CGColor; ring.layer.cornerRadius = 8;
-            [self place:ring into:pv x:4 y:56 w:48 h:26 right:NO];
+            [self place:ring into:pv x:4 y:56 w:26 h:26 right:NO];
         }
         [self place:[self pic:@"touch_left"] into:pv x:5 y:84 w:28 h:28 right:NO];
         [self place:[self pic:@"touch_right"] into:pv x:38 y:84 w:28 h:28 right:NO];
-        [self place:[self pic:@"touch_gas"] into:pv x:5 y:84 w:28 h:28 right:YES];
+        if (k != 1) [self place:[self pic:@"touch_gas"] into:pv x:5 y:84 w:28 h:28 right:YES];   // Mobile: auto gas, no gas button
         [self place:[self pic:@"touch_brake"] into:pv x:38 y:90 w:21 h:21 right:YES];
         [self place:[self pic:@"touch_drift"] into:pv x:6 y:54 w:25 h:25 right:YES];
         [self place:[self pic:@"touch_item"] into:pv x:37 y:62 w:22 h:22 right:YES];
     }
     NSArray *names = @[[self t:@"Classic" zh:@"经典"], [self t:@"Mobile" zh:@"手游"], [self t:@"Keyboard / controller" zh:@"键盘 / 手柄"]];
     NSArray *subs = @[[self t:@"Touch buttons, hold to drive. Arrange your HUD and buttons next." zh:@"触屏按键，按住油门。下一步调整 HUD 和按键。"],
-                      [self t:@"Auto gas, tap to drift: two switches above the steering. Arrange your HUD and buttons next." zh:@"自动油门，轻点漂移：方向键上方有两个开关。下一步调整 HUD 和按键。"],
+                      [self t:@"Auto gas: no gas button, a switch above the steering turns it off. Arrange your HUD and buttons next." zh:@"自动油门：没有油门键，方向键上方的开关可以关闭。下一步调整 HUD 和按键。"],
                       [self t:@"On-screen controls hidden (0% opacity)." zh:@"隐藏屏幕按键（透明度 0%）。"]];
     UILabel *sub = ck_label(subs[k], f_body(13, UIFontWeightSemibold), C_SUB);
     sub.numberOfLines = 0;
