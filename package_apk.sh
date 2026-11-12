@@ -32,7 +32,8 @@ rm -rf $OUT/res.zip && "$BT/aapt2.exe" compile --dir android/res -o $OUT/res.zip
 # login screen (Java) -> classes.dex
 rm -rf $OUT/classes && mkdir -p $OUT/classes $OUT/dex
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -bootclasspath "$SDK/platforms/android-34/android.jar" -d $OUT/classes android/java/com/crazykart/legacy/*.java 2>&1 | grep -v "warning: \[options\]" || true
-"$BT/d8.bat" --min-api 26 --lib "$SDK/platforms/android-34/android.jar" --output $OUT/dex $OUT/classes/com/crazykart/legacy/*.class
+rm -f $OUT/classes.jar && jar cf $OUT/classes.jar -C $OUT/classes .     # one jar: 140+ class files overflow d8.bat's command line
+"$BT/d8.bat" --min-api 26 --lib "$SDK/platforms/android-34/android.jar" --output $OUT/dex $OUT/classes.jar
 # native library stored uncompressed (extractNativeLibs=false: loaded straight from the APK)
 python -I - "$OUT/unsigned.apk" "$OUT/lib/arm64-v8a/libck2.so" "$OUT/dex/classes.dex" <<'EOF'
 import sys, zipfile
