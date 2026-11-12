@@ -121,6 +121,10 @@ void plat_open_chat(void) {
     });
 }
 
+// the HTML phone UI's full-screen page (ui_bridge.c, compiled for the lobby swipe): iOS builds ship no page, so the
+// bridge never asks to show it; shortcut: no iOS web view for it yet, add one when the HTML UI goes into iOS builds
+void plat_ui_show(const char *url, int visible) { (void)url; (void)visible; }
+
 // ---- a game text field the player tapped (hle_misc.c ImmSetOpenStatus): typed into it, no Enter (12 Nov 2026)
 void plat_open_text(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
