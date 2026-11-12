@@ -9,20 +9,24 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -35,8 +39,6 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.TextView;
 
 import java.io.ByteArrayOutputStream;
@@ -47,12 +49,18 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /**
  * Sign-in screen in front of the game (the phone's stand-in for the PC launcher).
  * Same protocol as Launcher/login.js: op 0x6F01 = account + password -> 30-day launcher key,
  * op 0x6F03 = account + key -> one-time game pass. The game then starts with
  * -u account -password pass -ad server -port 6910, so the real password never reaches the game.
+ *
+ * Look (12 Nov 2026, the user: "pick the launcher design made in claude design"): the Claude design canvas
+ * "CrazyKart Legacy Mobile Launcher": logo + server + Play on the left, the sign-in card or the racer's profile card
+ * (site profile look) on the right; first start = language -> control type -> HUD editor; Settings = a full-screen
+ * light panel with tabs (Display, Game, Sound, Controls, HUD, Chat macros, Gamma).
  */
 public class LoginActivity extends Activity {
     static final String[] NAMES = {"India", "Hong Kong"}, NAMES_ZH = {"印度", "香港"};
@@ -62,24 +70,32 @@ public class LoginActivity extends Activity {
     static int declinedVersion;          // an app update the player did not install: not asked again until the app restarts
     static final int LOGIN_PORT = 6910;
 
-    EditText user, pass;
-    RadioGroup servers;
-    CheckBox remember;
-    Button play;
-    TextView status;
-    android.widget.ProgressBar bar;
     SharedPreferences prefs;
     // Launcher language (the user, 6 Nov 2026: asked at the first start, the game follows it: CrazyKart.ini Language)
     boolean zh;
     String t(String en, String cn) { return zh ? cn : en; }
-    TextView online;                                  // players online on the picked server (bottom-left of the key art)
     final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
 
-    // PC launcher look (Launcher/styles.css): slab #0e1f5c, ink #131a2e, kart yellow #f5c21b / deep #c98f00,
-    // muted #b7c4e8, glass line rgba(255,255,255,.12), Baloo 2 for display text and Nunito for the rest.
+    // the design's colours: slab #0e1f5c, ink #131a2e, kart yellow #f5c21b / deep #c98f00, muted #b7c4e8; the light
+    // dialogs and Settings: paper #f2f8fc, line #cfdeea, tab rail #e3eef6, sub text #4a5870, edge #7a8ea3, blue #1a4fd6
     static final int SLAB = 0xFF0E1F5C, INK = 0xFF131A2E, YELLOW = 0xFFF5C21B, YELLOW_DEEP = 0xFFC98F00,
-            MUTED = 0xFFB7C4E8, GLASS = 0x0FFFFFFF, GLASS_LINE = 0x1FFFFFFF, ERROR = 0xFFFFAB8F;
-    Typeface baloo, baloo800, nunito;
+            MUTED = 0xFFB7C4E8, GLASS = 0x0FFFFFFF, GLASS_LINE = 0x1FFFFFFF, ERROR = 0xFFFFAB8F,
+            PAPER = 0xFFF2F8FC, LINE = 0xFFCFDEEA, RAIL = 0xFFE3EEF6, SUB = 0xFF4A5870, EDGE = 0xFF7A8EA3,
+            BLUE = 0xFF1A4FD6, PILL_ON = 0xFFFFF4CC, GOLD = 0xFFD4A72C, NIGHT = 0xFF0A1436;
+    Typeface baloo, baloo800, nunito, nunito800;
+
+    FrameLayout root;
+    EditText user, pass;
+    CheckBox remember;
+    TextView formError, signInFirst, status, verText, serverName, playText, cardName;
+    android.widget.ProgressBar bar;
+    LinearLayout formCard, serverPill, playBtn;
+    FrameLayout profile;
+    ImageView playIcon, cover, avatar;
+    Button signInBtn, signOutBtn;
+    int srv;                                          // the picked server
+    String sessionKey = ""; int sessionSrv = -1;      // signed in without "Remember": this run only
+    int base = 0xFF1A4FD6, accent = 0xFF8FD3F2;       // the racer's site profile theme (accent, band)
 
     @Override
     protected void onCreate(Bundle b) {
@@ -88,196 +104,22 @@ public class LoginActivity extends Activity {
         prefs = getSharedPreferences("login", MODE_PRIVATE);
         zh = "zh".equals(prefs.getString("lang", ""));
         Patcher.zh = zh;
-        baloo = font("baloo2.ttf", 700); baloo800 = font("baloo2.ttf", 800); nunito = font("nunito.ttf", 600);
-
-        // left: key art + logo on the slab; right: the launcher's side panel with the form
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.HORIZONTAL);
-        root.setBackgroundColor(SLAB);
-
-        FrameLayout hero = new FrameLayout(this);
-        ImageView art = image("launcher_keyart.png");
-        art.setScaleType(ImageView.ScaleType.CENTER_CROP);          // the key art carries the logo itself
-        hero.addView(art, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
-        root.addView(hero, new LinearLayout.LayoutParams(0, -1, 1));
-
-        LinearLayout side = new LinearLayout(this);
-        side.setOrientation(LinearLayout.VERTICAL);
-        side.setBackgroundColor(INK);
-        root.addView(side, new LinearLayout.LayoutParams(dp(340), -1));
-        View checker = new View(this);
-        checker.setBackground(new Checker(dp(6)));
-        side.addView(checker, new LinearLayout.LayoutParams(-1, dp(12)));
-
-        ScrollView scroll = new ScrollView(this);          // the keyboard can cover the lower half
-        side.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(22);
-        box.setPadding(pad, dp(4), pad, dp(12));
-        scroll.addView(box);
-
-
-        // signed in (a remembered key for the picked server): the account card, as the PC launcher shows it; else the form
-        accountCard = accountCard();
-        box.addView(accountCard, new LinearLayout.LayoutParams(-1, -2));
-        form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        box.addView(form, new LinearLayout.LayoutParams(-1, -2));
-        form.addView(label(t("Username", "用户名")));
-        user = field(false);
-        user.setText(prefs.getString("user", ""));
-        form.addView(user, fieldParams());
-        form.addView(label(t("Password", "密码")));
-        pass = field(true);
-        // "Remember" keeps the 30-day launcher key, never the password: say so instead of an empty box
-        if (!prefs.getString("key", "").isEmpty()) {
-            pass.setHint(t("••••••••  saved", "••••••••  已保存"));
-            pass.setHintTextColor(MUTED);
-        }
-        form.addView(pass, fieldParams());
-
-        box.addView(label(t("Server", "服务器")));
-        servers = new RadioGroup(this);
-        servers.setOrientation(RadioGroup.HORIZONTAL);
-        servers.setBackground(round(0x40000000, GLASS_LINE, 999));
-        servers.setPadding(dp(4), dp(4), dp(4), dp(4));
-        for (int i = 0; i < NAMES.length; i++) {
-            RadioButton r = new RadioButton(this);
-            r.setId(100 + i);
-            r.setText(zh ? NAMES_ZH[i] : NAMES[i]);
-            r.setButtonDrawable(null);
-            r.setGravity(Gravity.CENTER);
-            r.setTypeface(baloo);
-            r.setTextSize(15);
-            StateListDrawable bg = new StateListDrawable();
-            bg.addState(new int[]{android.R.attr.state_checked}, round(YELLOW, 0, 999));
-            bg.addState(new int[]{}, round(0, 0, 999));
-            r.setBackground(bg);
-            r.setTextColor(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{INK, MUTED}));
-            servers.addView(r, new RadioGroup.LayoutParams(0, dp(36), 1));
-        }
-        servers.check(100 + prefs.getInt("server", 0));
-        box.addView(servers, new LinearLayout.LayoutParams(-1, -2));
-
-        remember = check(t("Remember this phone", "记住此手机"), t(" (30 days)", "（30天）"));
-        remember.setChecked(prefs.getBoolean("remember", true));
-        box.addView(remember);
-
-        status = new TextView(this);
-        status.setTextColor(ERROR);
-        status.setTypeface(nunito);
-        status.setTextSize(13);
-        status.setMinHeight(dp(16));
-        box.addView(status);
-        bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100);
-        bar.setProgressTintList(ColorStateList.valueOf(YELLOW));
-        bar.setVisibility(View.GONE);
-        box.addView(bar, new LinearLayout.LayoutParams(-1, dp(8)));
-
-        play = new Button(this);
-        play.setText(prefs.getString("key", "").isEmpty() ? t("Sign in", "登录") : t("Play", "开始游戏"));
-        play.setAllCaps(false);
-        play.setTypeface(baloo800);
-        play.setTextSize(22);
-        play.setTextColor(INK);
-        play.setStateListAnimator(null);
-        LayerDrawable pill = new LayerDrawable(new Drawable[]{round(YELLOW_DEEP, 0, 999), round(YELLOW, 0, 999)});
-        pill.setLayerInset(1, 0, 0, 0, dp(4));                  // the deep yellow "step" under the button
-        play.setBackground(pill);
-        play.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { go(); } });
-        // Play and HUD layout side by side: the whole panel fits a landscape phone without scrolling
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(play, new LinearLayout.LayoutParams(0, dp(52), 2));
-
-        Button hud = new Button(this);
-        hud.setText("HUD");
-        hud.setAllCaps(false);
-        hud.setTypeface(baloo);
-        hud.setTextSize(15);
-        hud.setTextColor(Color.WHITE);
-        hud.setStateListAnimator(null);
-        hud.setBackground(round(GLASS, GLASS_LINE, 999));
-        hud.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { startActivity(new Intent(LoginActivity.this, HudEditorActivity.class)); } });
-        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        hlp.leftMargin = dp(8);
-        row.addView(hud, hlp);
-        Button gfx = new Button(this);
-        gfx.setText(t("Settings", "设置"));
-        gfx.setAllCaps(false);
-        gfx.setTypeface(baloo);
-        gfx.setTextSize(13);
-        gfx.setTextColor(Color.WHITE);
-        gfx.setStateListAnimator(null);
-        gfx.setBackground(round(GLASS, GLASS_LINE, 999));
-        gfx.setPadding(0, 0, 0, 0);
-        gfx.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showGraphics(); } });
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(0, dp(44), 1.3f);
-        glp.leftMargin = dp(8);
-        row.addView(gfx, glp);
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
-        rlp.topMargin = dp(2);
-        box.addView(row, rlp);
-
-        heroView = hero;
-        online = new TextView(this);
-        online.setTextColor(Color.WHITE);
-        online.setTypeface(baloo);
-        online.setTextSize(14);
-        online.setBackground(round(0xB0131A2E, GLASS_LINE, 999));
-        online.setPadding(dp(14), dp(5), dp(16), dp(5));
-        online.setVisibility(View.GONE);
-        FrameLayout.LayoutParams olp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
-        olp.leftMargin = dp(16); olp.bottomMargin = dp(16);
-        hero.addView(online, olp);
-        servers.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
-            public void onCheckedChanged(RadioGroup g, int id) { online.setVisibility(View.GONE); refreshOnline(); status.setText(""); showSignedIn(); }
-        });
-        showSignedIn();
-        ui.post(onlineTick);
-        patchNotes(hero);
+        baloo = font("baloo2.ttf", 700); baloo800 = font("baloo2.ttf", 800); nunito = font("nunito.ttf", 600); nunito800 = font("nunito.ttf", 800);
+        srv = Math.max(0, Math.min(NAMES.length - 1, prefs.getInt("server", 0)));
+        int[] th = themeColours(prefs.getString("theme", "sky"));
+        base = th[0]; accent = th[1];
+        root = new FrameLayout(this);
+        root.addView(mainScreen(), new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
-        if (!prefs.contains("lang")) askLanguage();
-        else if (!prefs.contains("controltype")) askControls();
+        showSignedIn();
+        if (!prefs.contains("lang")) showLanguage();
+        else if (!prefs.contains("controltype")) showControlType();
     }
 
-    // ---- control type: asked once, at the first start, after the language (the user, 12 Nov 2026)
-    // Classic -> the HUD editor as it is; Mobile -> Mobile touch controls on + the editor with the on-screen buttons
-    // only; Keyboard / controller -> the on-screen controls at opacity 0 (hud_layout.txt touch_opacity).
-    void askControls() {
-        String[] items = {t("Classic  (touch buttons, hold to drive)", "经典  （触屏按键，按住油门）"),
-                          t("Mobile  (auto gas, tap to drift)", "手游  （自动油门，轻点漂移）"),
-                          t("Keyboard / controller", "键盘 / 手柄")};
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(t("How do you want to play?", "选择操作方式"))
-                .setCancelable(false)
-                .setItems(items, new android.content.DialogInterface.OnClickListener() {
-                    public void onClick(android.content.DialogInterface d, int w) { setControls(w); } })
-                .show();
-    }
-    void setControls(int w) {
-        prefs.edit().putString("controltype", w == 1 ? "mobile" : w == 2 ? "keyboard" : "classic").putBoolean("touchmobile", w == 1).apply();
-        if (w == 2) { setTouchOpacity(0); return; }
-        startActivity(new Intent(this, HudEditorActivity.class).putExtra("mobile", w == 1));
-    }
-    // hud_layout.txt keeps the HUD editor's positions; only its touch_opacity line changes
-    void setTouchOpacity(float a) {
-        File f = gameFile("hud_layout.txt");
-        byte[] old = readAll(f);
-        StringBuilder sb = new StringBuilder();
-        if (old != null)
-            for (String line : new String(old, StandardCharsets.UTF_8).split("\n"))
-                if (!line.trim().startsWith("touch_opacity") && !line.trim().isEmpty()) sb.append(line.trim()).append('\n');
-        sb.append(String.format(java.util.Locale.ROOT, "touch_opacity %.2f\n", a));
-        try {
-            f.getParentFile().mkdirs();
-            FileOutputStream o = new FileOutputStream(f);
-            o.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-            o.close();
-        } catch (Exception ignored) { }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (setPanel != null) { opts.opacity = readOpacity(); if ("hud".equals(tab)) fillTab(); }   // back from the HUD editor
     }
 
     @Override
@@ -286,506 +128,310 @@ public class LoginActivity extends Activity {
         super.onDestroy();
     }
 
-    // ---- patch notes: the PC launcher's list (site patchnotes.json, newest first), last copy kept for offline starts;
-    // a card on the key art's right, items in the launcher language (the file has each line in English and Chinese)
-    static final String NOTES_URL = "https://crazykartlegacy.com/patchnotes.json";
-    View notes;
-    void patchNotes(final FrameLayout hero) {
-        final String cached = prefs.getString("notes", null);
-        if (cached != null) showNotes(hero, cached);
-        new Thread(new Runnable() { public void run() {
-            try {
-                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(NOTES_URL).openConnection();
-                c.setConnectTimeout(6000); c.setReadTimeout(8000);
-                if (c.getResponseCode() != 200) return;
-                final String j = new String(ShopSync.readAll(c.getInputStream()), StandardCharsets.UTF_8);
-                new org.json.JSONArray(j);                               // only a list that parses replaces the copy
-                if (j.equals(cached)) return;
-                prefs.edit().putString("notes", j).apply();
-                runOnUiThread(new Runnable() { public void run() { showNotes(hero, j); } });
-            } catch (Exception ignored) { }
-        } }).start();
-    }
-    static boolean cjk(String s) {
-        for (int i = 0; i < s.length(); i++) { char ch = s.charAt(i); if (ch >= 0x3000 && ch <= 0x9fff || ch >= 0xff00 && ch <= 0xffef) return true; }
-        return false;
-    }
-    void showNotes(FrameLayout hero, String json) {
-        org.json.JSONArray a;
-        try { a = new org.json.JSONArray(json); } catch (Exception e) { return; }
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(16), dp(12), dp(16), dp(14));
-        TextView head = new TextView(this);
-        head.setText(t("PATCH NOTES", "更新公告"));
-        head.setTextColor(YELLOW); head.setTypeface(baloo800); head.setTextSize(16); head.setLetterSpacing(0.06f);
-        list.addView(head);
-        for (int i = 0; i < Math.min(a.length(), 8); i++) {
-            org.json.JSONObject n = a.optJSONObject(i);
-            if (n == null) continue;
-            TextView v = new TextView(this);
-            v.setText(n.optString("version") + "  ·  " + n.optString("date"));
-            v.setTextColor(MUTED); v.setTypeface(baloo); v.setTextSize(11);
-            v.setPadding(0, dp(i == 0 ? 6 : 14), 0, 0);
-            list.addView(v);
-            TextView ti = new TextView(this);
-            ti.setText(n.optString("title"));
-            ti.setTextColor(Color.WHITE); ti.setTypeface(baloo800); ti.setTextSize(14);
-            list.addView(ti);
-            org.json.JSONArray it = n.optJSONArray("items");
-            StringBuilder b = new StringBuilder();
-            for (int k = 0; it != null && k < it.length(); k++) {
-                String line = it.optString(k);
-                if (cjk(line) != zh) continue;
-                if (b.length() > 0) b.append('\n');
-                b.append("•  ").append(line);
-            }
-            if (b.length() == 0) continue;
-            TextView body = new TextView(this);
-            body.setText(b);
-            body.setTextColor(0xFFDDE4F7); body.setTypeface(nunito); body.setTextSize(12); body.setLineSpacing(dp(2), 1);
-            body.setPadding(0, dp(3), 0, 0);
-            list.addView(body);
-        }
-        ScrollView sv = new ScrollView(this);
-        sv.setBackground(round(0xB0131A2E, GLASS_LINE, 16));
-        sv.setVerticalScrollBarEnabled(false);
-        sv.addView(list);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(300), -1, Gravity.END | Gravity.TOP);
-        lp.setMargins(dp(16), dp(16), dp(16), dp(16));
-        if (notes != null) hero.removeView(notes);
-        hero.addView(sv, lp);
-        notes = sv;
-        if (gfxPanel != null) { sv.setVisibility(View.GONE); gfxPanel.bringToFront(); }
+    // ---- the main screen ---------------------------------------------------------------------------------------------
+    View mainScreen() {
+        LinearLayout m = new LinearLayout(this);
+        m.setOrientation(LinearLayout.HORIZONTAL);
+        m.setPadding(dp(40), dp(18), dp(40), dp(18));
+
+        LinearLayout left = vbox();
+        left.setGravity(Gravity.CENTER_VERTICAL);
+        m.addView(left, new LinearLayout.LayoutParams(dp(330), -1));
+        ImageView logo = image("launcher_logo.png");
+        logo.setAdjustViewBounds(true);
+        logo.setContentDescription("CrazyKart Legacy");
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, dp(110));
+        llp.gravity = Gravity.CENTER_HORIZONTAL; llp.bottomMargin = dp(18);
+        left.addView(logo, llp);
+
+        // server: a pill that opens the list above it (both signed in and out: the sign-in goes to the picked server)
+        serverPill = hbox();
+        serverPill.setPadding(dp(16), 0, dp(14), 0);
+        serverPill.addView(icon(Icon.SERVER, 0xFFA9BDB0, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        serverName = text("", 17, Color.WHITE, baloo800);
+        serverName.setPadding(dp(12), 0, dp(8), 0);
+        serverPill.addView(serverName, new LinearLayout.LayoutParams(0, -2, 1));
+        serverPill.addView(icon(Icon.CHEVRON_UP, 0xFFCFDCD3, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        serverPill.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { pickServer(); } });
+        left.addView(serverPill, lp(-1, dp(48), 0, 0, 0, dp(10)));
+
+        playBtn = hbox();
+        playBtn.setGravity(Gravity.CENTER);
+        playIcon = icon(Icon.PLAY, INK, 22);
+        playBtn.addView(playIcon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        playText = text(t("Play", "开始游戏"), 24, INK, baloo800);
+        playText.setPadding(dp(10), 0, 0, 0);
+        playBtn.addView(playText);
+        playBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { go(); } });
+        left.addView(playBtn, lp(-1, dp(56), 0, 0, 0, 0));
+        signInFirst = text(t("Sign in first.", "请先登录。"), 13, MUTED, nunito800);
+        signInFirst.setGravity(Gravity.CENTER);
+        left.addView(signInFirst, lp(-1, -2, 0, dp(4), 0, 0));
+        status = text("", 13, MUTED, nunito);
+        status.setGravity(Gravity.CENTER);
+        status.setVisibility(View.GONE);
+        left.addView(status, lp(-1, -2, 0, dp(4), 0, 0));
+        bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        bar.setProgressTintList(ColorStateList.valueOf(YELLOW));
+        bar.setVisibility(View.GONE);
+        left.addView(bar, lp(-1, dp(6), 0, dp(4), 0, 0));
+
+        LinearLayout tools = hbox();
+        LinearLayout set = hbox();
+        set.setPadding(dp(12), 0, dp(16), 0);
+        set.setBackground(round(0x40000000, 0x29FFFFFF, 999));
+        set.addView(icon(Icon.GEAR, Color.WHITE, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView st = text(t("Settings", "设置"), 15, Color.WHITE, baloo);
+        st.setPadding(dp(8), 0, 0, 0);
+        set.addView(st);
+        set.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showSettings(); } });
+        tools.addView(set, new LinearLayout.LayoutParams(-2, dp(44)));
+        String ver = "";
+        try { ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
+        verText = text(t("Launcher ", "启动器 ") + ver, 12, MUTED, nunito);
+        verText.setGravity(Gravity.END);
+        tools.addView(verText, new LinearLayout.LayoutParams(0, -2, 1));
+        left.addView(tools, lp(-1, -2, 0, dp(10), 0, 0));
+
+        ScrollView sc = new ScrollView(this);             // the keyboard can cover the card
+        sc.setFillViewport(true);
+        sc.setVerticalScrollBarEnabled(false);
+        LinearLayout rc = vbox();
+        rc.setGravity(Gravity.CENTER_VERTICAL);
+        sc.addView(rc, new FrameLayout.LayoutParams(-1, -1));
+        formCard = signInCard();
+        rc.addView(formCard, new LinearLayout.LayoutParams(-1, -2));
+        profile = profileCard();
+        rc.addView(profile, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, -1, 1);
+        rlp.leftMargin = dp(28);
+        m.addView(sc, rlp);
+        return m;
     }
 
-    // ---- players online: <server API>/launcher/online {"online": n}, every 30 s; hidden while Settings is open
-    final Runnable onlineTick = new Runnable() { public void run() { refreshOnline(); ui.postDelayed(this, 30000); } };
-    void refreshOnline() {
-        final int srv = servers.getCheckedRadioButtonId() - 100;
-        if (srv < 0 || srv >= API.length) return;
-        new Thread(new Runnable() { public void run() {
-            try {
-                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(API[srv] + "/launcher/online").openConnection();
-                c.setConnectTimeout(6000); c.setReadTimeout(6000);
-                if (c.getResponseCode() != 200) return;
-                final int n = new org.json.JSONObject(new String(ShopSync.readAll(c.getInputStream()), StandardCharsets.UTF_8)).getInt("online");
-                runOnUiThread(new Runnable() { public void run() {
-                    if (servers.getCheckedRadioButtonId() - 100 != srv) return;          // switched meanwhile
-                    android.text.SpannableString s = new android.text.SpannableString("●  " + n + t(" online", " 在线"));
-                    s.setSpan(new android.text.style.ForegroundColorSpan(0xFF3CCF52), 0, 1, 0);
-                    online.setText(s);
-                    online.setVisibility(gfxPanel == null ? View.VISIBLE : View.GONE);
-                } });
-            } catch (Exception ignored) { }
-        } }).start();
-    }
-
-    // ---- language: asked once, at the first start; the launcher and the game (CrazyKart.ini Language) follow it
-    void askLanguage() {
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Language / 语言")
-                .setMessage("Choose your language\n选择你的语言")
-                .setCancelable(false)
-                .setPositiveButton("English", new android.content.DialogInterface.OnClickListener() {
-                    public void onClick(android.content.DialogInterface d, int w) { setLanguage(false); } })
-                .setNegativeButton("中文", new android.content.DialogInterface.OnClickListener() {
-                    public void onClick(android.content.DialogInterface d, int w) { setLanguage(true); } })
-                .show();
-    }
-    void setLanguage(boolean cn) {
-        prefs.edit().putString("lang", cn ? "zh" : "en").apply();
-        File inf = gameFile("CrazyKart.ini");
-        byte[] ib = readAll(inf);
-        try {
-            FileOutputStream o = new FileOutputStream(inf);
-            o.write(iniSet(ib == null ? "" : new String(ib, StandardCharsets.UTF_8), "Language", cn ? 1 : 0).getBytes(StandardCharsets.UTF_8));
-            o.close();
-        } catch (Exception ignored) { }
-        if (cn != zh) recreate();                                      // onCreate then asks the control type
-        else if (!prefs.contains("controltype")) askControls();
-    }
-
-    // ---- Graphics (the PC launcher's Display / Gamma settings that matter on a phone) ----------------------
-    // UserSetting.bin (same layout as Launcher/settings-store.js): 0x18 u32 detail (0 High, 1 Middle), 0x1c f32 gamma.
-    // CrazyKart.ini [Option]: VSync=1 caps at the screen rate, else MaxFps=N (HighRefresh = limiter on).
-    // Resolution / window mode stay as the phone needs them (1280x720 windowed: HUD layout + touch controls).
-    FrameLayout heroView;
-    View gfxPanel;
-    static final int[] FPS = {0, 30, 60, 90, 120};
-    static final String[] FPS_NAMES = {"Auto", "30", "60", "90", "120"};   // Auto = VSync: the screen's rate
-
-    // the game folder appears with the first Play (data unpack): Settings saved before that failed ("file not found")
-    File gameFile(String name) {
-        File d = new File(getExternalFilesDir(null), "game");
-        d.mkdirs();
-        return new File(d, name);
-    }
-
-    byte[] readAll(File f) {
-        try (InputStream in = new java.io.FileInputStream(f)) {
-            ByteArrayOutputStream o = new ByteArrayOutputStream();
-            byte[] b = new byte[8192]; int n;
-            while ((n = in.read(b)) > 0) o.write(b, 0, n);
-            return o.toByteArray();
-        } catch (Exception e) { return null; }
-    }
-
-    String iniGet(String ini, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?m)^" + key + "=(\\d+)").matcher(ini);
-        return m.find() ? m.group(1) : null;
-    }
-
-    String iniSet(String ini, String key, int v) {
-        String line = key + "=" + v;
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?m)^" + key + "=.*$");
-        if (p.matcher(ini).find()) return p.matcher(ini).replaceFirst(line);
-        int at = ini.indexOf("[Option]");
-        if (at < 0) return ini + "\r\n[Option]\r\n" + line + "\r\n";
-        int eol = ini.indexOf('\n', at);
-        return eol < 0 ? ini + "\r\n" + line : ini.substring(0, eol + 1) + line + "\r\n" + ini.substring(eol + 1);
-    }
-
-    RadioGroup segmented(String[] names, int selected) {
-        RadioGroup g = new RadioGroup(this);
-        g.setOrientation(RadioGroup.HORIZONTAL);
-        g.setBackground(round(0x40000000, GLASS_LINE, 999));
-        g.setPadding(dp(4), dp(4), dp(4), dp(4));
-        for (int i = 0; i < names.length; i++) {
-            RadioButton r = new RadioButton(this);
-            r.setId(200 + i);
-            r.setText(names[i]);
-            r.setButtonDrawable(null);
-            r.setGravity(Gravity.CENTER);
-            r.setTypeface(baloo);
-            r.setTextSize(14);
-            StateListDrawable bg = new StateListDrawable();
-            bg.addState(new int[]{android.R.attr.state_checked}, round(YELLOW, 0, 999));
-            bg.addState(new int[]{}, round(0, 0, 999));
-            r.setBackground(bg);
-            r.setTextColor(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{INK, MUTED}));
-            g.addView(r, new RadioGroup.LayoutParams(0, dp(34), 1));
-        }
-        g.check(200 + selected);
-        return g;
-    }
-
-    void showGraphics() {
-        if (gfxPanel != null) return;
-        phoneDisplay();                                       // a fresh install has no UserSetting.bin yet
-        final File usf = gameFile("UserSetting.bin"), inf = gameFile("CrazyKart.ini");
-        final byte[] us = readAll(usf);
-        byte[] ib = readAll(inf);
-        final String ini = ib == null ? "" : new String(ib, StandardCharsets.UTF_8);
-        int detail = 0; float gamma = 1f;
-        if (us != null && us.length >= 0x20) {
-            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(us).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-            detail = Math.min(1, Math.max(0, bb.getInt(0x18)));
-            gamma = bb.getFloat(0x1c);
-            if (!(gamma >= 0.5f && gamma <= 3f)) gamma = 1f;
-        }
-        String vs = iniGet(ini, "VSync"), mf = iniGet(ini, "MaxFps");
-        // Language (CrazyKart.ini [Option] Language: 0 English, 1 Chinese -- the game reads CN\ data itself, as on PC)
-        final int langSel = zh ? 1 : 0;
-        int fpsSel = 0;
-        if (!"1".equals(vs) && mf != null) for (int i = 1; i < FPS.length; i++) if (FPS[i] == Integer.parseInt(mf)) fpsSel = i;
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(round(0xF2131A2E, GLASS_LINE, 16));
-        card.setPadding(dp(20), dp(14), dp(20), dp(16));
-        card.setClickable(true);
-        TextView t = new TextView(this);
-        t.setText(t("SETTINGS", "设置"));
-        t.setTextColor(Color.WHITE);
-        t.setTypeface(baloo800);
-        t.setTextSize(22);
-        // title + an X: close without saving (back to the key art, the online count, the Play button)
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView close = new TextView(this);
-        close.setText("✕");
-        close.setTextColor(Color.WHITE);
-        close.setTextSize(18);
-        close.setGravity(Gravity.CENTER);
-        close.setBackground(round(GLASS, GLASS_LINE, 999));
-        close.setContentDescription(t("Close", "关闭"));
-        close.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            if (gfxPanel == null) return;
-            heroView.removeView(gfxPanel);
-            gfxPanel = null;
-            if (online.getText().length() > 0) online.setVisibility(View.VISIBLE);
-            if (notes != null) notes.setVisibility(View.VISIBLE);
+    LinearLayout signInCard() {
+        LinearLayout c = vbox();
+        c.setBackground(round(0x40000000, 0x24FFFFFF, 16));
+        c.setClipToOutline(true);
+        LinearLayout in = vbox();
+        in.setPadding(dp(18), dp(16), dp(18), dp(16));
+        LinearLayout grid = hbox();
+        grid.setGravity(Gravity.TOP);
+        LinearLayout c1 = vbox(), c2 = vbox();
+        c1.addView(fieldLabel(t("Username", "账号")));
+        user = field(false);
+        user.setText(prefs.getString("user", ""));
+        c1.addView(user, new LinearLayout.LayoutParams(-1, dp(44)));
+        c2.addView(fieldLabel(t("Password", "密码")));
+        FrameLayout pw = new FrameLayout(this);
+        pass = field(true);
+        pass.setPadding(dp(12), 0, dp(46), 0);
+        pw.addView(pass, new FrameLayout.LayoutParams(-1, dp(44)));
+        final ImageView eye = icon(Icon.EYE, MUTED, 19);
+        eye.setScaleType(ImageView.ScaleType.CENTER);
+        eye.setContentDescription(t("Show password", "显示密码"));
+        eye.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            boolean show = (pass.getInputType() & InputType.TYPE_TEXT_VARIATION_PASSWORD) != 0;
+            pass.setInputType(show ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                                   : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            pass.setTypeface(nunito);
+            pass.setSelection(pass.getText().length());
+            eye.setImageDrawable(new Icon(show ? Icon.EYE_OFF : Icon.EYE, show ? YELLOW : MUTED, dp(19)));
+            eye.setContentDescription(show ? t("Hide password", "隐藏密码") : t("Show password", "显示密码"));
         } });
-        head.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        card.addView(head, new LinearLayout.LayoutParams(-1, -2));
-        card.addView(label(t("Language", "语言")));
-        final RadioGroup lang = segmented(new String[]{"English", "中文"}, langSel);
-        card.addView(lang, new LinearLayout.LayoutParams(-1, -2));
-        card.addView(label(t("Screen", "画面")));
-        final RadioGroup wide = segmented(new String[]{t("Fill screen", "全屏"), t("16:9 with bars", "16:9 黑边")}, prefs.getBoolean("wide", true) ? 0 : 1);
-        card.addView(wide, new LinearLayout.LayoutParams(-1, -2));
-        // Render quality: the 3D drawn smaller and scaled up (more fps on phone GPUs); 100 % = full sharpness
-        // a slider, 50-100 % in 5 % steps (the runtime takes 50-99, 100 = off)
-        final TextView rqLabel = label("");
-        card.addView(rqLabel);
-        final android.widget.SeekBar rq = new android.widget.SeekBar(this);
-        rq.setMax(10);
-        rq.setProgress(Math.max(0, Math.min(10, (prefs.getInt("scale", 100) - 50) / 5)));
-        rq.setProgressTintList(ColorStateList.valueOf(YELLOW));
-        rq.setThumbTintList(ColorStateList.valueOf(YELLOW));
-        final Runnable showRq = new Runnable() { public void run() {
-            rqLabel.setText(t("Render quality  ", "渲染质量  ") + (50 + rq.getProgress() * 5) + "%"
-                    + (rq.getProgress() == 10 ? t("  (full)", "  （原画）") : ""));
-        } };
-        showRq.run();
-        rq.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(android.widget.SeekBar s, int v, boolean u) { showRq.run(); }
-            public void onStartTrackingTouch(android.widget.SeekBar s) { }
-            public void onStopTrackingTouch(android.widget.SeekBar s) { }
-        });
-        card.addView(rq, new LinearLayout.LayoutParams(-1, -2));
-        card.addView(label(t("Graphics detail", "画质")));
-        final RadioGroup det = segmented(new String[]{t("High", "高"), t("Middle", "中")}, detail);
-        card.addView(det, new LinearLayout.LayoutParams(-1, -2));
-        // other players' kart accessories (back, top, horn, exhaust, wheels, aura): hidden = fewer models to draw;
-        // the server leaves them out of what it sends this player (X-CK-Accessories, server.py HIDE_PROPS)
-        card.addView(label(t("Other players' accessories", "其他玩家的赛车配件")));
-        final RadioGroup acc = segmented(new String[]{t("Show", "显示"), t("Hide", "隐藏")}, prefs.getBoolean("accessories", true) ? 0 : 1);
-        card.addView(acc, new LinearLayout.LayoutParams(-1, -2));
-        // race speed-ups (gpu_wgpu.c): less vertex data per draw / the game's DXT textures as ETC2 (1 byte a pixel, not 4)
-        card.addView(label(t("Compact 3D data", "精简3D数据")));
-        final RadioGroup lean = segmented(new String[]{t("On", "开"), t("Off", "关")}, prefs.getBoolean("lean", false) ? 0 : 1);
-        card.addView(lean, new LinearLayout.LayoutParams(-1, -2));
-        card.addView(label(t("Compressed textures", "纹理压缩")));
-        final RadioGroup etc2 = segmented(new String[]{t("On", "开"), t("Off", "关")}, prefs.getBoolean("etc2", false) ? 0 : 1);
-        card.addView(etc2, new LinearLayout.LayoutParams(-1, -2));
-        // Effects (d3d9.c): Fewer = no additive glows in races (item halos, sparks, trails, flames, aura glows)
-        card.addView(label(t("Effects", "特效")));
-        final RadioGroup fx = segmented(new String[]{t("All", "全部"), t("Fewer", "精简")}, prefs.getBoolean("effects", true) ? 0 : 1);
-        card.addView(fx, new LinearLayout.LayoutParams(-1, -2));
-        // Touch controls (touch_ui.c): Mobile = AUTO GAS + TAP DRIFT switches on the race screen (phone-style driving)
-        card.addView(label(t("Touch controls", "触屏操作")));
-        final RadioGroup tc = segmented(new String[]{t("Classic", "经典"), t("Mobile", "手游")}, prefs.getBoolean("touchmobile", false) ? 1 : 0);
-        card.addView(tc, new LinearLayout.LayoutParams(-1, -2));
-        card.addView(label(t("Frame rate cap", "帧率上限")));
-        String[] fpsNames = FPS_NAMES.clone();
-        fpsNames[0] = t("Auto", "自动");
-        final RadioGroup fps = segmented(fpsNames, fpsSel);
-        card.addView(fps, new LinearLayout.LayoutParams(-1, -2));
-        final TextView gl = label("");
-        card.addView(gl);
-        final android.widget.SeekBar gs = new android.widget.SeekBar(this);
-        gs.setMax(25);                                        // 0.5 .. 3.0 in 0.1 steps, like the launcher's slider
-        gs.setProgress(Math.round(gamma * 10) - 5);
-        gs.setProgressTintList(ColorStateList.valueOf(YELLOW));
-        gs.setThumbTintList(ColorStateList.valueOf(YELLOW));
-        final Runnable showGamma = new Runnable() { public void run() { gl.setText(String.format(java.util.Locale.ROOT, "Gamma  %.1f", (gs.getProgress() + 5) / 10f)); } };
-        showGamma.run();
-        gs.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(android.widget.SeekBar s, int v, boolean u) { showGamma.run(); }
-            public void onStartTrackingTouch(android.widget.SeekBar s) { }
-            public void onStopTrackingTouch(android.widget.SeekBar s) { }
-        });
-        card.addView(gs, new LinearLayout.LayoutParams(-1, -2));
+        pw.addView(eye, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END));
+        c2.addView(pw);
+        grid.addView(c1, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams c2p = new LinearLayout.LayoutParams(0, -2, 1);
+        c2p.leftMargin = dp(10);
+        grid.addView(c2, c2p);
+        in.addView(grid);
+        remember = check(t("Remember this device", "在此设备上记住我"), t(" (30 days)", "（30天）"));
+        remember.setChecked(prefs.getBoolean("remember", true));
+        in.addView(remember, lp(-2, dp(36), 0, dp(10), 0, 0));
+        formError = text("", 13, ERROR, nunito800);
+        formError.setVisibility(View.GONE);
+        in.addView(formError);
+        signInBtn = yellowButton(t("Sign in", "登录"), 21);
+        signInBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { signIn(); } });
+        in.addView(signInBtn, lp(-1, dp(50), 0, dp(10), 0, 0));
+        c.addView(in);
+        View chk = new View(this);
+        chk.setBackground(new Checker(dp(5)));
+        c.addView(chk, new LinearLayout.LayoutParams(-1, dp(10)));
+        return c;
+    }
 
-        // Controls: one keyboard key + one controller button (or stick / trigger direction) per game action
-        card.addView(label(t("Controls  (keyboard · controller)", "按键  （键盘 · 手柄）")));
-        final Button[] kbBtn = new Button[Controls.ID.length], padBtn = new Button[Controls.ID.length];
-        for (int i = 0; i < Controls.ID.length; i++) {
-            final int ai = i;
-            LinearLayout r = new LinearLayout(this);
-            r.setOrientation(LinearLayout.HORIZONTAL);
-            r.setGravity(Gravity.CENTER_VERTICAL);
-            TextView name = new TextView(this);
-            name.setText(zh ? Controls.ZH[i] : Controls.EN[i]);
-            name.setTextColor(MUTED); name.setTypeface(nunito); name.setTextSize(13);
-            r.addView(name, new LinearLayout.LayoutParams(0, -2, 1.25f));
-            kbBtn[i] = bindButton(Controls.name(Controls.kb(prefs, i), zh));
-            padBtn[i] = bindButton(Controls.name(Controls.pad(prefs, i), zh));
-            kbBtn[i].setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-                Controls.capture(LoginActivity.this, false, zh, new Controls.Got() { public void codes(int[] c) {
-                    int code = c.length > 0 ? c[0] : 0;
-                    prefs.edit().putInt("kb_" + Controls.ID[ai], code).apply();
-                    kbBtn[ai].setText(Controls.name(code, zh));
-                } });
-            } });
-            padBtn[i].setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-                Controls.capture(LoginActivity.this, false, zh, new Controls.Got() { public void codes(int[] c) {
-                    int code = c.length > 0 ? c[0] : 0;
-                    prefs.edit().putInt("pad_" + Controls.ID[ai], code).apply();
-                    padBtn[ai].setText(Controls.name(code, zh));
-                } });
-            } });
-            r.addView(kbBtn[i], new LinearLayout.LayoutParams(0, dp(34), 1));
-            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(34), 1);
-            plp.leftMargin = dp(6);
-            r.addView(padBtn[i], plp);
-            LinearLayout.LayoutParams rlp2 = new LinearLayout.LayoutParams(-1, -2);
-            rlp2.topMargin = dp(4);
-            card.addView(r, rlp2);
+    FrameLayout profileCard() {
+        FrameLayout c = new FrameLayout(this);
+        c.setClipToOutline(true);
+        LinearLayout col = vbox();
+        View gold = new View(this);
+        gold.setBackgroundColor(GOLD);
+        col.addView(gold, new LinearLayout.LayoutParams(-1, dp(5)));
+        cover = new ImageView(this);
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cover.setBackground(new Stripes(0xFF151515, 0x0BFFFFFF, dp(10)));
+        col.addView(cover, new LinearLayout.LayoutParams(-1, dp(150)));
+        LinearLayout row = hbox();
+        row.setPadding(dp(14), dp(14), dp(14), dp(18));
+        avatar = image("launcher_avatar.png");
+        avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        avatar.setClipToOutline(true);
+        int ap = dp(2);
+        avatar.setPadding(ap, ap, ap, ap);
+        row.addView(avatar, new LinearLayout.LayoutParams(dp(60), dp(60)));
+        LinearLayout who = vbox();
+        who.setPadding(dp(12), 0, dp(12), 0);
+        cardName = text("", 22, accent, baloo800);
+        cardName.setSingleLine(true);
+        cardName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        who.addView(cardName);
+        LinearLayout idle = hbox();
+        View dot = new View(this);
+        dot.setBackground(round(0xFF8F9AA3, 0, 999));
+        idle.addView(dot, new LinearLayout.LayoutParams(dp(9), dp(9)));
+        TextView it = text(t("Idle", "空闲"), 14, 0xFFB5C2BA, nunito800);
+        it.setPadding(dp(7), 0, 0, 0);
+        idle.addView(it);
+        who.addView(idle);
+        row.addView(who, new LinearLayout.LayoutParams(0, -2, 1));
+        signOutBtn = new Button(this);
+        signOutBtn.setText(t("Sign out", "退出登录"));
+        signOutBtn.setAllCaps(false);
+        signOutBtn.setTypeface(nunito800);
+        signOutBtn.setTextSize(14);
+        signOutBtn.setTextColor(0xFFE6EFE9);
+        signOutBtn.setStateListAnimator(null);
+        signOutBtn.setPadding(dp(16), 0, dp(16), 0);
+        signOutBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { signOut(); } });
+        row.addView(signOutBtn, new LinearLayout.LayoutParams(-2, dp(44)));
+        col.addView(row);
+        c.addView(col);
+        return c;
+    }
+
+    // card or form: signed in = a launcher key for the server that is picked now
+    String currentKey() {
+        String k = prefs.getString("key", "");
+        if (!k.isEmpty() && prefs.getInt("keyServer", -1) == srv) return k;
+        return sessionSrv == srv ? sessionKey : "";
+    }
+
+    void showSignedIn() {
+        boolean in = !currentKey().isEmpty();
+        serverName.setText(zh ? NAMES_ZH[srv] : NAMES[srv]);
+        formCard.setVisibility(in ? View.GONE : View.VISIBLE);
+        profile.setVisibility(in ? View.VISIBLE : View.GONE);
+        signInFirst.setVisibility(in ? View.GONE : View.VISIBLE);
+        signInFirst.setText(!in && !prefs.getString("key", "").isEmpty() ? t("Sign in to this server first.", "请先登录此服务器。") : t("Sign in first.", "请先登录。"));
+        playBtn.setEnabled(in);
+        playBtn.setAlpha(in ? 1f : 0.6f);
+        playBtn.setBackground(in ? step(YELLOW, 0, 0, YELLOW_DEEP, 4, 999) : round(0x1AFFFFFF, 0, 999));
+        playText.setTextColor(in ? INK : MUTED);
+        playIcon.setImageDrawable(new Icon(Icon.PLAY, in ? INK : MUTED, dp(22)));
+        if (in) {
+            String user = prefs.getString("user", "");
+            cardName.setText(prefs.getString("nick", "").isEmpty() ? user : prefs.getString("nick", ""));
+            loadSkin(user);
         }
-        Button resetCtl = bindButton(t("Reset controls", "恢复默认按键"));
-        resetCtl.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            SharedPreferences.Editor e = prefs.edit();
-            for (int i = 0; i < Controls.ID.length; i++) {
-                e.remove("kb_" + Controls.ID[i]).remove("pad_" + Controls.ID[i]);
-                kbBtn[i].setText(Controls.name(Controls.KB[i], zh));
-                padBtn[i].setText(Controls.name(Controls.PAD[i], zh));
-            }
-            e.apply();
-        } });
-        LinearLayout.LayoutParams rcl = new LinearLayout.LayoutParams(-1, dp(34));
-        rcl.topMargin = dp(6);
-        card.addView(resetCtl, rcl);
+        applyLook(in);
+    }
 
-        // Chat macros: the game's 9 quick-chat lines (UserSetting.bin, as the PC launcher edits them) + a key or
-        // two-button combination that sends each one
-        card.addView(label(t("Chat macros  (text · key or combo)", "快捷聊天  （内容 · 按键或组合键）")));
-        final EditText[] macroText = new EditText[Controls.MACROS];
-        for (int s = 0; s < Controls.MACROS; s++) {
-            final int slot = s;
-            LinearLayout r = new LinearLayout(this);
-            r.setOrientation(LinearLayout.HORIZONTAL);
-            r.setGravity(Gravity.CENTER_VERTICAL);
-            TextView num = new TextView(this);
-            num.setText(String.valueOf(s + 1));
-            num.setTextColor(MUTED); num.setTypeface(baloo); num.setTextSize(14);
-            r.addView(num, new LinearLayout.LayoutParams(dp(18), -2));
-            macroText[s] = new EditText(this);
-            macroText[s].setSingleLine(true);
-            macroText[s].setText(macro(us, s));
-            macroText[s].setTextColor(Color.WHITE); macroText[s].setTextSize(13); macroText[s].setTypeface(nunito);
-            macroText[s].setBackground(round(0x40000000, GLASS_LINE, 10));
-            macroText[s].setPadding(dp(8), dp(4), dp(8), dp(4));
-            macroText[s].setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(200)});
-            r.addView(macroText[s], new LinearLayout.LayoutParams(0, dp(34), 2.2f));
-            final Button combo = bindButton(comboName(Controls.macro(prefs, s)));
-            combo.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-                Controls.capture(LoginActivity.this, true, zh, new Controls.Got() { public void codes(int[] c) {
-                    prefs.edit().putString("macro_" + slot, Controls.join(c)).apply();
-                    combo.setText(comboName(c));
-                } });
+    // signed in: the screen wears the racer's profile theme (the design's "account style"); signed out: the slab
+    void applyLook(boolean in) {
+        int line = mix(base, 0xFF000000, 0.6f);
+        if (in) root.setBackground(new Stripes(mix(base, 0xFF000000, 0.86f), 0x07FFFFFF, dp(14)));
+        else root.setBackgroundColor(SLAB);
+        verText.setTextColor(in ? mix(accent, 0xFF6B7280, 0.55f) : MUTED);
+        serverPill.setBackground(roundS(0x4D000000, in ? line : 0x29FFFFFF, 2, 999));
+        profile.setBackground(roundS(mix(base, 0xFF000000, 0.8f), accent, 2, 18));
+        cardName.setTextColor(accent);
+        signOutBtn.setBackground(roundS(mix(base, 0xFF000000, 0.72f), mix(base, 0xFF000000, 0.5f), 2, 999));
+        avatar.setBackground(roundS(accent, GOLD, 2, 12));
+    }
+
+    void pickServer() {
+        boolean in = !currentKey().isEmpty();
+        int popBg = in ? mix(base, 0xFF000000, 0.8f) : INK, line = in ? mix(base, 0xFF000000, 0.6f) : 0x29FFFFFF;
+        LinearLayout list = vbox();
+        list.setBackground(roundS(popBg, line, 2, 16));
+        list.setClipToOutline(true);
+        final PopupWindow pw = new PopupWindow(list, serverPill.getWidth(), -2, true);
+        for (int i = 0; i < NAMES.length; i++) {
+            final int k = i;
+            LinearLayout r = hbox();
+            r.setPadding(dp(16), 0, dp(16), 0);
+            if (i == srv) r.setBackgroundColor(in ? mix(base, 0xFF000000, 0.7f) : 0x1AFFFFFF);
+            r.addView(text(zh ? NAMES_ZH[i] : NAMES[i], 16, Color.WHITE, nunito800), new LinearLayout.LayoutParams(0, -2, 1));
+            if (i == srv) r.addView(icon(Icon.CHECK, in ? accent : YELLOW, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
+            r.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                pw.dismiss();
+                if (k == srv) return;
+                srv = k;
+                prefs.edit().putInt("server", k).apply();
+                status.setVisibility(View.GONE);
+                showSignedIn();
             } });
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, dp(34), 1.2f);
-            clp.leftMargin = dp(6);
-            r.addView(combo, clp);
-            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, -2);
-            mlp.topMargin = dp(4);
-            card.addView(r, mlp);
+            list.addView(r, new LinearLayout.LayoutParams(-1, dp(46)));
         }
+        pw.setBackgroundDrawable(new ColorDrawable(0));
+        pw.setOutsideTouchable(true);
+        list.measure(View.MeasureSpec.makeMeasureSpec(serverPill.getWidth(), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
+        pw.showAsDropDown(serverPill, 0, -(serverPill.getHeight() + list.getMeasuredHeight() + dp(8)));
+    }
 
-        LinearLayout btns = new LinearLayout(this);
-        btns.setOrientation(LinearLayout.HORIZONTAL);
-        Button def = new Button(this);
-        def.setText(t("Default gamma", "默认亮度"));
-        def.setAllCaps(false); def.setTypeface(baloo); def.setTextSize(13); def.setTextColor(Color.WHITE);
-        def.setStateListAnimator(null); def.setBackground(round(GLASS, GLASS_LINE, 999));
-        def.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { gs.setProgress(5); } });
-        btns.addView(def, new LinearLayout.LayoutParams(0, dp(40), 1));
-        Button done = new Button(this);
-        done.setText(t("Done", "完成"));
-        done.setAllCaps(false); done.setTypeface(baloo800); done.setTextSize(17); done.setTextColor(INK);
-        done.setStateListAnimator(null);
-        LayerDrawable pill = new LayerDrawable(new Drawable[]{round(YELLOW_DEEP, 0, 999), round(YELLOW, 0, 999)});
-        pill.setLayerInset(1, 0, 0, 0, dp(3));
-        done.setBackground(pill);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, dp(42), 1);
-        dlp.leftMargin = dp(10);
-        btns.addView(done, dlp);
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
-        blp.topMargin = dp(12);
-        card.addView(btns, blp);
-
-        done.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            int d = det.getCheckedRadioButtonId() - 200, f = fps.getCheckedRadioButtonId() - 200;
-            prefs.edit().putBoolean("wide", wide.getCheckedRadioButtonId() == 200)          // 3D fills the phone's screen
-                    .putBoolean("vsync", FPS[f] == 0).putInt("scale", 50 + rq.getProgress() * 5).putBoolean("accessories", acc.getCheckedRadioButtonId() == 200)
-                    .putBoolean("lean", lean.getCheckedRadioButtonId() == 200).putBoolean("etc2", etc2.getCheckedRadioButtonId() == 200)
-                    .putBoolean("effects", fx.getCheckedRadioButtonId() == 200).putBoolean("touchmobile", tc.getCheckedRadioButtonId() == 201).apply();                                   // Auto = synced to the screen
-            float g = (gs.getProgress() + 5) / 10f;
+    void signIn() {
+        final String account = user.getText().toString().trim().toLowerCase(Locale.ROOT);   // login names are lowercase only
+        final String password = pass.getText().toString();
+        user.setBackground(fieldBg(account.isEmpty()));
+        pass.setBackground(fieldBg(password.isEmpty()));
+        if (account.isEmpty() || password.isEmpty()) { formErr(t("Enter your username and password.", "请输入账号和密码。")); return; }
+        formError.setVisibility(View.GONE);
+        signInBtn.setEnabled(false);
+        signInBtn.setText(t("Signing in...", "正在登录..."));
+        final int s = srv;
+        final boolean rem = remember.isChecked();
+        new Thread(new Runnable() { public void run() {
+            String err;
             try {
-                if (us != null && us.length >= 0x20) {
-                    java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(us).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-                    bb.putInt(0x18, d);
-                    bb.putFloat(0x1c, g);
-                    for (int s = 0; s < Controls.MACROS; s++) {        // chat macros: UTF-16LE, zero padded, 511 chars at most
-                        String m = macroText[s].getText().toString();
-                        if (m.equals(macro(us, s)) || us.length < 0x58 + (s + 1) * 0x400) continue;
-                        java.util.Arrays.fill(us, 0x58 + s * 0x400, 0x58 + (s + 1) * 0x400, (byte) 0);
-                        byte[] u = m.substring(0, Math.min(m.length(), 511)).getBytes(StandardCharsets.UTF_16LE);
-                        System.arraycopy(u, 0, us, 0x58 + s * 0x400, Math.min(u.length, 0x3fe));
-                    }
-                    FileOutputStream o = new FileOutputStream(usf); o.write(us); o.close();
+                Reply r = request(HOSTS[s], account, password, 0x6f01);
+                if (r.error == null) {
+                    Reply p = request(HOSTS[s], account, r.key, 0x6f03);     // only for the racer's nickname (the card's name)
+                    final String key = r.key, nick = p.error == null ? p.nickname : "";
+                    runOnUiThread(new Runnable() { public void run() {
+                        SharedPreferences.Editor ed = prefs.edit().putString("user", account).putInt("server", s).putBoolean("remember", rem);
+                        if (!nick.isEmpty()) ed.putString("nick", nick); else ed.remove("nick");
+                        if (rem) ed.putString("key", key).putInt("keyServer", s); else { ed.remove("key"); sessionKey = key; sessionSrv = s; }
+                        ed.apply();
+                        pass.setText("");
+                        signInBtn.setEnabled(true);
+                        signInBtn.setText(t("Sign in", "登录"));
+                        skinFor = null;
+                        showSignedIn();
+                    } });
+                    return;
                 }
-                String n = iniSet(ini, "VSync", FPS[f] == 0 ? 1 : 0);
-                n = iniSet(n, "MaxFps", FPS[f]);
-                n = iniSet(n, "HighRefresh", 1);
-                n = iniSet(n, "Language", lang.getCheckedRadioButtonId() - 200);
-                FileOutputStream o = new FileOutputStream(inf); o.write(n.getBytes(StandardCharsets.UTF_8)); o.close();
+                err = r.error;
             } catch (Exception e) {
-                status.setText(t("Could not save the settings (", "无法保存设置（") + e.getMessage() + t(")", "）"));
+                err = t("Cannot reach ", "无法连接") + (zh ? NAMES_ZH[s] : NAMES[s]) + " (" + e.getMessage() + ")";
             }
-            heroView.removeView(gfxPanel);
-            gfxPanel = null;
-            if (online.getText().length() > 0) online.setVisibility(View.VISIBLE);
-            if (notes != null) notes.setVisibility(View.VISIBLE);
-            if ((lang.getCheckedRadioButtonId() == 201) != zh) setLanguage(lang.getCheckedRadioButtonId() == 201);
-        } });
+            final String msg = err;
+            runOnUiThread(new Runnable() { public void run() { signInBtn.setEnabled(true); signInBtn.setText(t("Sign in", "登录")); formErr(msg); } });
+        } }).start();
+    }
+    void formErr(String m) { formError.setText(m); formError.setVisibility(View.VISIBLE); }
 
-        ScrollView sv = new ScrollView(this);
-        sv.addView(card);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(380), -2, Gravity.CENTER);
-        heroView.addView(sv, lp);
-        gfxPanel = sv;
-        online.setVisibility(View.GONE);
-        if (notes != null) notes.setVisibility(View.GONE);
+    void signOut() {                                     // the key goes; the username stays filled in
+        prefs.edit().remove("key").remove("nick").apply();
+        sessionKey = ""; sessionSrv = -1; skinFor = null;
+        cover.setImageDrawable(null);
+        avatar.setImageDrawable(image("launcher_avatar.png").getDrawable());
+        showSignedIn();
     }
 
-    Button bindButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false); b.setTypeface(baloo); b.setTextSize(12); b.setTextColor(Color.WHITE);
-        b.setStateListAnimator(null); b.setBackground(round(GLASS, GLASS_LINE, 10));
-        b.setPadding(dp(4), 0, dp(4), 0);
-        return b;
-    }
-    String comboName(int[] c) {
-        if (c.length == 0) return t("No key", "无按键");
-        StringBuilder b = new StringBuilder();
-        for (int x : c) { if (b.length() > 0) b.append(" + "); b.append(Controls.name(x, zh)); }
-        return b.toString();
-    }
-    // chat macro <slot> of UserSetting.bin (0x58 + slot * 0x400, UTF-16LE, zero padded)
-    static String macro(byte[] us, int slot) {
-        int o = 0x58 + slot * 0x400;
-        if (us == null || us.length < o + 0x400) return "";
-        int n = 0;
-        while (n < 0x3fe && (us[o + n] != 0 || us[o + n + 1] != 0)) n += 2;
-        return new String(us, o, n, StandardCharsets.UTF_16LE);
-    }
-
-    int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
-
-    Typeface font(String asset, int weight) {
-        try { return new Typeface.Builder(getAssets(), asset).setFontVariationSettings("'wght' " + weight).build(); }
-        catch (Exception e) { return Typeface.DEFAULT_BOLD; }
-    }
-
-    ImageView image(String asset) {
-        ImageView v = new ImageView(this);
-        try (InputStream in = getAssets().open(asset)) { v.setImageBitmap(BitmapFactory.decodeStream(in)); } catch (Exception ignored) { }
-        return v;
-    }
-
-    // ---- the account card (12 Nov 2026, the user: signed in = no username / password fields, the card the PC launcher
-    // shows, in the racer's own site profile look: GET <site>/api/launcher/skin/<user> -> theme, cover, avatar, frame)
-    LinearLayout form;
-    FrameLayout accountCard;
-    ImageView cardCover, cardAvatar, cardFrame;
-    TextView cardName;
+    // ---- the racer's site profile look: GET <site>/api/launcher/skin/<user> -> theme, cover, avatar (frame: SVG, not drawn)
     static final String SITE = "https://crazykartlegacy.com";
     static int[] themeColours(String theme) {                 // accent, band (the launcher's profile-theme-* colours)
         if ("sunset".equals(theme)) return new int[]{0xFFE2551B, 0xFFFFB38A};
@@ -793,82 +439,6 @@ public class LoginActivity extends Activity {
         if ("grape".equals(theme)) return new int[]{0xFF7A3FD1, 0xFFC9B0F2};
         if ("gold".equals(theme)) return new int[]{0xFFC98F00, 0xFFF5C21B};
         return new int[]{0xFF1A4FD6, 0xFF8FD3F2};             // sky (the site's default)
-    }
-    FrameLayout accountCard() {
-        FrameLayout c = new FrameLayout(this);
-        c.setBackground(round(GLASS, GLASS_LINE, 16));
-        c.setClipToOutline(true);
-        cardCover = new ImageView(this);
-        cardCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        cardCover.setBackgroundColor(0x33000000);
-        c.addView(cardCover, new FrameLayout.LayoutParams(-1, dp(64), Gravity.TOP));
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        FrameLayout av = new FrameLayout(this);
-        cardAvatar = new ImageView(this);
-        cardAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        cardAvatar.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));   // the app icon until the profile avatar loads
-        cardAvatar.setBackground(round(0xFF0A0E18, GLASS_LINE, 10));
-        cardAvatar.setClipToOutline(true);
-        av.addView(cardAvatar, new FrameLayout.LayoutParams(dp(50), dp(50), Gravity.CENTER));
-        cardFrame = new ImageView(this);
-        cardFrame.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        cardFrame.setVisibility(View.GONE);
-        av.addView(cardFrame, new FrameLayout.LayoutParams(dp(62), dp(62), Gravity.CENTER));
-        row.addView(av, new LinearLayout.LayoutParams(dp(62), dp(62)));
-        LinearLayout who = new LinearLayout(this);
-        who.setOrientation(LinearLayout.VERTICAL);
-        who.setPadding(dp(10), 0, dp(6), 0);
-        cardName = new TextView(this);
-        cardName.setTypeface(baloo800);
-        cardName.setTextSize(17);
-        cardName.setSingleLine(true);
-        cardName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        cardName.setTextColor(themeColours("sky")[1]);
-        cardName.setShadowLayer(dp(3), 0, dp(1), 0xC0000000);
-        who.addView(cardName);
-        TextView st = new TextView(this);
-        st.setText("●  " + t("Idle", "空闲"));
-        st.setTextColor(MUTED);
-        st.setTypeface(nunito);
-        st.setTextSize(12);
-        who.addView(st);
-        row.addView(who, new LinearLayout.LayoutParams(0, -2, 1));
-        Button out = new Button(this);
-        out.setText(t("Sign out", "退出登录"));
-        out.setAllCaps(false);
-        out.setTypeface(baloo);
-        out.setTextSize(13);
-        out.setTextColor(Color.WHITE);
-        out.setStateListAnimator(null);
-        out.setBackground(round(0x66000000, GLASS_LINE, 999));
-        out.setPadding(dp(14), 0, dp(14), 0);
-        out.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            prefs.edit().remove("key").remove("nick").apply();   // the key goes; the username stays filled in
-            pass.setHint("");
-            showSignedIn();
-        } });
-        row.addView(out, new LinearLayout.LayoutParams(-2, dp(34)));
-        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
-        rlp.topMargin = dp(34);                                    // the avatar half over the cover, as on the PC
-        c.addView(row, rlp);
-        return c;
-    }
-    // card or form: signed in = a saved key for the server that is picked now
-    void showSignedIn() {
-        boolean in = !prefs.getString("key", "").isEmpty() && servers.getCheckedRadioButtonId() - 100 == prefs.getInt("keyServer", -1);
-        accountCard.setVisibility(in ? View.VISIBLE : View.GONE);
-        form.setVisibility(in ? View.GONE : View.VISIBLE);
-        remember.setVisibility(in ? View.GONE : View.VISIBLE);
-        play.setText(in ? t("Play", "开始游戏") : t("Sign in", "登录"));
-        if (!in && !prefs.getString("key", "").isEmpty())         // another server than the saved sign-in: its password
-            status.setText(t("Sign in to this server", "请登录此服务器"));
-        if (in) {
-            cardName.setText(prefs.getString("nick", prefs.getString("user", "")));
-            loadSkin(prefs.getString("user", ""));
-        }
     }
     String skinFor;                                             // the user whose look is loading / shown
     void loadSkin(final String name) {
@@ -878,21 +448,18 @@ public class LoginActivity extends Activity {
             try {
                 org.json.JSONObject s = new org.json.JSONObject(new String(fetch(SITE + "/api/launcher/skin/" + java.net.URLEncoder.encode(name, "UTF-8")), StandardCharsets.UTF_8));
                 if (!s.optBoolean("ok")) return;
-                final int[] col = themeColours(s.optString("theme", "sky"));
+                final String theme = s.optString("theme", "sky");
                 org.json.JSONObject cv = s.optJSONObject("cover");
-                final android.graphics.Bitmap cover = cv != null ? bitmap(cv.optString("url")) : null;
-                final android.graphics.Bitmap avatar = s.isNull("avatar") ? null : bitmap(s.optString("avatar"));
-                final android.graphics.Bitmap frame = s.isNull("frame") ? null : bitmap(s.optString("frame"));
+                final android.graphics.Bitmap cov = cv != null ? bitmap(cv.optString("url")) : null;
+                final android.graphics.Bitmap av = s.isNull("avatar") ? null : bitmap(s.optString("avatar"));
                 runOnUiThread(new Runnable() { public void run() {
                     if (!name.equals(skinFor)) return;              // signed out / switched while it loaded
-                    GradientDrawable bg = round(GLASS, 0, 16);
-                    bg.setStroke(dp(2), col[1]);
-                    accountCard.setBackground(bg);
-                    cardName.setTextColor(col[1]);
-                    cardCover.setBackgroundColor(col[0]);
-                    if (cover != null) cardCover.setImageBitmap(cover);
-                    if (avatar != null) cardAvatar.setImageBitmap(avatar);
-                    if (frame != null) { cardFrame.setImageBitmap(frame); cardFrame.setVisibility(View.VISIBLE); }
+                    prefs.edit().putString("theme", theme).apply();
+                    int[] th = themeColours(theme);
+                    base = th[0]; accent = th[1];
+                    if (cov != null) cover.setImageBitmap(cov);
+                    if (av != null) avatar.setImageBitmap(av);
+                    applyLook(!currentKey().isEmpty());
                 } });
             } catch (Exception e) { /* offline: the plain card */ }
         } }).start();
@@ -912,64 +479,811 @@ public class LoginActivity extends Activity {
     }
     static android.graphics.Bitmap bitmap(String url) {
         if (url == null || url.isEmpty() || "null".equals(url)) return null;
-        try { byte[] d = fetch(url); return android.graphics.BitmapFactory.decodeByteArray(d, 0, d.length); } catch (Exception e) { return null; }
+        try { byte[] d = fetch(url); return BitmapFactory.decodeByteArray(d, 0, d.length); } catch (Exception e) { return null; }
     }
 
-    GradientDrawable round(int fill, int stroke, int radiusDp) {
+    // ---- first start: language -> control type -> HUD editor (keyboard / controller: a note instead) ------------------
+    View overlay;
+    FrameLayout dialogScreen(View dialog, int widthDp) {
+        FrameLayout f = new FrameLayout(this);
+        f.setBackgroundColor(NIGHT);
+        f.setClickable(true);
+        int w = Math.min(dp(widthDp), getResources().getDisplayMetrics().widthPixels - dp(32));
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(false);
+        sv.addView(dialog);
+        f.addView(sv, new FrameLayout.LayoutParams(w, -2, Gravity.CENTER));
+        if (overlay != null) root.removeView(overlay);
+        root.addView(f, new FrameLayout.LayoutParams(-1, -1));
+        overlay = f;
+        return f;
+    }
+    void closeOverlay() { if (overlay != null) root.removeView(overlay); overlay = null; }
+
+    LinearLayout lightDialog(int padH, int padT, int padB) {
+        LinearLayout d = vbox();
+        d.setGravity(Gravity.CENTER_HORIZONTAL);
+        d.setBackground(step(PAPER, 0, 0, LINE, 4, 16));
+        d.setPadding(dp(padH), dp(padT), dp(padH), dp(padB));
+        return d;
+    }
+
+    void showLanguage() {
+        LinearLayout d = lightDialog(32, 22, 20);
+        ImageView logo = image("launcher_logo.png");
+        logo.setAdjustViewBounds(true);
+        d.addView(logo, new LinearLayout.LayoutParams(-2, dp(76)));
+        SpannableString title = new SpannableString("选择语言 · Choose your language");
+        title.setSpan(new ForegroundColorSpan(EDGE), 5, 6, 0);
+        TextView h = text("", 24, INK, baloo800);
+        h.setText(title);
+        d.addView(h, lp(-2, -2, 0, dp(14), 0, 0));
+        LinearLayout two = hbox();
+        two.addView(langCard("中文", "简体中文", true), new LinearLayout.LayoutParams(0, dp(100), 1));
+        View gap = new View(this);
+        two.addView(gap, new LinearLayout.LayoutParams(dp(16), 1));
+        two.addView(langCard("English", "English", false), new LinearLayout.LayoutParams(0, dp(100), 1));
+        d.addView(two, lp(-1, -2, 0, dp(14), 0, 0));
+        d.addView(text("以后可以在 设置 中更改。   You can change this later in Settings.", 13, SUB, nunito), lp(-2, -2, 0, dp(14), 0, 0));
+        dialogScreen(d, 540);
+    }
+    View langCard(String big, String small, final boolean cn) {
+        LinearLayout b = vbox();
+        b.setGravity(Gravity.CENTER);
+        b.setBackground(step(Color.WHITE, LINE, 2, LINE, 4, 16));
+        b.addView(text(big, 32, INK, baloo800));
+        b.addView(text(small, 13, SUB, nunito));
+        b.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { setLanguage(cn); } });
+        return b;
+    }
+    void setLanguage(boolean cn) {
+        prefs.edit().putString("lang", cn ? "zh" : "en").apply();
+        File inf = gameFile("CrazyKart.ini");
+        byte[] ib = readAll(inf);
+        try {
+            FileOutputStream o = new FileOutputStream(inf);
+            o.write(iniSet(ib == null ? "" : new String(ib, StandardCharsets.UTF_8), "Language", cn ? 1 : 0).getBytes(StandardCharsets.UTF_8));
+            o.close();
+        } catch (Exception ignored) { }
+        if (cn != zh) recreate();                                      // onCreate then asks the control type
+        else if (!prefs.contains("controltype")) showControlType();
+        else closeOverlay();
+    }
+
+    // control type (the user, 12 Nov 2026): Classic -> the HUD editor; Mobile -> Mobile touch controls on (AUTO GAS +
+    // TAP DRIFT) + the editor; Keyboard / controller -> on-screen controls at opacity 0 (hud_layout.txt touch_opacity)
+    void showControlType() {
+        LinearLayout d = lightDialog(24, 18, 16);
+        d.addView(text(t("STEP 2 OF 3", "第 2 步，共 3 步"), 13, SUB, baloo));
+        d.addView(text(t("How do you want to play?", "选择操作方式"), 26, INK, baloo800));
+        LinearLayout three = hbox();
+        three.setGravity(Gravity.TOP);
+        three.addView(typeCard(0), new LinearLayout.LayoutParams(0, -2, 1));
+        three.addView(new View(this), new LinearLayout.LayoutParams(dp(14), 1));
+        three.addView(typeCard(1), new LinearLayout.LayoutParams(0, -2, 1));
+        three.addView(new View(this), new LinearLayout.LayoutParams(dp(14), 1));
+        three.addView(typeCard(2), new LinearLayout.LayoutParams(0, -2, 1));
+        d.addView(three, lp(-1, -2, 0, dp(12), 0, 0));
+        d.addView(text(t("You can change this later in Settings › Controls.", "以后可以在 设置 › 按键 中更改。"), 13, SUB, nunito), lp(-2, -2, 0, dp(12), 0, 0));
+        dialogScreen(d, 760);
+    }
+    View typeCard(final int w) {
+        LinearLayout b = vbox();
+        b.setBackground(step(Color.WHITE, LINE, 2, LINE, 4, 16));
+        b.setPadding(dp(10), dp(10), dp(10), dp(14));
+        FrameLayout pv = new FrameLayout(this);
+        pv.setBackground(round(0xFF111827, 0, 10));
+        if (w == 2) {
+            LinearLayout ic = hbox();
+            ic.setGravity(Gravity.CENTER);
+            ic.addView(icon(Icon.PAD, YELLOW, 64), new LinearLayout.LayoutParams(dp(64), dp(64)));
+            ic.addView(new View(this), new LinearLayout.LayoutParams(dp(14), 1));
+            ic.addView(icon(Icon.KEYBOARD, MUTED, 56), new LinearLayout.LayoutParams(dp(56), dp(56)));
+            pv.addView(ic, new FrameLayout.LayoutParams(-1, -1));
+        } else {
+            dashed(pv, 6, 6, 46, 16, false);
+            dashed(pv, 8, 6, 34, 30, true);
+            if (w == 1) {
+                pic(pv, "touch_autogas.png", 8, 60, 18, false);
+                pic(pv, "touch_tapdrift.png", 30, 60, 18, false);
+                View ring = new View(this);
+                ring.setBackground(roundS(0, YELLOW, 2, 8));
+                FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(dp(48), dp(26));
+                rl.leftMargin = dp(4); rl.topMargin = dp(56);
+                pv.addView(ring, rl);
+            }
+            pic(pv, "touch_left.png", 5, 84, 28, false);
+            pic(pv, "touch_right.png", 38, 84, 28, false);
+            pic(pv, "touch_gas.png", 5, 84, 28, true);
+            pic(pv, "touch_brake.png", 38, 90, 21, true);
+            pic(pv, "touch_drift.png", 6, 54, 25, true);
+            pic(pv, "touch_item.png", 37, 62, 22, true);
+        }
+        b.addView(pv, new LinearLayout.LayoutParams(-1, dp(120)));
+        String[] name = {t("Classic", "经典"), t("Mobile", "手游"), t("Keyboard / controller", "键盘 / 手柄")};
+        String[] sub = {t("Touch buttons, hold to drive. Arrange your HUD and buttons next.", "触屏按键，按住油门。下一步调整 HUD 和按键。"),
+                        t("Auto gas, tap to drift: two switches above the steering. Arrange your HUD and buttons next.", "自动油门，轻点漂移：方向键上方有两个开关。下一步调整 HUD 和按键。"),
+                        t("On-screen controls hidden (0% opacity).", "隐藏屏幕按键（透明度 0%）。")};
+        b.addView(text(name[w], 20, INK, baloo800), lp(-2, -2, 0, dp(8), 0, 0));
+        b.addView(text(sub[w], 13, SUB, nunito), lp(-1, -2, 0, dp(4), 0, 0));
+        b.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { setControls(w); } });
+        return b;
+    }
+    void pic(FrameLayout f, String asset, int x, int y, int size, boolean fromRight) {
+        ImageView v = image(asset);
+        FrameLayout.LayoutParams l = new FrameLayout.LayoutParams(dp(size), dp(size), Gravity.TOP | (fromRight ? Gravity.END : Gravity.START));
+        if (fromRight) l.rightMargin = dp(x); else l.leftMargin = dp(x);
+        l.topMargin = dp(y);
+        f.addView(v, l);
+    }
+    void dashed(FrameLayout f, int x, int y, int w, int h, boolean fromRight) {
+        View v = new View(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(4));
+        g.setStroke(dp(1), 0x59FFFFFF, dp(3), dp(2));
+        v.setBackground(g);
+        FrameLayout.LayoutParams l = new FrameLayout.LayoutParams(dp(w), dp(h), Gravity.TOP | (fromRight ? Gravity.END : Gravity.START));
+        if (fromRight) l.rightMargin = dp(x); else l.leftMargin = dp(x);
+        l.topMargin = dp(y);
+        f.addView(v, l);
+    }
+    void setControls(int w) {
+        String type = w == 1 ? "mobile" : w == 2 ? "keyboard" : "classic";
+        prefs.edit().putString("controltype", type).putBoolean("touchmobile", w == 1).apply();
+        closeOverlay();
+        setTouchOpacity(w == 2 ? 0f : 0.6f);
+        if (w == 2) { showKeyboardNote(); return; }
+        startActivity(new Intent(this, HudEditorActivity.class).putExtra("mode", type).putExtra("first", true));
+    }
+    View note;
+    void showKeyboardNote() {
+        LinearLayout n = hbox();
+        n.setBackground(roundS(INK, 0x29FFFFFF, 1, 16));
+        n.setPadding(dp(16), dp(8), dp(8), dp(8));
+        n.addView(icon(Icon.PAD, YELLOW, 22), new LinearLayout.LayoutParams(dp(22), dp(22)));
+        TextView m = text(t("On-screen controls are hidden for keyboard / controller. Change it in Settings › Controls.",
+                            "已为键盘 / 手柄隐藏屏幕按键。可以在 设置 › 按键 中更改。"), 14, Color.WHITE, nunito800);
+        m.setPadding(dp(12), 0, dp(12), 0);
+        n.addView(m, new LinearLayout.LayoutParams(0, -2, 1));
+        ImageView x = icon(Icon.CLOSE, Color.WHITE, 16);
+        x.setScaleType(ImageView.ScaleType.CENTER);
+        x.setBackground(round(0x14FFFFFF, 0, 999));
+        x.setContentDescription(t("Dismiss", "关闭"));
+        x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { root.removeView(note); note = null; } });
+        n.addView(x, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        FrameLayout.LayoutParams l = new FrameLayout.LayoutParams(Math.min(dp(560), getResources().getDisplayMetrics().widthPixels - dp(32)), -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        l.topMargin = dp(10);
+        if (note != null) root.removeView(note);
+        root.addView(n, l);
+        note = n;
+    }
+
+    // hud_layout.txt keeps the HUD editor's positions; only its touch_opacity line changes
+    void setTouchOpacity(float a) {
+        File f = gameFile("hud_layout.txt");
+        byte[] old = readAll(f);
+        StringBuilder sb = new StringBuilder();
+        if (old != null)
+            for (String line : new String(old, StandardCharsets.UTF_8).split("\n"))
+                if (!line.trim().startsWith("touch_opacity") && !line.trim().isEmpty()) sb.append(line.trim()).append('\n');
+        sb.append(String.format(Locale.ROOT, "touch_opacity %.2f\n", a));
+        try {
+            f.getParentFile().mkdirs();
+            FileOutputStream o = new FileOutputStream(f);
+            o.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+            o.close();
+        } catch (Exception ignored) { }
+    }
+    float readOpacity() {
+        byte[] b = readAll(gameFile("hud_layout.txt"));
+        if (b != null)
+            for (String line : new String(b, StandardCharsets.UTF_8).split("\n")) {
+                String[] p = line.trim().split("\\s+");
+                if (p.length == 2 && p[0].equals("touch_opacity")) try { return Math.max(0f, Math.min(1f, Float.parseFloat(p[1]))); } catch (Exception ignored) { }
+            }
+        return "keyboard".equals(prefs.getString("controltype", "")) ? 0f : 0.6f;
+    }
+
+    // ---- Settings: full-screen light panel, tabs on the left, Restore / Repair / Cancel / Save ---------------------
+    // UserSetting.bin (Launcher/settings-store.js): 0x18 u32 detail (0 High, 1 Middle), 0x1c f32 gamma, 0x20 u8 music on,
+    // 0x24 u32 music volume 0-10, 0x28 u8 effects on, 0x2c u32 effects volume, 0x58 chat macros. CrazyKart.ini [Option]:
+    // VSync=1 caps at the screen rate, else MaxFps=N (HighRefresh = limiter on), Language. Resolution / window mode stay
+    // as the phone needs them (1280x720 windowed). Voice volumes / noise / ping: prefs, sent by VoiceChat.
+    static final int[] FPS = {0, 30, 60, 90, 120};                       // 0 = Auto (VSync: the screen's rate)
+    static class Opts {
+        boolean wide = true, effects = true, lean, etc2, acc = true, music = true, sfx = true;
+        int scale = 100, detail, fps, musicVol = 7, sfxVol = 7, voiceVol = 100, micVol = 100;
+        String ping = "room,race", noise = "ai", ctl = "classic";
+        float opacity = 0.6f, gamma = 1f;
+        String[] macros = new String[Controls.MACROS];
+    }
+    Opts opts;
+    View setPanel;
+    LinearLayout tabContent;
+    String tab = "display";
+    boolean zhBefore;
+
+    // the game folder appears with the first Play (data unpack): Settings saved before that failed ("file not found")
+    File gameFile(String name) {
+        File d = new File(getExternalFilesDir(null), "game");
+        d.mkdirs();
+        return new File(d, name);
+    }
+    byte[] readAll(File f) {
+        try (InputStream in = new java.io.FileInputStream(f)) {
+            ByteArrayOutputStream o = new ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int n;
+            while ((n = in.read(b)) > 0) o.write(b, 0, n);
+            return o.toByteArray();
+        } catch (Exception e) { return null; }
+    }
+    String iniGet(String ini, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?m)^" + key + "=(\\d+)").matcher(ini);
+        return m.find() ? m.group(1) : null;
+    }
+    String iniSet(String ini, String key, int v) {
+        String line = key + "=" + v;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?m)^" + key + "=.*$");
+        if (p.matcher(ini).find()) return p.matcher(ini).replaceFirst(line);
+        int at = ini.indexOf("[Option]");
+        if (at < 0) return ini + "\r\n[Option]\r\n" + line + "\r\n";
+        int eol = ini.indexOf('\n', at);
+        return eol < 0 ? ini + "\r\n" + line : ini.substring(0, eol + 1) + line + "\r\n" + ini.substring(eol + 1);
+    }
+    // chat macro <slot> of UserSetting.bin (0x58 + slot * 0x400, UTF-16LE, zero padded)
+    static String macro(byte[] us, int slot) {
+        int o = 0x58 + slot * 0x400;
+        if (us == null || us.length < o + 0x400) return "";
+        int n = 0;
+        while (n < 0x3fe && (us[o + n] != 0 || us[o + n + 1] != 0)) n += 2;
+        return new String(us, o, n, StandardCharsets.UTF_16LE);
+    }
+
+    Opts loadOpts() {
+        Opts o = new Opts();
+        o.wide = prefs.getBoolean("wide", true); o.scale = prefs.getInt("scale", 100);
+        o.effects = prefs.getBoolean("effects", true); o.lean = prefs.getBoolean("lean", false); o.etc2 = prefs.getBoolean("etc2", false);
+        o.acc = prefs.getBoolean("accessories", true); o.ping = prefs.getString("ping", "room,race");
+        o.noise = prefs.getString("noise", "ai"); o.voiceVol = prefs.getInt("voicevol", 100); o.micVol = prefs.getInt("micvol", 100);
+        o.ctl = prefs.getString("controltype", prefs.getBoolean("touchmobile", false) ? "mobile" : "classic");
+        o.opacity = readOpacity();
+        byte[] us = readAll(gameFile("UserSetting.bin"));
+        if (us != null && us.length >= 0x30) {
+            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(us).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            o.detail = Math.min(1, Math.max(0, bb.getInt(0x18)));
+            o.gamma = bb.getFloat(0x1c);
+            if (!(o.gamma >= 0.5f && o.gamma <= 3f)) o.gamma = 1f;
+            o.music = us[0x20] != 0; o.musicVol = Math.min(10, Math.max(0, bb.getInt(0x24)));
+            o.sfx = us[0x28] != 0; o.sfxVol = Math.min(10, Math.max(0, bb.getInt(0x2c)));
+        }
+        for (int s = 0; s < Controls.MACROS; s++) o.macros[s] = macro(us, s);
+        byte[] ib = readAll(gameFile("CrazyKart.ini"));
+        String ini = ib == null ? "" : new String(ib, StandardCharsets.UTF_8);
+        String vs = iniGet(ini, "VSync"), mf = iniGet(ini, "MaxFps");
+        if (!"1".equals(vs) && mf != null) for (int i = 1; i < FPS.length; i++) if (FPS[i] == Integer.parseInt(mf)) o.fps = i;
+        return o;
+    }
+
+    void saveOpts() {
+        Opts o = opts;
+        prefs.edit().putBoolean("wide", o.wide).putInt("scale", o.scale).putBoolean("effects", o.effects).putBoolean("lean", o.lean)
+                .putBoolean("etc2", o.etc2).putBoolean("vsync", FPS[o.fps] == 0).putBoolean("accessories", o.acc).putString("ping", o.ping)
+                .putString("noise", o.noise).putInt("voicevol", o.voiceVol).putInt("micvol", o.micVol)
+                .putString("controltype", o.ctl).putBoolean("touchmobile", "mobile".equals(o.ctl)).apply();
+        setTouchOpacity(o.opacity);
+        try {
+            File usf = gameFile("UserSetting.bin");
+            byte[] us = readAll(usf);
+            if (us != null && us.length >= 0x30) {
+                java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(us).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                bb.putInt(0x18, o.detail);
+                bb.putFloat(0x1c, o.gamma);
+                us[0x20] = (byte) (o.music ? 1 : 0); bb.putInt(0x24, o.musicVol);
+                us[0x28] = (byte) (o.sfx ? 1 : 0); bb.putInt(0x2c, o.sfxVol);
+                for (int s = 0; s < Controls.MACROS; s++) {        // chat macros: UTF-16LE, zero padded, 511 chars at most
+                    String m = o.macros[s] == null ? "" : o.macros[s];
+                    if (m.equals(macro(us, s)) || us.length < 0x58 + (s + 1) * 0x400) continue;
+                    java.util.Arrays.fill(us, 0x58 + s * 0x400, 0x58 + (s + 1) * 0x400, (byte) 0);
+                    byte[] u = m.substring(0, Math.min(m.length(), 511)).getBytes(StandardCharsets.UTF_16LE);
+                    System.arraycopy(u, 0, us, 0x58 + s * 0x400, Math.min(u.length, 0x3fe));
+                }
+                FileOutputStream f = new FileOutputStream(usf); f.write(us); f.close();
+            }
+            File inf = gameFile("CrazyKart.ini");
+            byte[] ib = readAll(inf);
+            String n = iniSet(ib == null ? "" : new String(ib, StandardCharsets.UTF_8), "VSync", FPS[o.fps] == 0 ? 1 : 0);
+            n = iniSet(n, "MaxFps", FPS[o.fps]);
+            n = iniSet(n, "HighRefresh", 1);
+            FileOutputStream f = new FileOutputStream(inf); f.write(n.getBytes(StandardCharsets.UTF_8)); f.close();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, t("Could not save the settings (", "无法保存设置（") + e.getMessage() + t(")", "）"), android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    void showSettings() {
+        if (setPanel != null) return;
+        phoneDisplay();                                       // a fresh install has no UserSetting.bin yet
+        opts = loadOpts();
+        zhBefore = zh;
+        tab = "display";
+        buildSettings();
+    }
+    void closeSettings(boolean save) {
+        if (setPanel == null) return;
+        boolean lang = zh;
+        if (save) saveOpts();
+        root.removeView(setPanel);
+        setPanel = null;
+        zh = zhBefore;
+        if (save && lang != zhBefore) setLanguage(lang);       // the launcher comes back in the new language
+    }
+
+    void buildSettings() {
+        if (setPanel != null) root.removeView(setPanel);
+        LinearLayout p = vbox();
+        p.setBackgroundColor(PAPER);
+        p.setClickable(true);
+        LinearLayout head = hbox();
+        head.setPadding(dp(24), dp(10), dp(16), dp(8));
+        head.addView(text(t("Game settings", "游戏设置"), 24, INK, baloo800), new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout lang = hbox();
+        lang.setBackground(step(Color.WHITE, EDGE, 1, LINE, 3, 999));
+        lang.setPadding(dp(12), 0, dp(12), dp(3));
+        lang.addView(icon(Icon.GLOBE, INK, 18), new LinearLayout.LayoutParams(dp(18), dp(18)));
+        TextView ln = text(zh ? "中文" : "English", 15, INK, nunito800);
+        ln.setPadding(dp(8), 0, dp(10), 0);
+        lang.addView(ln);
+        lang.addView(icon(Icon.CHEVRON_DOWN, INK, 14), new LinearLayout.LayoutParams(dp(14), dp(14)));
+        lang.setContentDescription("Language / 语言");
+        lang.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            android.widget.PopupMenu pm = new android.widget.PopupMenu(LoginActivity.this, v);
+            pm.getMenu().add(0, 0, 0, "English");
+            pm.getMenu().add(0, 1, 1, "中文");
+            pm.setOnMenuItemClickListener(new android.widget.PopupMenu.OnMenuItemClickListener() { public boolean onMenuItemClick(android.view.MenuItem mi) { boolean cn = mi.getItemId() == 1; if (cn != zh) { zh = cn; buildSettings(); } return true; } });
+            pm.show();
+        } });
+        head.addView(lang, lp(-2, dp(44), 0, 0, dp(12), 0));
+        ImageView x = icon(Icon.CLOSE, INK, 18);
+        x.setScaleType(ImageView.ScaleType.CENTER);
+        x.setBackground(step(Color.WHITE, 0, 0, LINE, 3, 999));
+        x.setContentDescription(t("Close settings", "关闭设置"));
+        x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { closeSettings(false); } });
+        head.addView(x, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        p.addView(head);
+
+        LinearLayout body = hbox();
+        body.setGravity(Gravity.TOP);
+        body.setPadding(dp(24), 0, dp(16), 0);
+        ScrollView rail = new ScrollView(this);
+        rail.setVerticalScrollBarEnabled(false);
+        LinearLayout tabs = vbox();
+        tabs.setBackground(round(RAIL, 0, 22));
+        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
+        String[][] all = {{"display", t("Display", "画面")}, {"game", t("Game", "游戏")}, {"sound", t("Sound", "声音")}, {"controls", t("Controls", "按键")},
+                          {"hud", "HUD"}, {"chat", t("Chat macros", "快捷聊天")}, {"gamma", "Gamma"}};
+        for (final String[] tb : all) {
+            boolean on = tb[0].equals(tab);
+            TextView b = text(tb[1], 15, on ? INK : SUB, baloo);
+            b.setGravity(Gravity.CENTER);
+            b.setBackground(on ? step(Color.WHITE, 0, 0, LINE, 2, 999) : null);
+            b.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { tab = tb[0]; buildSettings(); } });
+            tabs.addView(b, lp(-1, dp(40), 0, 0, 0, dp(3)));
+        }
+        rail.addView(tabs);
+        body.addView(rail, new LinearLayout.LayoutParams(dp(150), -2));
+        ScrollView card = new ScrollView(this);
+        card.setBackground(step(Color.WHITE, LINE, 1, LINE, 3, 16));
+        tabContent = vbox();
+        tabContent.setPadding(dp(18), dp(4), dp(18), dp(12));
+        card.addView(tabContent);
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, -1, 1);
+        cl.leftMargin = dp(14);
+        body.addView(card, cl);
+        p.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
+        fillTab();
+
+        LinearLayout foot = hbox();
+        foot.setPadding(dp(24), dp(10), dp(16), dp(10));
+        Button restore = lightButton(t("Restore defaults", "恢复默认设置"));
+        restore.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            Opts d = new Opts();
+            d.ctl = opts.ctl; d.opacity = opts.opacity; d.macros = opts.macros;   // the design's defaults: display, game, sound, gamma
+            opts = d;
+            fillTab();
+        } });
+        foot.addView(restore, new LinearLayout.LayoutParams(-2, dp(44)));
+        Button repair = lightButton(t("Repair game files", "修复游戏文件"));
+        repair.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { new android.app.AlertDialog.Builder(LoginActivity.this)
+                .setMessage(t("Check every game file and download again the ones that are damaged? It runs at the next Play and can take a few minutes.",
+                              "检查所有游戏文件并重新下载损坏的文件？会在下次开始游戏时进行，可能需要几分钟。"))
+                .setNegativeButton(t("Cancel", "取消"), null)
+                .setPositiveButton(t("Repair", "修复"), new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dlg, int w) {
+                    new File(gameFile(""), Patcher.STATE).delete();       // no state: the next Play unpacks / checks everything
+                    android.widget.Toast.makeText(LoginActivity.this, t("The game files are checked at the next Play.", "下次开始游戏时会检查游戏文件。"), android.widget.Toast.LENGTH_LONG).show();
+                } }).show(); } });
+        foot.addView(repair, lp(-2, dp(44), dp(10), 0, 0, 0));
+        foot.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        Button cancel = lightButton(t("Cancel", "取消"));
+        cancel.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { closeSettings(false); } });
+        foot.addView(cancel, new LinearLayout.LayoutParams(-2, dp(44)));
+        Button save = yellowButton(t("Save", "确定"), 16);
+        save.setMinWidth(dp(110)); save.setMinimumWidth(dp(110));
+        save.setPadding(dp(18), 0, dp(18), dp(4));
+        save.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { closeSettings(true); } });
+        foot.addView(save, lp(-2, dp(44), dp(10), 0, 0, 0));
+        p.addView(foot);
+
+        root.addView(p, new FrameLayout.LayoutParams(-1, -1));
+        setPanel = p;
+    }
+
+    void fillTab() {
+        final LinearLayout c = tabContent;
+        c.removeAllViews();
+        final Opts o = opts;
+        switch (tab) {
+            case "display":
+                row(c, t("Screen", "画面"), pills(new String[]{t("Fill screen", "全屏"), t("16:9 with bars", "16:9 黑边")}, o.wide ? 0 : 1, new Pick() { public void on(int i) { o.wide = i == 0; } }));
+                row(c, t("Render quality", "渲染质量"), slider(50, 100, 5, o.scale, null, null,
+                        new Fmt() { public String of(int v) { return v + "%" + (v == 100 ? t("  (full)", "  （原画）") : ""); } }, new Pick() { public void on(int v) { o.scale = v; } }));
+                row(c, t("Graphics detail", "画质"), pills(new String[]{t("High", "高"), t("Middle", "中")}, o.detail, new Pick() { public void on(int i) { o.detail = i; } }));
+                row(c, t("Effects", "特效"), pills(new String[]{t("All", "全部"), t("Fewer", "精简")}, o.effects ? 0 : 1, new Pick() { public void on(int i) { o.effects = i == 0; } }));
+                row(c, t("Compact 3D data", "精简3D数据"), pills(new String[]{t("On", "开"), t("Off", "关")}, o.lean ? 0 : 1, new Pick() { public void on(int i) { o.lean = i == 0; } }));
+                row(c, t("Compressed textures", "纹理压缩"), pills(new String[]{t("On", "开"), t("Off", "关")}, o.etc2 ? 0 : 1, new Pick() { public void on(int i) { o.etc2 = i == 0; } }));
+                row(c, t("Frame rate cap", "帧率上限"), pills(new String[]{t("Auto", "自动"), "30", "60", "90", "120"}, o.fps, new Pick() { public void on(int i) { o.fps = i; } }));
+                break;
+            case "game":
+                row(c, t("Other players' accessories", "其他玩家的赛车配件"), pills(new String[]{t("Show", "显示"), t("Hide", "隐藏")}, o.acc ? 0 : 1, new Pick() { public void on(int i) { o.acc = i == 0; } }));
+                final String[] pv = {"room", "race", "room,race"};
+                int ps = 2;
+                for (int i = 0; i < 3; i++) if (pv[i].equals(o.ping)) ps = i;
+                row(c, t("Show ping", "显示延迟"), pills(new String[]{t("In the room", "房间内"), t("In races", "比赛中"), t("Both", "两者")}, ps, new Pick() { public void on(int i) { o.ping = pv[i]; } }));
+                c.addView(hint(t("Hiding other players' accessories can make races smoother on slower phones. Your own kart and what others see stay the same. Changes apply within half a minute, accessories from the next room you join.",
+                                 "隐藏其他玩家的配件可以让配置较低的手机比赛更流畅。你自己的赛车和别人看到的都不会改变。更改会在半分钟内生效，配件从下一个进入的房间开始。")));
+                break;
+            case "sound":
+                row(c, t("Music", "音乐"), onOff(o.music, new Flag() { public void on(boolean b) { o.music = b; } }));
+                row(c, t("Music volume", "音乐音量"), slider(0, 10, 1, o.musicVol, t("Low", "低"), t("High", "高"), NUM, new Pick() { public void on(int v) { o.musicVol = v; } }));
+                row(c, t("Sound effects", "音效"), onOff(o.sfx, new Flag() { public void on(boolean b) { o.sfx = b; } }));
+                row(c, t("Effects volume", "音效音量"), slider(0, 10, 1, o.sfxVol, t("Low", "低"), t("High", "高"), NUM, new Pick() { public void on(int v) { o.sfxVol = v; } }));
+                row(c, t("Voice chat volume", "语音聊天音量"), slider(0, 100, 5, o.voiceVol, t("Low", "低"), t("High", "高"), NUM, new Pick() { public void on(int v) { o.voiceVol = v; } }));
+                row(c, t("Microphone volume", "麦克风音量"), slider(0, 200, 5, o.micVol, t("Low", "低"), t("High", "高"), NUM, new Pick() { public void on(int v) { o.micVol = v; } }));
+                final String[] nv = {"ai", "standard", "off"};
+                int ns = 0;
+                for (int i = 0; i < 3; i++) if (nv[i].equals(o.noise)) ns = i;
+                row(c, t("Noise suppression", "降噪"), pills(new String[]{t("AI · voice only", "AI · 只保留人声"), t("Standard", "标准"), t("Off", "关")}, ns, new Pick() { public void on(int i) { o.noise = nv[i]; } }));
+                break;
+            case "controls":
+                final String[] cv = {"classic", "mobile", "keyboard"};
+                int cs = 0;
+                for (int i = 0; i < 3; i++) if (cv[i].equals(o.ctl)) cs = i;
+                row(c, t("Touch controls", "触屏操作"), pills(new String[]{t("Classic", "经典"), t("Mobile", "手游"), t("Keyboard / controller", "键盘 / 手柄")}, cs, new Pick() { public void on(int i) {
+                    if (i == 2) o.opacity = 0f; else if (o.opacity == 0f) o.opacity = 0.6f;
+                    o.ctl = cv[i];
+                } }));
+                LinearLayout hd = hbox();
+                hd.setPadding(0, dp(12), 0, dp(4));
+                hd.addView(text(t("ACTION", "操作"), 13, SUB, baloo), new LinearLayout.LayoutParams(dp(170), -2));
+                hd.addView(text(t("KEYBOARD", "键盘"), 13, SUB, baloo), new LinearLayout.LayoutParams(0, -2, 1));
+                hd.addView(text(t("CONTROLLER", "手柄"), 13, SUB, baloo), lp(0, -2, dp(10), 0, 0, 0, 1));
+                c.addView(hd);
+                for (int i = 0; i < Controls.ID.length; i++) {
+                    final int ai = i;
+                    LinearLayout r = hbox();
+                    r.setPadding(0, dp(3), 0, dp(3));
+                    r.addView(text(zh ? Controls.ZH[i] : Controls.EN[i], 15, INK, baloo), new LinearLayout.LayoutParams(dp(170), -2));
+                    final Button kb = keyButton(Controls.name(Controls.kb(prefs, i), zh)), pad = keyButton(Controls.name(Controls.pad(prefs, i), zh));
+                    kb.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { Controls.capture(LoginActivity.this, false, zh, new Controls.Got() { public void codes(int[] codes) {
+                        int code = codes.length > 0 ? codes[0] : 0;
+                        prefs.edit().putInt("kb_" + Controls.ID[ai], code).apply();
+                        kb.setText(Controls.name(code, zh));
+                    } }); } });
+                    pad.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { Controls.capture(LoginActivity.this, false, zh, new Controls.Got() { public void codes(int[] codes) {
+                        int code = codes.length > 0 ? codes[0] : 0;
+                        prefs.edit().putInt("pad_" + Controls.ID[ai], code).apply();
+                        pad.setText(Controls.name(code, zh));
+                    } }); } });
+                    r.addView(kb, new LinearLayout.LayoutParams(0, dp(40), 1));
+                    r.addView(pad, lp(0, dp(40), dp(10), 0, 0, 0, 1));
+                    c.addView(r);
+                }
+                Button reset = lightButton(t("Reset controls", "恢复默认按键"));
+                reset.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                    SharedPreferences.Editor e = prefs.edit();
+                    for (int i = 0; i < Controls.ID.length; i++) e.remove("kb_" + Controls.ID[i]).remove("pad_" + Controls.ID[i]);
+                    e.apply();
+                    fillTab();
+                } });
+                c.addView(reset, lp(-2, dp(44), 0, dp(10), 0, 0));
+                break;
+            case "hud":
+                LinearLayout hc = vbox();
+                LinearLayout edit = hbox();
+                edit.setBackground(step(BLUE, 0, 0, SLAB, 4, 999));
+                edit.setPadding(dp(14), 0, dp(18), dp(4));
+                edit.addView(icon(Icon.MOVE, Color.WHITE, 18), new LinearLayout.LayoutParams(dp(18), dp(18)));
+                TextView et = text(t("Edit HUD layout", "编辑 HUD 布局"), 15, Color.WHITE, baloo);
+                et.setPadding(dp(8), 0, 0, 0);
+                edit.addView(et);
+                edit.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                    setTouchOpacity(o.opacity);                    // the editor starts from the opacity chosen here
+                    startActivity(new Intent(LoginActivity.this, HudEditorActivity.class).putExtra("mode", o.ctl));
+                } });
+                hc.addView(edit, new LinearLayout.LayoutParams(-2, dp(44)));
+                hc.addView(text("mobile".equals(o.ctl) ? t("Every HUD element and on-screen button, plus the Auto gas and Tap drift switches.", "全部 HUD 元素和屏幕按键，以及自动油门和轻点漂移开关。")
+                              : "keyboard".equals(o.ctl) ? t("On-screen buttons are hidden; the race HUD can still be moved.", "屏幕按键已隐藏；比赛 HUD 仍可移动。")
+                              : t("Every HUD element and on-screen button.", "全部 HUD 元素和屏幕按键。"), 13, SUB, nunito), lp(-2, -2, 0, dp(4), 0, 0));
+                row(c, t("HUD layout", "HUD 布局"), hc);
+                row(c, t("On-screen buttons", "屏幕按键透明度"), slider(0, 100, 5, Math.round(o.opacity * 100), null, null, new Fmt() { public String of(int v) { return v + "%"; } }, new Pick() { public void on(int v) { o.opacity = v / 100f; } }));
+                c.addView(hint(t("In the editor, tap an item to move it or change its size. Tap an on-screen button to also pick its icon from your gallery.",
+                                 "在编辑器中点击元素可以移动或调整大小。点击屏幕按键还可以从相册选择图标。")));
+                break;
+            case "chat":
+                c.addView(hint(t("The game’s 9 quick-chat lines, each with a key or two-button combination that sends it.", "游戏的 9 条快捷聊天，每条可设置一个按键或组合键来发送。")));
+                for (int s = 0; s < Controls.MACROS; s++) {
+                    final int slot = s;
+                    LinearLayout r = hbox();
+                    r.setPadding(0, dp(3), 0, dp(3));
+                    TextView num = text(String.valueOf(s + 1), 15, SUB, baloo800);
+                    num.setGravity(Gravity.END);
+                    r.addView(num, new LinearLayout.LayoutParams(dp(20), -2));
+                    EditText m = new EditText(this);
+                    m.setSingleLine(true);
+                    m.setText(o.macros[s]);
+                    m.setTextColor(INK); m.setTextSize(15); m.setTypeface(nunito);
+                    m.setBackground(round(Color.WHITE, EDGE, 10));
+                    m.setPadding(dp(12), 0, dp(12), 0);
+                    m.setContentDescription(t("Quick chat line ", "快捷聊天 ") + (s + 1));
+                    m.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(200)});
+                    m.addTextChangedListener(new android.text.TextWatcher() {
+                        public void beforeTextChanged(CharSequence q, int a, int b2, int d) { }
+                        public void onTextChanged(CharSequence q, int a, int b2, int d) { o.macros[slot] = q.toString(); }
+                        public void afterTextChanged(android.text.Editable e) { }
+                    });
+                    r.addView(m, lp(0, dp(40), dp(10), 0, 0, 0, 2.2f));
+                    final Button combo = keyButton(comboName(Controls.macro(prefs, s)));
+                    combo.setTextColor(SUB);
+                    combo.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { Controls.capture(LoginActivity.this, true, zh, new Controls.Got() { public void codes(int[] codes) {
+                        prefs.edit().putString("macro_" + slot, Controls.join(codes)).apply();
+                        combo.setText(comboName(codes));
+                    } }); } });
+                    r.addView(combo, lp(0, dp(40), dp(10), 0, 0, 0, 1.2f));
+                    c.addView(r);
+                }
+                break;
+            case "gamma":
+                final ImageView after = image("launcher_keyart.png");
+                LinearLayout gr = hbox();
+                gr.addView(slider(5, 30, 1, Math.round(o.gamma * 10), null, null, new Fmt() { public String of(int v) { return String.format(Locale.ROOT, "%.1f", v / 10f); } }, new Pick() { public void on(int v) {
+                    o.gamma = v / 10f;
+                    after.setColorFilter(gammaFilter(o.gamma));
+                } }), new LinearLayout.LayoutParams(0, -2, 1));
+                Button def = lightButton(t("Default gamma", "默认亮度"));
+                def.setTextSize(14);
+                def.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { o.gamma = 1f; fillTab(); } });
+                gr.addView(def, lp(-2, dp(40), dp(10), 0, 0, 0));
+                row(c, "Gamma", gr);
+                LinearLayout two = hbox();
+                two.setGravity(Gravity.TOP);
+                after.setColorFilter(gammaFilter(o.gamma));
+                two.addView(figure(image("launcher_keyart.png"), t("Original", "原图")), new LinearLayout.LayoutParams(0, -2, 1));
+                two.addView(figure(after, t("Corrected", "校正")), lp(0, -2, dp(12), 0, 0, 0, 1));
+                c.addView(two, lp(-1, -2, 0, dp(4), 0, dp(4)));
+                break;
+        }
+    }
+    ColorMatrixColorFilter gammaFilter(float g) {
+        float k = (float) Math.pow(g, 0.6);                     // the design's preview: brightness(gamma^0.6)
+        ColorMatrix m = new ColorMatrix();
+        m.setScale(k, k, k, 1);
+        return new ColorMatrixColorFilter(m);
+    }
+    View figure(ImageView img, String caption) {
+        LinearLayout f = vbox();
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        img.setBackground(round(0xFF111827, 0, 10));
+        img.setClipToOutline(true);
+        f.addView(img, new LinearLayout.LayoutParams(-1, dp(96)));
+        f.addView(text(caption, 13, SUB, nunito), lp(-2, -2, 0, dp(4), 0, 0));
+        return f;
+    }
+
+    // ---- Settings pieces ----------------------------------------------------------------------------------------------
+    interface Pick { void on(int i); }
+    interface Flag { void on(boolean b); }
+    interface Fmt { String of(int v); }
+    static final Fmt NUM = new Fmt() { public String of(int v) { return String.valueOf(v); } };
+
+    void row(LinearLayout c, String label, View control) {
+        LinearLayout r = hbox();
+        r.setPadding(0, dp(8), 0, dp(8));
+        r.addView(text(label, 15, INK, baloo), new LinearLayout.LayoutParams(dp(170), -2));
+        r.addView(control, lp(0, -2, dp(14), 0, 0, 0, 1));
+        c.addView(r);
+        View line = new View(this);
+        line.setBackgroundColor(RAIL);
+        c.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+    }
+    TextView hint(String s) {
+        TextView h = text(s, 14, SUB, nunito);
+        h.setLineSpacing(dp(2), 1);
+        h.setPadding(0, dp(8), 0, dp(6));
+        return h;
+    }
+    LinearLayout pills(String[] labels, int sel, final Pick pick) {
+        final LinearLayout g = hbox();
+        for (int i = 0; i < labels.length; i++) {
+            final int k = i;
+            TextView p = text(labels[i], 14, INK, nunito800);
+            p.setGravity(Gravity.CENTER);
+            p.setMinWidth(dp(52));
+            p.setPadding(dp(14), 0, dp(14), 0);
+            p.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                for (int j = 0; j < g.getChildCount(); j++) pillLook((TextView) g.getChildAt(j), j == k);
+                pick.on(k);
+            } });
+            pillLook(p, i == sel);
+            g.addView(p, lp(-2, dp(40), i == 0 ? 0 : dp(6), 0, 0, 0));
+        }
+        return g;
+    }
+    void pillLook(TextView p, boolean on) {
+        p.setBackground(round(on ? PILL_ON : Color.WHITE, on ? YELLOW_DEEP : LINE, 999));
+        p.setSelected(on);
+    }
+    View onOff(boolean on, final Flag f) {
+        CheckBox c = new CheckBox(this);
+        c.setText(t("On", "开"));
+        c.setTextColor(INK); c.setTypeface(nunito); c.setTextSize(14);
+        c.setButtonDrawable(new Tick(dp(18), BLUE, Color.WHITE, EDGE, Color.WHITE));
+        c.setPadding(dp(10), 0, 0, 0);
+        c.setMinHeight(dp(40));
+        c.setChecked(on);
+        c.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() { public void onCheckedChanged(android.widget.CompoundButton b, boolean v) { f.on(v); } });
+        return c;
+    }
+    View slider(final int min, int max, final int stepV, int value, String low, String high, final Fmt fmt, final Pick set) {
+        LinearLayout r = hbox();
+        if (low != null) r.addView(text(low, 13, SUB, nunito));
+        SeekBar s = new SeekBar(this);
+        s.setMax((max - min) / stepV);
+        s.setProgress(Math.max(0, Math.min(s.getMax(), (value - min) / stepV)));
+        s.setProgressTintList(ColorStateList.valueOf(BLUE));
+        s.setThumbTintList(ColorStateList.valueOf(BLUE));
+        r.addView(s, new LinearLayout.LayoutParams(0, dp(40), 1));
+        if (high != null) r.addView(text(high, 13, SUB, nunito));
+        final TextView out = text(fmt.of(value), 17, INK, baloo800);
+        out.setGravity(Gravity.END);
+        out.setMinWidth(dp(48));
+        r.addView(out, lp(-2, -2, dp(12), 0, 0, 0));
+        s.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar b, int v, boolean u) { int x = min + v * stepV; out.setText(fmt.of(x)); set.on(x); }
+            public void onStartTrackingTouch(SeekBar b) { }
+            public void onStopTrackingTouch(SeekBar b) { }
+        });
+        return r;
+    }
+    Button keyButton(String s) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false); b.setTypeface(nunito800); b.setTextSize(14); b.setTextColor(INK);
+        b.setStateListAnimator(null);
+        b.setBackground(round(Color.WHITE, EDGE, 10));
+        b.setPadding(dp(4), 0, dp(4), 0);
+        return b;
+    }
+    String comboName(int[] c) {
+        if (c.length == 0) return t("None", "无");
+        StringBuilder b = new StringBuilder();
+        for (int x : c) { if (b.length() > 0) b.append(" + "); b.append(Controls.name(x, zh)); }
+        return b.toString();
+    }
+
+    // ---- building blocks ----------------------------------------------------------------------------------------------
+    int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
+    Typeface font(String asset, int weight) {
+        try { return new Typeface.Builder(getAssets(), asset).setFontVariationSettings("'wght' " + weight).build(); }
+        catch (Exception e) { return Typeface.DEFAULT_BOLD; }
+    }
+    ImageView image(String asset) {
+        ImageView v = new ImageView(this);
+        try (InputStream in = getAssets().open(asset)) { v.setImageBitmap(BitmapFactory.decodeStream(in)); } catch (Exception ignored) { }
+        return v;
+    }
+    ImageView icon(int kind, int color, int sizeDp) {
+        ImageView v = new ImageView(this);
+        v.setImageDrawable(new Icon(kind, color, dp(sizeDp)));
+        return v;
+    }
+    LinearLayout vbox() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
+    LinearLayout hbox() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
+    LinearLayout.LayoutParams lp(int w, int h, int l, int t, int r, int b) { return lp(w, h, l, t, r, b, 0); }
+    LinearLayout.LayoutParams lp(int w, int h, int l, int t, int r, int b, float weight) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, h, weight);
+        p.setMargins(l, t, r, b);
+        return p;
+    }
+    TextView text(String s, int sp, int color, Typeface tf) {
+        TextView v = new TextView(this);
+        v.setText(s); v.setTextSize(sp); v.setTextColor(color); v.setTypeface(tf);
+        return v;
+    }
+    TextView fieldLabel(String s) {
+        TextView v = text(s, 13, MUTED, baloo);
+        v.setLetterSpacing(0.04f);
+        v.setPadding(0, 0, 0, dp(4));
+        return v;
+    }
+    static int mix(int a, int b, float k) {
+        int r = (int) (Color.red(a) + (Color.red(b) - Color.red(a)) * k), g = (int) (Color.green(a) + (Color.green(b) - Color.green(a)) * k),
+            bl = (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * k);
+        return Color.rgb(r, g, bl);
+    }
+    GradientDrawable round(int fill, int stroke, int radiusDp) { return roundS(fill, stroke, 1, radiusDp); }
+    GradientDrawable roundS(int fill, int stroke, int strokeDp, int radiusDp) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(fill);
         g.setCornerRadius(radiusDp >= 999 ? dp(999) : dp(radiusDp));
-        if (stroke != 0) g.setStroke(dp(1), stroke);
+        if (stroke != 0) g.setStroke(dp(strokeDp), stroke);
         return g;
     }
-
-    TextView label(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(MUTED);
-        t.setTypeface(baloo);
-        t.setTextSize(13);
-        t.setLetterSpacing(0.04f);
-        t.setPadding(0, dp(8), 0, dp(4));
-        return t;
+    // a face with its "step" shadow under it (the design's box-shadow: 0 Npx 0 <colour>)
+    LayerDrawable step(int fill, int stroke, int strokeDp, int shadow, int shadowDp, int radiusDp) {
+        LayerDrawable d = new LayerDrawable(new Drawable[]{roundS(shadow, 0, 0, radiusDp), roundS(fill, stroke, strokeDp, radiusDp)});
+        d.setLayerInset(1, 0, 0, 0, dp(shadowDp));
+        return d;
     }
-
-    LinearLayout.LayoutParams fieldParams() { return new LinearLayout.LayoutParams(-1, dp(44)); }
-
+    Button yellowButton(String s, int sp) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false); b.setTypeface(baloo800); b.setTextSize(sp); b.setTextColor(INK);
+        b.setStateListAnimator(null);
+        b.setBackground(step(YELLOW, 0, 0, YELLOW_DEEP, 4, 999));
+        b.setPadding(0, 0, 0, dp(4));
+        return b;
+    }
+    Button lightButton(String s) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false); b.setTypeface(baloo); b.setTextSize(15); b.setTextColor(INK);
+        b.setStateListAnimator(null);
+        b.setBackground(step(Color.WHITE, EDGE, 1, LINE, 3, 999));
+        b.setPadding(dp(16), 0, dp(16), dp(3));
+        return b;
+    }
+    Drawable fieldBg(boolean bad) { return round(0x40000000, bad ? ERROR : 0x24FFFFFF, 12); }
     EditText field(boolean secret) {
         EditText e = new EditText(this);
         e.setSingleLine(true);
         e.setTextColor(Color.WHITE);
         e.setTypeface(nunito);
-        e.setTextSize(15);
-        e.setPadding(dp(14), 0, dp(14), 0);
-        StateListDrawable bg = new StateListDrawable();             // yellow outline while typing, like the launcher
-        bg.addState(new int[]{android.R.attr.state_focused}, round(0x40000000, YELLOW, 12));
-        bg.addState(new int[]{}, round(0x40000000, GLASS_LINE, 12));
-        e.setBackground(bg);
+        e.setTextSize(16);
+        e.setPadding(dp(12), 0, dp(12), 0);
+        e.setBackground(fieldBg(false));
         e.setInputType(secret ? (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD)
                               : (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
         return e;
     }
-
     CheckBox check(String text, String note) {
         CheckBox c = new CheckBox(this);
         SpannableString s = new SpannableString(text + note);
-        s.setSpan(new ForegroundColorSpan(0x73FFFFFF), text.length(), s.length(), 0);
+        s.setSpan(new ForegroundColorSpan(0x99FFFFFF), text.length(), s.length(), 0);
         c.setText(s);
         c.setTextColor(Color.WHITE);
         c.setTypeface(nunito);
         c.setTextSize(14);
-        c.setButtonDrawable(new Tick(dp(18)));
-        c.setPadding(dp(10), dp(3), 0, dp(3));
+        c.setButtonDrawable(new Tick(dp(18), YELLOW, 0x40000000, 0x47FFFFFF, INK));
+        c.setPadding(dp(10), 0, 0, 0);
         return c;
     }
 
-    // the launcher's checkbox: 18dp rounded square, yellow with an ink tick when checked
+    // a checkbox: 18dp rounded square, filled with a tick when checked
     class Tick extends Drawable {
-        final int size; boolean on;
+        final int size, onFill, offFill, offStroke, tickColor; boolean on;
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        Tick(int size) { this.size = size; }
+        Tick(int size, int onFill, int offFill, int offStroke, int tickColor) {
+            this.size = size; this.onFill = onFill; this.offFill = offFill; this.offStroke = offStroke; this.tickColor = tickColor;
+        }
         @Override public boolean isStateful() { return true; }
         @Override protected boolean onStateChange(int[] st) {
             boolean c = false;
@@ -984,18 +1298,18 @@ public class LoginActivity extends Activity {
             float l = b.left, t = b.top + (b.height() - size) / 2f, r5 = dp(5);
             RectF r = new RectF(l, t, l + size, t + size);
             p.setStyle(Paint.Style.FILL);
-            p.setColor(on ? YELLOW : 0x40000000);
+            p.setColor(on ? onFill : offFill);
             cv.drawRoundRect(r, r5, r5, p);
             p.setStyle(Paint.Style.STROKE);
             p.setStrokeWidth(dp(1) * 1.5f);
-            p.setColor(on ? YELLOW : 0x47FFFFFF);
+            p.setColor(on ? onFill : offStroke);
             cv.drawRoundRect(r, r5, r5, p);
             if (on) {
                 Path tick = new Path();
                 tick.moveTo(l + size * 0.27f, t + size * 0.52f);
                 tick.lineTo(l + size * 0.44f, t + size * 0.68f);
                 tick.lineTo(l + size * 0.74f, t + size * 0.33f);
-                p.setColor(INK); p.setStrokeWidth(dp(2)); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
+                p.setColor(tickColor); p.setStrokeWidth(dp(2)); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
                 cv.drawPath(tick, p);
             }
         }
@@ -1021,44 +1335,124 @@ public class LoginActivity extends Activity {
         @Override public int getOpacity() { return PixelFormat.OPAQUE; }
     }
 
-    void go() {
-        final String account = user.getText().toString().trim().toLowerCase();   // login names are lowercase only
-        final String password = pass.getText().toString();
-        final int srv = servers.getCheckedRadioButtonId() - 100;
-        final String savedKey = prefs.getString("key", "");
-        final boolean sameAccount = account.equals(prefs.getString("user", "")) && srv == prefs.getInt("keyServer", -1);
-        if (account.isEmpty() || (password.isEmpty() && (savedKey.isEmpty() || !sameAccount))) {
-            status.setText(t("Enter your account and password.", "请输入账号和密码。"));
-            return;
+    // diagonal stripes on a ground colour (the design's repeating-linear-gradient): band = half the period
+    static class Stripes extends Drawable {
+        final int bg, ink, band; final Paint p = new Paint();
+        Stripes(int bg, int ink, int band) { this.bg = bg; this.ink = ink; this.band = Math.max(1, band); }
+        @Override public void draw(Canvas c) {
+            Rect b = getBounds();
+            c.drawColor(bg);
+            c.save();
+            c.clipRect(b);
+            p.setColor(ink);
+            p.setStrokeWidth(band);
+            float span = b.width() + b.height();
+            for (float x = b.left - b.height(); x < b.left + span; x += band * 2) c.drawLine(x, b.bottom, x + b.height(), b.top, p);
+            c.restore();
         }
+        @Override public void setAlpha(int a) { }
+        @Override public void setColorFilter(ColorFilter f) { }
+        @Override public int getOpacity() { return PixelFormat.OPAQUE; }
+    }
+
+    // the design's line icons, drawn on a 24-unit grid
+    static class Icon extends Drawable {
+        static final int PLAY = 0, CHEVRON_UP = 1, CHEVRON_DOWN = 2, CHECK = 3, SERVER = 4, GEAR = 5, EYE = 6, EYE_OFF = 7, CLOSE = 8,
+                PAD = 9, KEYBOARD = 10, MOVE = 11, GALLERY = 12, GLOBE = 13;
+        final int kind, size; final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Icon(int kind, int color, int size) {
+            this.kind = kind; this.size = size;
+            p.setColor(color);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setStrokeJoin(Paint.Join.ROUND);
+        }
+        @Override public int getIntrinsicWidth() { return size; }
+        @Override public int getIntrinsicHeight() { return size; }
+        @Override public void draw(Canvas c) {
+            Rect b = getBounds();
+            float k = Math.min(b.width(), b.height()) / 24f;
+            c.save();
+            c.translate(b.left + (b.width() - 24 * k) / 2, b.top + (b.height() - 24 * k) / 2);
+            c.scale(k, k);
+            p.setStrokeWidth(2);
+            Path a = new Path();
+            switch (kind) {
+                case PLAY: a.moveTo(7, 4.5f); a.lineTo(7, 19.5f); a.lineTo(19, 12); a.close(); p.setStyle(Paint.Style.FILL); c.drawPath(a, p); break;
+                case CHEVRON_UP: p.setStrokeWidth(2.4f); a.moveTo(6, 15); a.lineTo(12, 9); a.lineTo(18, 15); c.drawPath(a, p); break;
+                case CHEVRON_DOWN: p.setStrokeWidth(3); a.moveTo(6, 9); a.lineTo(12, 15); a.lineTo(18, 9); c.drawPath(a, p); break;
+                case CHECK: p.setStrokeWidth(2.6f); a.moveTo(5, 12.5f); a.lineTo(9.5f, 17); a.lineTo(19, 7.5f); c.drawPath(a, p); break;
+                case SERVER:
+                    c.drawRoundRect(new RectF(4, 4, 20, 10), 2, 2, p); c.drawRoundRect(new RectF(4, 14, 20, 20), 2, 2, p);
+                    c.drawPoint(8, 7, p); c.drawPoint(8, 17, p); break;
+                case GEAR:
+                    c.drawCircle(12, 12, 3, p); c.drawCircle(12, 12, 7, p);
+                    p.setStrokeWidth(2.6f);
+                    for (int i = 0; i < 8; i++) {
+                        double r = Math.PI / 4 * i;
+                        c.drawLine(12 + (float) Math.cos(r) * 7.5f, 12 + (float) Math.sin(r) * 7.5f, 12 + (float) Math.cos(r) * 9.8f, 12 + (float) Math.sin(r) * 9.8f, p);
+                    }
+                    break;
+                case EYE: case EYE_OFF:
+                    a.moveTo(2, 12); a.quadTo(12, 0.5f, 22, 12); a.quadTo(12, 23.5f, 2, 12); c.drawPath(a, p); c.drawCircle(12, 12, 3, p);
+                    if (kind == EYE_OFF) c.drawLine(3, 3, 21, 21, p);
+                    break;
+                case CLOSE: p.setStrokeWidth(2.4f); c.drawLine(6, 6, 18, 18, p); c.drawLine(18, 6, 6, 18, p); break;
+                case PAD:
+                    p.setStrokeWidth(1.6f);
+                    c.drawRoundRect(new RectF(2, 7, 22, 17.5f), 5, 5, p);
+                    c.drawLine(7, 10, 7, 13, p); c.drawLine(5.5f, 11.5f, 8.5f, 11.5f, p);
+                    p.setStyle(Paint.Style.FILL); c.drawCircle(16, 10.5f, 0.8f, p); c.drawCircle(18, 12.5f, 0.8f, p); break;
+                case KEYBOARD:
+                    p.setStrokeWidth(1.6f);
+                    c.drawRoundRect(new RectF(2, 6, 22, 18), 2.5f, 2.5f, p);
+                    for (int x = 6; x <= 18; x += 4) c.drawPoint(x, 10, p);
+                    c.drawLine(7, 14, 17, 14, p); break;
+                case MOVE:
+                    c.drawLine(2, 12, 22, 12, p); c.drawLine(12, 2, 12, 22, p);
+                    a.moveTo(5, 9); a.lineTo(2, 12); a.lineTo(5, 15); a.moveTo(9, 5); a.lineTo(12, 2); a.lineTo(15, 5);
+                    a.moveTo(15, 19); a.lineTo(12, 22); a.lineTo(9, 19); a.moveTo(19, 9); a.lineTo(22, 12); a.lineTo(19, 15);
+                    c.drawPath(a, p); break;
+                case GALLERY:
+                    c.drawRoundRect(new RectF(3, 4, 21, 20), 3, 3, p); c.drawCircle(9, 10, 2, p);
+                    a.moveTo(21, 16); a.lineTo(16, 11); a.lineTo(7, 20); c.drawPath(a, p); break;
+                case GLOBE:
+                    p.setStrokeWidth(1.8f);
+                    c.drawCircle(12, 12, 9, p); c.drawLine(3, 12, 21, 12, p); c.drawOval(new RectF(8.2f, 3, 15.8f, 21), p); break;
+            }
+            c.restore();
+        }
+        @Override public void setAlpha(int a) { p.setAlpha(a); }
+        @Override public void setColorFilter(ColorFilter f) { p.setColorFilter(f); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    // ---- Play ---------------------------------------------------------------------------------------------------------
+    void go() {
+        final String key = currentKey();
+        if (key.isEmpty()) { showSignedIn(); return; }
+        final String account = prefs.getString("user", "");
+        final int srv = this.srv;
         float maxHz = 60;                   // the panel's highest refresh rate: the game caps its frame rate at it
         for (android.view.Display.Mode m : getWindowManager().getDefaultDisplay().getSupportedModes()) maxHz = Math.max(maxHz, m.getRefreshRate());
         final int hz = Math.round(maxHz);
-        play.setEnabled(false);
-        status.setTextColor(MUTED);
-        status.setText(t("Signing in to ", "正在登录") + (zh ? NAMES_ZH[srv] : NAMES[srv]) + "...");
+        playBtn.setEnabled(false);
+        playBtn.setAlpha(0.7f);
+        say(t("Signing in to ", "正在登录") + (zh ? NAMES_ZH[srv] : NAMES[srv]) + "...", -1);
         new Thread(new Runnable() { public void run() {
             try {
                 if (!update(srv)) return;                     // game files + this app from the patch servers
                 say(t("Loading the shop...", "正在加载商城..."), -1);               // the dashboard's shop (hidden karts, prices): ShopSync
                 Log.i("ck2", "shop: " + ShopSync.apply(new File(getExternalFilesDir(null), "game"), getFilesDir(), API[srv]));
                 say(t("Signing in to ", "正在登录") + (zh ? NAMES_ZH[srv] : NAMES[srv]) + "...", -1);
-                String key = savedKey;
-                if (!password.isEmpty() || !sameAccount) {
-                    Reply r = request(HOSTS[srv], account, password, 0x6f01);
-                    if (r.error != null) { fail(r.error, r.result != 0); return; }
-                    key = r.key;
-                }
                 Reply p = request(HOSTS[srv], account, key, 0x6f03);    // fresh one-time pass, like the launcher's Play
                 if (p.error != null) { fail(p.error, p.result != 0); return; }
-                SharedPreferences.Editor ed = prefs.edit().putString("user", account).putInt("server", srv).putBoolean("remember", remember.isChecked());
+                SharedPreferences.Editor ed = prefs.edit().putInt("server", srv);
                 if (!p.nickname.isEmpty()) ed.putString("nick", p.nickname);   // the account card's name
-                if (remember.isChecked()) ed.putString("key", key).putInt("keyServer", srv); else ed.remove("key");
                 ed.apply();
                 phoneDisplay();
                 phoneUi();
                 Controls.write(prefs, getFilesDir());          // keyboards + controllers (plat_android.c)
-                final String fkey = key;
                 String args = "-u " + account + " -password " + p.pass + " -ad " + HOSTS[srv] + " -port " + LOGIN_PORT + " -wnd 1";
                 File f = new File(getFilesDir(), "launch_args.txt");
                 FileOutputStream o = new FileOutputStream(f);
@@ -1079,7 +1473,7 @@ public class LoginActivity extends Activity {
                     int cap = 0;                                                // the frame rate cap (0 = Auto)
                     try { if (!"1".equals(iniGet(ini, "VSync")) && iniGet(ini, "MaxFps") != null) cap = Integer.parseInt(iniGet(ini, "MaxFps")); } catch (Exception e) { }
                     startActivity(new Intent(LoginActivity.this, GameActivity.class).putExtra("api", API[srv])
-                            .putExtra("user", account).putExtra("key", fkey).putExtra("lang", lang)
+                            .putExtra("user", account).putExtra("key", key).putExtra("lang", lang)
                             .putExtra("accessories", prefs.getBoolean("accessories", true)).putExtra("fpscap", cap));
                     finish();
                 } });
@@ -1089,17 +1483,30 @@ public class LoginActivity extends Activity {
         } }).start();
     }
 
-    // ---- updates: game files + this app, from the same signed patch the PC launcher uses (Patcher.java) -------------
-    static final String ACTION_INSTALLED = "com.crazykart.legacy.INSTALLED";
-
     void say(final String text, final int pct) {
         runOnUiThread(new Runnable() { public void run() {
             status.setTextColor(MUTED);
             status.setText(text);
+            status.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
             bar.setVisibility(pct < 0 ? View.GONE : View.VISIBLE);
             if (pct >= 0) bar.setProgress(pct);
         } });
     }
+
+    void fail(final String msg, final boolean badLogin) {
+        if (badLogin) { prefs.edit().remove("key").apply(); sessionKey = ""; sessionSrv = -1; }   // a refused key signs the player out
+        runOnUiThread(new Runnable() { public void run() {
+            bar.setVisibility(View.GONE);
+            if (badLogin) { showSignedIn(); formErr(msg); status.setVisibility(View.GONE); return; }   // the card gives way to the form
+            status.setTextColor(ERROR);
+            status.setText(msg);
+            status.setVisibility(View.VISIBLE);
+            showSignedIn();
+        } });
+    }
+
+    // ---- updates: game files + this app, from the same signed patch the PC launcher uses (Patcher.java) -------------
+    static final String ACTION_INSTALLED = "com.crazykart.legacy.INSTALLED";
 
     int myVersion() {
         try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { return 0; }
@@ -1305,18 +1712,6 @@ public class LoginActivity extends Activity {
             fail("The update was not installed (" + i.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE)
                     + "). Press Play to play this version; the update is offered again next time.", false);
         }
-    }
-
-    void fail(final String msg, final boolean badLogin) {
-        if (badLogin) prefs.edit().remove("key").apply();         // a refused key signs the player out
-        runOnUiThread(new Runnable() { public void run() {
-            if (badLogin) { pass.setHint(""); showSignedIn(); }  // the card gives way to the form
-            status.setTextColor(ERROR);
-            status.setText(msg);
-            bar.setVisibility(View.GONE);
-            play.setEnabled(true);
-            play.setText(prefs.getString("key", "").isEmpty() ? t("Sign in & Play", "登录并开始") : t("Play", "开始游戏"));
-        } });
     }
 
     // ---- wire format (ck2server protocol.py, Launcher/login.js) -----------------------------------

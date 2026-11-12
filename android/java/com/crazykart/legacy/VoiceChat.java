@@ -120,7 +120,7 @@ final class VoiceChat {
         c.setRequestProperty("Authorization", "Bearer " + key);
         c.setRequestProperty("X-CK-User", user);
         c.setRequestProperty("X-CK-Lang", lang);
-        c.setRequestProperty("X-CK-Ping", "room,race");
+        c.setRequestProperty("X-CK-Ping", act.getSharedPreferences("login", 0).getString("ping", "room,race"));   // Settings > Game > Show ping
         c.setRequestProperty("X-CK-Accessories", accessories ? "on" : "off");
         c.setConnectTimeout(8000);
         return c;
@@ -143,7 +143,9 @@ final class VoiceChat {
                 final String popup = st.optString("popup", "");          // the server asks for a popup (ranked map vote, Rename Card)
                 if (!popup.isEmpty() && act instanceof GameActivity && ((GameActivity) act).web != null) ((GameActivity) act).web.popup(popup);
                 st.put("ice", new JSONArray(ICE));
-                st.put("audio", new JSONObject().put("noise", "standard"));     // RNNoise model not shipped in the APK
+                android.content.SharedPreferences pr = act.getSharedPreferences("login", 0);     // Settings > Sound
+                st.put("audio", new JSONObject().put("noise", pr.getString("noise", "ai"))      // no RNNoise model in the APK: "ai" falls back to standard
+                        .put("voiceVolume", pr.getInt("voicevol", 100)).put("micVolume", pr.getInt("micvol", 100)));
                 final String js = "window.__ckState&&window.__ckState(" + st + ")";
                 act.runOnUiThread(new Runnable() { public void run() { if (web != null) web.evaluateJavascript(js, null); } });
             } catch (Exception e) {

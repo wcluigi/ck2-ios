@@ -68,10 +68,10 @@ static void mobile_save(void) {
 }
 static int shown_btn(int i) { mobile_load(); return i < B_AUTOGAS || g_mobile; }
 
+static const char *const g_names[NB] = {"touch_left", "touch_right", "touch_gas", "touch_brake", "touch_drift", "touch_item", "touch_swap", "touch_esc", "touch_chat",
+                                        "touch_autogas", "touch_tapdrift"};
 static void geom(int i, float *cx, float *cy, float *r) {
-    static const char *const names[NB] = {"touch_left", "touch_right", "touch_gas", "touch_brake", "touch_drift", "touch_item", "touch_swap", "touch_esc", "touch_chat",
-                                          "touch_autogas", "touch_tapdrift"};
-    if (hud_touch_button(names[i], cx, cy, r)) return;      // placed by the player (HUD layout editor)
+    if (hud_touch_button(g_names[i], cx, cy, r)) return;      // placed by the player (HUD layout editor)
     int bw, bh;
     gpu_backbuffer_size(&bw, &bh);
     float u = bh * 0.105f;
@@ -265,8 +265,27 @@ static void over(float *acc, u32 rgb, float a) {     // premultiplied "over"
     for (int k = 0; k < 3; k++) acc[k] = acc[k] * (1 - a) + (float)((rgb >> (16 - 8 * k)) & 255) / 255.0f * a;
     acc[3] = acc[3] * (1 - a) + a;
 }
+// the player's own picture for a button (launcher HUD editor > Choose from gallery): <game>/touch_icons/<name>.rgba,
+// <u32 w><u32 h> then ART x ART straight-alpha RGBA8 (red low), already cut round with its ring
+static GpuTex *own_art(int i) {
+    char p[600];
+    snprintf(p, sizeof p, "%s/touch_icons/%s.rgba", g_game_dir, g_names[i]);
+    FILE *f = fopen(p, "rb");
+    if (!f) return 0;
+    u32 wh[2], *px = malloc(ART * ART * 4);
+    GpuTex *t = 0;
+    if (px && fread(wh, 4, 2, f) == 2 && wh[0] == ART && wh[1] == ART && fread(px, 4, ART * ART, f) == ART * ART) {
+        GTexDesc td = {ART, ART, 1, 0, 0, 21};
+        t = gpu_tex_create(&td);
+        gpu_tex_upload(t, 0, 0, 0, ART, ART, px, ART);
+    }
+    free(px);
+    fclose(f);
+    return t;
+}
 static GpuTex *button_art(int i) {
     if (g_art[i]) return g_art[i];
+    if ((g_art[i] = own_art(i))) return g_art[i];
     const Btn *b = &g_btn[i];
     const float c0 = ART / 2.0f, R = c0 - 1, rb = R * 0.86f, u = rb * 0.62f;
     u8 *cov = 0, *dil = 0;

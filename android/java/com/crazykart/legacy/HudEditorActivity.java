@@ -2,6 +2,7 @@ package com.crazykart.legacy;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -17,6 +18,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -58,25 +60,44 @@ public class HudEditorActivity extends Activity {
     EditorView view;
     TextView info;
     SeekBar size;
-    boolean settingSize;
+    boolean settingSize, zh;
+    Typeface baloo, nunito;
+    LinearLayout iconBar;                               // a touch button picked: its icon from the gallery
+    ImageView iconPreview;
+    Button iconDefault;
+    // the player's own button pictures (Choose from gallery), written at Save: name -> picture, or null = back to the default
+    final java.util.Map<String, Bitmap> icons = new java.util.HashMap<>();
+    static final int ART = 160, PICK = 7;               // touch_ui.c ART: the runtime's button picture size
+    String t(String en, String cn) { return zh ? cn : en; }
+    // hud_elements.txt has English labels; the launcher's Chinese ones (the design)
+    static final String[][] ZH = {{"items", "道具栏"}, {"itemcount", "道具数量"}, {"place", "名次"}, {"ranking", "排名"}, {"time", "比赛时间"},
+            {"minimap", "小地图"}, {"speedo", "速度表"}, {"touch_left", "左转"}, {"touch_right", "右转"}, {"touch_gas", "油门"}, {"touch_brake", "刹车"},
+            {"touch_drift", "漂移"}, {"touch_item", "道具"}, {"touch_swap", "切换道具"}, {"touch_esc", "菜单"}, {"touch_chat", "聊天"},
+            {"chat", "比赛聊天"}, {"announce", "公告"}, {"touch_autogas", "自动油门"}, {"touch_tapdrift", "轻点漂移"}};
 
     File gameDir() { return new File(getExternalFilesDir(null), "game"); }
     File layoutFile() { return new File(gameDir(), "hud_layout.txt"); }
+    File iconFile(String name, String ext) { return new File(new File(gameDir(), "touch_icons"), name + ext); }
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        android.content.SharedPreferences prefs = getSharedPreferences("login", MODE_PRIVATE);
+        zh = "zh".equals(prefs.getString("lang", ""));
+        baloo = font("baloo2.ttf", 700); nunito = font("nunito.ttf", 800);
         loadElements();
         loadLayout();
-        // what this player can arrange (12 Nov 2026): Mobile controls chosen at the first start ("mobile" extra) =
-        // only the on-screen buttons; the Mobile switches only when Mobile controls are on. The rest is kept
-        // (saved unchanged), just not shown here.
-        boolean mobileOnly = getIntent().getBooleanExtra("mobile", false);
-        boolean mobileOn = mobileOnly || getSharedPreferences("login", MODE_PRIVATE).getBoolean("touchmobile", false);
+        // what this player can arrange (the launcher design, 12 Nov 2026): every HUD element and on-screen button; the
+        // AUTO GAS / TAP DRIFT switches only with Mobile controls ("mode" extra, else the saved choice). The switches
+        // are kept (saved unchanged) when not shown.
+        String mode = getIntent().getStringExtra("mode");
+        boolean mobileOn = mode != null ? mode.equals("mobile") : prefs.getBoolean("touchmobile", false);
+        boolean first = getIntent().getBooleanExtra("first", false);      // the first start's step 3: Skip, not Back
         for (int i = elems.size() - 1; i >= 0; i--) {
             Elem e = elems.get(i);
+            if (zh) for (String[] z : ZH) if (z[0].equals(e.name)) e.label = z[1];
             boolean sw = e.name.equals("touch_autogas") || e.name.equals("touch_tapdrift");
-            if ((mobileOnly && !e.touch) || (sw && !mobileOn)) { kept.add(e); elems.remove(i); }
+            if (sw && !mobileOn) { kept.add(e); elems.remove(i); }
         }
         loadPictures();
 
@@ -93,10 +114,10 @@ public class HudEditorActivity extends Activity {
         bar.setBackground(bg);
         int p = dp(8);
         bar.setPadding(p, dp(4), p, dp(4));
-        info = label("Tap an item", Color.WHITE);
-        info.setMinWidth(dp(120));
+        info = label(t("Tap an item, then slide it", "点击一个元素，然后拖动"), Color.WHITE);
+        info.setMinWidth(dp(128));
         bar.addView(info);
-        bar.addView(label("  Size ", MUTED));
+        bar.addView(label("  " + t("Size", "大小") + " ", MUTED));
         size = slider(260, 60, new SeekBar.OnSeekBarChangeListener() {        // 40 % .. 300 %
             public void onProgressChanged(SeekBar s, int v, boolean user) {
                 if (!user || settingSize || view.active == null) return;
@@ -111,20 +132,67 @@ public class HudEditorActivity extends Activity {
         });
         size.setEnabled(false);
         bar.addView(size, new LinearLayout.LayoutParams(dp(110), -2));
-        bar.addView(label("  Buttons ", MUTED));
+        bar.addView(label("  " + t("Buttons", "按键") + " ", MUTED));
         SeekBar ob = slider(100, (int) (opacity * 100), new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int v, boolean u) { opacity = Math.max(0f, v / 100f); view.invalidate(); }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) {}
         });
         bar.addView(ob, new LinearLayout.LayoutParams(dp(90), -2));
-        bar.addView(button("Reset", false, new View.OnClickListener() { public void onClick(View v) { reset(); } }));
-        bar.addView(button("Back", false, new View.OnClickListener() { public void onClick(View v) { finish(); } }));
-        bar.addView(button("Save", true, new View.OnClickListener() { public void onClick(View v) { save(); finish(); } }));
+        bar.addView(button(t("Reset", "重置"), false, new View.OnClickListener() { public void onClick(View v) { reset(); } }));
+        bar.addView(button(first ? t("Skip", "跳过") : t("Back", "返回"), false, new View.OnClickListener() { public void onClick(View v) { finish(); } }));
+        bar.addView(button(t("Save", "保存"), true, new View.OnClickListener() { public void onClick(View v) { save(); finish(); } }));
+        bar.setClickable(true);
         // bottom centre: the race HUD has nothing there
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         lp.bottomMargin = dp(6);
         root.addView(bar, lp);
+
+        // a touch button picked: its picture from the gallery (the design: round, with a light ring), or back to the default
+        iconBar = new LinearLayout(this);
+        iconBar.setOrientation(LinearLayout.HORIZONTAL);
+        iconBar.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable ib = new GradientDrawable();
+        ib.setColor(0xEB131A2E); ib.setCornerRadius(dp(14)); ib.setStroke(dp(1), 0xFF2A3A6E);
+        iconBar.setBackground(ib);
+        iconBar.setPadding(dp(6), dp(4), dp(6), dp(4));
+        iconBar.setClickable(true);
+        iconPreview = new ImageView(this);
+        iconBar.addView(iconPreview, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        Button gallery = button(t("Choose from gallery", "从相册选择"), false, new View.OnClickListener() { public void onClick(View v) {
+            Intent i = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+            try { startActivityForResult(Intent.createChooser(i, t("Choose from gallery", "从相册选择")), PICK); } catch (Exception ignored) { }
+        } });
+        ((GradientDrawable) gallery.getBackground()).setColor(0xFF1A4FD6);
+        iconBar.addView(gallery);
+        iconDefault = button(t("Default icon", "恢复默认图标"), false, new View.OnClickListener() { public void onClick(View v) {
+            Elem e = view.active;
+            if (e == null) return;
+            icons.put(e.name, null);
+            e.pic = assetPic(e.name);
+            view.showInfo(); view.invalidate();
+        } });
+        iconBar.addView(iconDefault);
+        TextView hint = label("  " + t("Square images work best", "建议使用正方形图片") + "  ", MUTED);
+        hint.setTextSize(12);
+        iconBar.addView(hint);
+        iconBar.setVisibility(View.GONE);
+        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        ilp.bottomMargin = dp(56);
+        root.addView(iconBar, ilp);
+
+        if (first) {                                     // the first start: which step this is
+            TextView title = label(mobileOn ? t("Step 3 of 3 · Arrange your HUD · Mobile controls", "第 3 步，共 3 步 · 调整 HUD · 手游操作")
+                                            : t("Step 3 of 3 · Arrange your HUD · Classic controls", "第 3 步，共 3 步 · 调整 HUD · 经典操作"), Color.WHITE);
+            title.setTypeface(baloo);
+            GradientDrawable tb = new GradientDrawable();
+            tb.setColor(0xE6131A2E); tb.setCornerRadius(dp(999)); tb.setStroke(dp(1), 0xFF2A3A6E);
+            title.setBackground(tb);
+            title.setPadding(dp(14), dp(6), dp(14), dp(6));
+            FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            tlp.topMargin = (int) (getResources().getDisplayMetrics().heightPixels * 0.236f);
+            root.addView(title, tlp);
+        }
         setContentView(root);
     }
 
@@ -133,8 +201,12 @@ public class HudEditorActivity extends Activity {
     TextView label(String t, int color) {
         TextView v = new TextView(this);
         v.setText(t); v.setTextColor(color); v.setTextSize(13);
-        v.setTypeface(Typeface.DEFAULT_BOLD);
+        v.setTypeface(nunito);
         return v;
+    }
+    Typeface font(String asset, int weight) {
+        try { return new Typeface.Builder(getAssets(), asset).setFontVariationSettings("'wght' " + weight).build(); }
+        catch (Exception e) { return Typeface.DEFAULT_BOLD; }
     }
 
     SeekBar slider(int max, int value, SeekBar.OnSeekBarChangeListener l) {
@@ -145,7 +217,7 @@ public class HudEditorActivity extends Activity {
 
     Button button(String t, boolean primary, View.OnClickListener l) {
         Button b = new Button(this);
-        b.setText(t); b.setAllCaps(false); b.setTextSize(13); b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setText(t); b.setAllCaps(false); b.setTextSize(13); b.setTypeface(nunito);
         b.setTextColor(primary ? INK : Color.WHITE);
         GradientDrawable d = new GradientDrawable();
         d.setColor(primary ? YELLOW : SLAB); d.setCornerRadius(dp(18));
@@ -196,10 +268,18 @@ public class HudEditorActivity extends Activity {
         return b;
     }
 
+    Bitmap assetPic(String name) {
+        try (InputStream in = getAssets().open(name + ".png")) { return BitmapFactory.decodeStream(in); } catch (Exception e) { return null; }
+    }
     void loadPictures() {
         for (Elem e : elems) {
             try {
-                if (e.touch) { e.pic = BitmapFactory.decodeStream(getAssets().open(e.name + ".png")); continue; }
+                if (e.touch) {
+                    File own = iconFile(e.name, ".png");
+                    e.pic = own.exists() ? BitmapFactory.decodeFile(own.getPath()) : null;
+                    if (e.pic == null) e.pic = assetPic(e.name);
+                    continue;
+                }
                 File f = new File(new File(gameDir(), "hudshots"), e.name + ".rgba");
                 e.pic = rgba(readAll(f.exists() ? new FileInputStream(f) : getAssets().open("hud_" + e.name + ".rgba")));
             } catch (Exception ignored) {
@@ -239,6 +319,66 @@ public class HudEditorActivity extends Activity {
             o.close();
         } catch (Exception ignored) {
         }
+        for (java.util.Map.Entry<String, Bitmap> it : icons.entrySet()) saveIcon(it.getKey(), it.getValue());
+    }
+
+    // the runtime's copy (touch_ui.c own_art): <u32 w><u32 h> + straight-alpha RGBA rows; the PNG is for this editor
+    void saveIcon(String name, Bitmap b) {
+        File png = iconFile(name, ".png"), raw = iconFile(name, ".rgba");
+        if (b == null) { png.delete(); raw.delete(); return; }
+        try {
+            png.getParentFile().mkdirs();
+            try (FileOutputStream o = new FileOutputStream(png)) { b.compress(Bitmap.CompressFormat.PNG, 100, o); }
+            ByteBuffer px = ByteBuffer.allocate(ART * ART * 4);
+            b.copyPixelsToBuffer(px);                       // ARGB_8888 = premultiplied R, G, B, A bytes
+            byte[] d = px.array();
+            for (int i = 0; i < d.length; i += 4) {
+                int a = d[i + 3] & 0xff;
+                if (a == 0 || a == 255) continue;
+                for (int k = 0; k < 3; k++) d[i + k] = (byte) Math.min(255, (d[i + k] & 0xff) * 255 / a);
+            }
+            ByteBuffer out = ByteBuffer.allocate(8 + d.length).order(ByteOrder.LITTLE_ENDIAN);
+            out.putInt(ART).putInt(ART).put(d);
+            try (FileOutputStream o = new FileOutputStream(raw)) { o.write(out.array()); }
+        } catch (Exception e) {
+            png.delete(); raw.delete();
+        }
+    }
+
+    // a picture from the gallery: the middle square, cut round, with a light ring (the design), ART x ART
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        Elem e = view.active;
+        if (req != PICK || res != RESULT_OK || data == null || data.getData() == null || e == null || !e.touch) return;
+        try {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            try (InputStream in = getContentResolver().openInputStream(data.getData())) { BitmapFactory.decodeStream(in, null, o); }
+            o.inSampleSize = Math.max(1, Math.min(o.outWidth, o.outHeight) / (ART * 2));
+            o.inJustDecodeBounds = false;
+            Bitmap src;
+            try (InputStream in = getContentResolver().openInputStream(data.getData())) { src = BitmapFactory.decodeStream(in, null, o); }
+            if (src == null) return;
+            Bitmap b = Bitmap.createBitmap(ART, ART, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(b);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            int side = Math.min(src.getWidth(), src.getHeight());
+            android.graphics.Rect from = new android.graphics.Rect((src.getWidth() - side) / 2, (src.getHeight() - side) / 2,
+                    (src.getWidth() + side) / 2, (src.getHeight() + side) / 2);
+            c.drawCircle(ART / 2f, ART / 2f, ART / 2f - 1, p);
+            p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
+            c.drawBitmap(src, from, new RectF(0, 0, ART, ART), p);
+            p.setXfermode(null);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(6);
+            p.setColor(0xFFE6EBF2);
+            c.drawCircle(ART / 2f, ART / 2f, ART / 2f - 4, p);
+            icons.put(e.name, b);
+            e.pic = b;
+            view.showInfo(); view.invalidate();
+        } catch (Exception ignored) {
+        }
     }
 
     void reset() {
@@ -262,7 +402,7 @@ public class HudEditorActivity extends Activity {
             guide.setStyle(Paint.Style.STROKE); guide.setStrokeWidth(2); guide.setColor(0x40FFFFFF);
             guide.setPathEffect(new DashPathEffect(new float[]{10, 8}, 0));
             sel.setStyle(Paint.Style.STROKE); sel.setStrokeWidth(4); sel.setColor(YELLOW);
-            text.setColor(Color.WHITE); text.setTextSize(26); text.setAntiAlias(true); text.setTypeface(Typeface.DEFAULT_BOLD);
+            text.setColor(Color.WHITE); text.setTextSize(13 * getResources().getDisplayMetrics().density); text.setAntiAlias(true); text.setTypeface(nunito);
             text.setShadowLayer(4, 1, 1, Color.BLACK);
             pic.setFilterBitmap(true); pic.setAntiAlias(true);
         }
@@ -279,7 +419,13 @@ public class HudEditorActivity extends Activity {
 
         void showInfo() {
             Elem e = active;
-            info.setText(e == null ? "Tap an item, then slide it" : e.label + String.format(Locale.ROOT, "  %.0f%%", e.s * 100));
+            info.setText(e == null ? t("Tap an item, then slide it", "点击一个元素，然后拖动") : e.label + String.format(Locale.ROOT, "  %.0f%%", e.s * 100));
+            iconBar.setVisibility(e != null && e.touch ? View.VISIBLE : View.GONE);
+            if (e != null && e.touch) {
+                iconPreview.setImageBitmap(e.pic);
+                boolean own = icons.containsKey(e.name) ? icons.get(e.name) != null : iconFile(e.name, ".png").exists();
+                iconDefault.setVisibility(own ? View.VISIBLE : View.GONE);
+            }
             size.setEnabled(e != null);
             if (e != null) { settingSize = true; size.setProgress(Math.round(e.s * 100) - 40); settingSize = false; }
         }
@@ -295,16 +441,20 @@ public class HudEditorActivity extends Activity {
                 if (e.pic != null) {
                     pic.setAlpha(e.touch ? (int) (255 * Math.min(1f, opacity / 0.6f * 0.8f)) : 255);
                     c.drawBitmap(e.pic, null, r, pic);
-                } else {                                      // no picture yet: a labelled box
-                    fill.setColor(0x30FFFFFF);
+                } else {                                      // no picture yet: a plain box
+                    fill.setColor(0x14FFFFFF);
                     if (e.touch) c.drawOval(r, fill); else c.drawRoundRect(r, 8, 8, fill);
-                    c.drawText(e.label, r.left + 8, r.top + 30, text);
                 }
+                if (e.touch && opacity < 0.05f && e != active) c.drawOval(r, guide);   // invisible buttons: their outline
                 if (e == active) {
                     if (e.touch) c.drawOval(r, sel); else c.drawRoundRect(r, 8, 8, sel);
-                    c.drawText(e.label, r.left, r.top - 10 < oy + 26 ? r.bottom + 30 : r.top - 10, text);
                 } else if (!e.touch) {
                     c.drawRoundRect(r, 8, 8, guide);
+                }
+                if (!e.touch) c.drawText(e.label, r.left + 8, r.top + text.getTextSize() + 2, text);      // HUD boxes: their name
+                else if (e.name.equals("touch_autogas") || e.name.equals("touch_tapdrift")) {          // the switches: a tag under
+                    String tag = e.name.equals("touch_autogas") ? t("AUTO GAS", "自动油门") : t("TAP DRIFT", "轻点漂移");
+                    c.drawText(tag, r.centerX() - text.measureText(tag) / 2, r.bottom + text.getTextSize() + 2, text);
                 }
             }
         }
