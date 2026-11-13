@@ -1,5 +1,38 @@
 #include "funcs.h"
 
+void F_0061bf80(CPU *c) {
+  NATIVE_HOOK(0x61bf80u) REGS; LOADALL;
+  goto L_0061bf80;
+L_005fee2a:;
+  /* 005fee2a jmp dword ptr [0x62e290] */ { const u32 m_ = (u32)(0x62e290u); u32 t_ = M32(m_); SAVEALL; call_ind(c, t_); return; }
+L_0061bf80:;
+  /* 0061bf80 mov eax, 0x659900 */ { eax = (u32)(0x659900u); }
+  /* 0061bf85 jmp 0x5fee2a */ goto L_005fee2a;
+}
+
+void F_0061bf90(CPU *c) {
+  NATIVE_HOOK(0x61bf90u) REGS; LOADALL;
+L_0061bf90:;
+  /* 0061bf90 push 0x43ee60 */ { u32 v_ = 0x43ee60u; esp -= 4; M32(esp) = v_; }
+  /* 0061bf95 push 3 */ { u32 v_ = 0x3u; esp -= 4; M32(esp) = v_; }
+  /* 0061bf97 push 0x1c */ { u32 v_ = 0x1cu; esp -= 4; M32(esp) = v_; }
+  /* 0061bf99 mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
+  /* 0061bf9c add eax, 4 */ { u32 a_ = eax, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
+  /* 0061bf9f push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 0061bfa0 call 0x5fe890 */ esp -= 4; M32(esp) = 0x61bfa5u; SAVEALL; F_005fe890(c); ABI_CHECK(0x5fe890u, 0x61bfa0u); RETCHK(0x61bfa5u, 0x61bfa0u); LOADALL;
+  /* 0061bfa5 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
+void F_0061bfa6(CPU *c) {
+  NATIVE_HOOK(0x61bfa6u) REGS; LOADALL;
+  goto L_0061bfa6;
+L_005fee2a:;
+  /* 005fee2a jmp dword ptr [0x62e290] */ { const u32 m_ = (u32)(0x62e290u); u32 t_ = M32(m_); SAVEALL; call_ind(c, t_); return; }
+L_0061bfa6:;
+  /* 0061bfa6 mov eax, 0x659990 */ { eax = (u32)(0x659990u); }
+  /* 0061bfab jmp 0x5fee2a */ goto L_005fee2a;
+}
+
 void F_0061bfb0(CPU *c) {
   NATIVE_HOOK(0x61bfb0u) REGS; LOADALL;
 L_0061bfb0:;
@@ -1307,25 +1340,4 @@ L_005fee2a:;
 L_0061c6f8:;
   /* 0061c6f8 mov eax, 0x65b5a4 */ { eax = (u32)(0x65b5a4u); }
   /* 0061c6fd jmp 0x5fee2a */ goto L_005fee2a;
-}
-
-void F_0061c710(CPU *c) {
-  NATIVE_HOOK(0x61c710u) REGS; LOADALL;
-L_0061c710:;
-  /* 0061c710 lea ecx, [ebp + 0x1c] */ ecx = (u32)((u32)(ebp + 0x1cu));
-  /* 0061c713 jmp 0x4b0ef0 */ SAVEALL; F_004b0ef0(c); return;
-}
-
-void F_0061c718(CPU *c) {
-  NATIVE_HOOK(0x61c718u) REGS; LOADALL;
-L_0061c718:;
-  /* 0061c718 lea ecx, [ebp - 0x2c] */ ecx = (u32)((u32)(ebp + 0xffffffd4u));
-  /* 0061c71b jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
-}
-
-void F_0061c720(CPU *c) {
-  NATIVE_HOOK(0x61c720u) REGS; LOADALL;
-L_0061c720:;
-  /* 0061c720 lea ecx, [ebp - 0x48] */ ecx = (u32)((u32)(ebp + 0xffffffb8u));
-  /* 0061c723 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
 }

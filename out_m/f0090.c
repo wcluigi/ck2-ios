@@ -1,5 +1,26 @@
 #include "funcs.h"
 
+void F_0062679b(CPU *c) {
+  NATIVE_HOOK(0x62679bu) REGS; LOADALL;
+L_0062679b:;
+  /* 0062679b lea ecx, [ebp - 0xec] */ ecx = (u32)((u32)(ebp + 0xffffff14u));
+  /* 006267a1 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
+}
+
+void F_006267a6(CPU *c) {
+  NATIVE_HOOK(0x6267a6u) REGS; LOADALL;
+L_006267a6:;
+  /* 006267a6 lea ecx, [ebp - 0x28] */ ecx = (u32)((u32)(ebp + 0xffffffd8u));
+  /* 006267a9 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
+}
+
+void F_006267ae(CPU *c) {
+  NATIVE_HOOK(0x6267aeu) REGS; LOADALL;
+L_006267ae:;
+  /* 006267ae lea ecx, [ebp - 0x60] */ ecx = (u32)((u32)(ebp + 0xffffffa0u));
+  /* 006267b1 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
+}
+
 void F_006267b6(CPU *c) {
   NATIVE_HOOK(0x6267b6u) REGS; LOADALL;
 L_006267b6:;
@@ -1115,25 +1136,4 @@ void F_00626e31(CPU *c) {
 L_00626e31:;
   /* 00626e31 lea ecx, [ebp - 0x23d4] */ ecx = (u32)((u32)(ebp + 0xffffdc2cu));
   /* 00626e37 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
-}
-
-void F_00626e3c(CPU *c) {
-  NATIVE_HOOK(0x626e3cu) REGS; LOADALL;
-L_00626e3c:;
-  /* 00626e3c lea ecx, [ebp - 0x1660] */ ecx = (u32)((u32)(ebp + 0xffffe9a0u));
-  /* 00626e42 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
-}
-
-void F_00626e47(CPU *c) {
-  NATIVE_HOOK(0x626e47u) REGS; LOADALL;
-L_00626e47:;
-  /* 00626e47 lea ecx, [ebp - 0x2a64] */ ecx = (u32)((u32)(ebp + 0xffffd59cu));
-  /* 00626e4d jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
-}
-
-void F_00626e52(CPU *c) {
-  NATIVE_HOOK(0x626e52u) REGS; LOADALL;
-L_00626e52:;
-  /* 00626e52 lea ecx, [ebp - 0x1698] */ ecx = (u32)((u32)(ebp + 0xffffe968u));
-  /* 00626e58 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
 }

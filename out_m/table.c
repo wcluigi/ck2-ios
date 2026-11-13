@@ -2535,11 +2535,14 @@ const FnEnt ck_fn_table[] = {
   {0x004acb70u, F_004acb70},
   {0x004ad6f0u, F_004ad6f0},
   {0x004ad960u, F_004ad960},
+  {0x004adb19u, F_004adb19},
   {0x004adb80u, F_004adb80},
   {0x004adc30u, F_004adc30},
   {0x004adee0u, F_004adee0},
   {0x004adf00u, F_004adf00},
   {0x004ae420u, F_004ae420},
+  {0x004ae74fu, F_004ae74f},
+  {0x004aeb68u, F_004aeb68},
   {0x004aec50u, F_004aec50},
   {0x004aed20u, F_004aed20},
   {0x004aee10u, F_004aee10},
@@ -3037,7 +3040,6 @@ const FnEnt ck_fn_table[] = {
   {0x004e6f20u, F_004e6f20},
   {0x004e7250u, F_004e7250},
   {0x004e7290u, F_004e7290},
-  {0x004e7316u, F_004e7316},
   {0x004e731du, F_004e731d},
   {0x004e7350u, F_004e7350},
   {0x004e7420u, F_004e7420},
@@ -8139,6 +8141,7 @@ const FnEnt ck_fn_table[] = {
   {0x005e1e60u, F_005e1e60},
   {0x005e1ed0u, F_005e1ed0},
   {0x005e1f40u, F_005e1f40},
+  {0x005e2000u, F_005e2000},
   {0x005e2110u, F_005e2110},
   {0x005e21c0u, F_005e21c0},
   {0x005e2ed0u, F_005e2ed0},
@@ -15076,6 +15079,8 @@ const FnEnt ck_fn_table[] = {
   {0x009e0516u, F_009e0516},
   {0x009e0600u, F_009e0600},
   {0x009e0700u, F_009e0700},
+  {0x009e0740u, F_009e0740},
+  {0x009e0780u, F_009e0780},
   {0x009e0808u, F_009e0808},
   {0x009e085du, F_009e085d},
   {0x009e0910u, F_009e0910},
@@ -15091,6 +15096,20 @@ const FnEnt ck_fn_table[] = {
   {0x009e0e4fu, F_009e0e4f},
   {0x009e0e84u, F_009e0e84},
   {0x009e0f18u, F_009e0f18},
+  {0x009e10a0u, F_009e10a0},
+  {0x009e1189u, F_009e1189},
+  {0x009e11adu, F_009e11ad},
+  {0x009e121au, F_009e121a},
+  {0x009e1246u, F_009e1246},
+  {0x009e19b0u, F_009e19b0},
+  {0x009e1aa2u, F_009e1aa2},
+  {0x009e1aa6u, F_009e1aa6},
+  {0x009e1aaeu, F_009e1aae},
+  {0x009e1ae0u, F_009e1ae0},
+  {0x009e1c10u, F_009e1c10},
+  {0x009e1c20u, F_009e1c20},
+  {0x009e1c4bu, F_009e1c4b},
+  {0x009e1c66u, F_009e1c66},
   {0x10001000u, F_10001000},
   {0x1000101bu, F_1000101b},
   {0x1000103cu, F_1000103c},
@@ -17181,7 +17200,7 @@ const FnEnt ck_fn_table[] = {
   {0x1040a9d0u, F_1040a9d0},
   {0x1040a9dbu, F_1040a9db},
 };
-const u32 ck_fn_count = 17180;
+const u32 ck_fn_count = 17199;
 const u32 ck_entry = 0x005feba2u;
-const u32 ck_code_ranges[][2] = {{0x401000u, 0x62d000u}, {0x62d000u, 0x62e000u}, {0x9c1000u, 0x9c2000u}, {0x9c4000u, 0x9c5000u}, {0x9c5000u, 0x9c7000u}, {0x9dd000u, 0x9de000u}, {0x9de000u, 0x9e0000u}, {0x9e0000u, 0x9e1000u}, {0x10001000u, 0x10008000u}, {0x10101000u, 0x1010d000u}, {0x10201000u, 0x1020b000u}, {0x10301000u, 0x10309000u}, {0x10401000u, 0x1040b000u}};
-const u32 ck_code_range_count = 13;
+const u32 ck_code_ranges[][2] = {{0x401000u, 0x62d000u}, {0x62d000u, 0x62e000u}, {0x9c1000u, 0x9c2000u}, {0x9c4000u, 0x9c5000u}, {0x9c5000u, 0x9c7000u}, {0x9dd000u, 0x9de000u}, {0x9de000u, 0x9e0000u}, {0x9e0000u, 0x9e1000u}, {0x9e1000u, 0x9e2000u}, {0x10001000u, 0x10008000u}, {0x10101000u, 0x1010d000u}, {0x10201000u, 0x1020b000u}, {0x10301000u, 0x10309000u}, {0x10401000u, 0x1040b000u}};
+const u32 ck_code_range_count = 14;
