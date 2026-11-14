@@ -133,7 +133,11 @@ u32 module_load(const char *name) {
     // Windows system DLLs are replaced; anything else the game probes for is reported missing.
     static const char *sys[] = {"kernel32", "user32", "gdi32", "gdiplus", "advapi32", "ws2_32", "winmm", "ole32", "oleaut32",
                                 "shell32", "shlwapi", "imm32", "d3d9", "dinput8", "fmodex", "msvcr71", "msvcp71", "wininet",
-                                "urlmon", "version", "ntdll", "comctl32", "dsound", "icmp", "iphlpapi", 0};
+                                "urlmon", "version", "ntdll", "comctl32", "dsound", "icmp", "iphlpapi",
+                                // web panels (15 Nov 2026): 0x50ce20 registers CkWebHelpClass + sets the flag 0x7a810c only
+                                // if cwebpage.dll loads; ranked_html's init cave 0x62df05 then replaces its 4 procs, so a
+                                // stand-in is enough (without it Ranked / map vote / rename never opened on phones)
+                                "cwebpage", 0};
     const char *b = name;
     for (const char *q = name; *q; q++) if (*q == '\\' || *q == '/') b = q + 1;
     for (int i = 0; sys[i]; i++)
