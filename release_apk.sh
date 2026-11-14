@@ -4,22 +4,27 @@
 # CrazyKartLegacy.apk + mobile.json {versionCode, version}. ck2server/release/build_release.py then lists it in the
 # signed patch manifest ("mobile") and publish_patch.py uploads it; phones install it themselves (LoginActivity).
 # Run it AFTER the dev client is stamped with the release's build (the servers' CLIENT_BUILD) and BEFORE build_release.
-#   usage: ./release_apk.sh "OBT 1.4.4"
+#   usage: ./release_apk.sh "1.0.0"   (OBT builds were "OBT 1.4.4")
 set -e
 cd "$(dirname "$0")"
-NAME="${1:?usage: ./release_apk.sh <release name, e.g. OBT 1.4.4>}"
+NAME="${1:?usage: ./release_apk.sh <release name, e.g. 1.0.0>}"
 G=../CrazyKart2
+# The client lifted (+ its DLLs): the release's own by default since 1.0.0 (15 Nov 2026) -- the dev folder's holds
+# unreleased work and the OBT build name (f51cac9 did this by hand). SRC=../CrazyKart2 CLIENT=CrazyKartClient_offline.dat = old.
+SRC=${SRC:-"../release build"}
+CLIENT=${CLIENT:-CrazyKartClient.exe}
 [ -f "$HOME/.ck2/mobile_release.keystore" ] || { echo "missing ~/.ck2/mobile_release.keystore (phones only take updates signed with it)"; exit 1; }
 R=build/android/release
 mkdir -p $R
 # version code from the release name, the same on every PC and always growing (a counter kept in build/ restarted
 # after a cleanup, and phones never take a lower number): "OBT 1.4.4" -> 104040; REBUILD=1..9 for another phone
-# build of the same release
-CODE=$(echo "$NAME" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk -F. -v r="${REBUILD:-0}" '{ printf "%d", $1 * 100000 + $2 * 1000 + $3 * 10 + r }')
+# build of the same release. Full releases (no "OBT", from 1.0.0 on 15 Nov 2026) add 1000000, so 1.0.0 -> 1100000 is
+# above every OBT phone build (OBT 1.4.8 = 104080..104084).
+CODE=$(echo "$NAME" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk -F. -v r="${REBUILD:-0}" -v full="$(echo "$NAME" | grep -q OBT || echo 1)" '{ printf "%d", (full ? 1000000 : 0) + $1 * 100000 + $2 * 1000 + $3 * 10 + r }')
 [ -n "$CODE" ] && [ "$CODE" -gt 2 ] || { echo "release name needs x.y.z, e.g. \"OBT 1.4.4\""; exit 1; }
-python -I tools/mobile_patch.py $G/CrazyKartClient_offline.dat build/client_mobile.dat
-python -I recomp/lift.py build/client_mobile.dat out_m recomp/extra_entries.txt --dll $G/KartRes.dll@0x10000000 \
-  --dll $G/SDFriend.dll@0x10100000 --dll $G/CKGuildCli.dll@0x10200000 --dll $G/CKMarryCli.dll@0x10300000 --dll $G/CKEventCli.dll@0x10400000
+python -I tools/mobile_patch.py "$SRC/$CLIENT" build/client_mobile.dat
+python -I recomp/lift.py build/client_mobile.dat out_m recomp/extra_entries.txt --dll "$SRC/KartRes.dll@0x10000000" \
+  --dll "$SRC/SDFriend.dll@0x10100000" --dll "$SRC/CKGuildCli.dll@0x10200000" --dll "$SRC/CKMarryCli.dll@0x10300000" --dll "$SRC/CKEventCli.dll@0x10400000"
 rm -rf build/android/obj
 ./build_android.sh
 # lean APK (~40 MB): the automatic update in the patch -- installed phones already have the game files

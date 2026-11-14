@@ -9246,7 +9246,7 @@ L_005b196d:;
   /* 005b1974 lea eax, [esp + 0xc] */ eax = (u32)((u32)(esp + 0xcu));
   /* 005b1978 mov dword ptr [esp + 0xc], esi */ { const u32 m_ = (u32)(esp + 0xcu); M32(m_) = (u32)(esi); }
   /* 005b197c push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 005b197d push 0x62d7be */ { u32 v_ = 0x62d7beu; esp -= 4; M32(esp) = v_; }
+  /* 005b197d push 0x9e1ec4 */ { u32 v_ = 0x9e1ec4u; esp -= 4; M32(esp) = v_; }
   /* 005b1982 push 5 */ { u32 v_ = 0x5u; esp -= 4; M32(esp) = v_; }
   /* 005b1984 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
   /* 005b1985 mov dword ptr [esp + 0x20], 0 */ { const u32 m_ = (u32)(esp + 0x20u); M32(m_) = (u32)(0x0u); }

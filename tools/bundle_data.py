@@ -23,7 +23,7 @@ OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 def main():
     body = open(os.path.join(PATCHDIST, "manifest.json"), "rb").read()
     man = json.loads(body)
-    files = {k: v for k, v in man["files"].items() if not k.startswith("Launcher/")}
+    files = {k: v for k, v in man["files"].items() if not k.startswith(("Launcher/", "LegacyUI/"))}   # LegacyUI = PC Classic blue
     os.makedirs(OUT, exist_ok=True)
     tmp = os.path.join(OUT, "gamedata.zip.part")
     total = 0

@@ -60,7 +60,7 @@ final class Patcher {
 
     Patcher(File game, Progress prog) { this.game = game; this.prog = prog; }
 
-    static boolean skipped(String rel) { return rel.startsWith("Launcher/") || rel.toLowerCase(java.util.Locale.ROOT).endsWith(".exe"); }
+    static boolean skipped(String rel) { return rel.startsWith("Launcher/") || rel.startsWith("LegacyUI/") /* PC Classic blue */ || rel.toLowerCase(java.util.Locale.ROOT).endsWith(".exe"); }
     // fetched only when missing: replaced by the server's copy at every Play (ShopSync), so the shipped one is not restored
     static boolean keptIfPresent(String rel) { return rel.equals("data/config/shopconfig.xml") || rel.equals("CN/data/config/shopconfig.xml"); }
 
