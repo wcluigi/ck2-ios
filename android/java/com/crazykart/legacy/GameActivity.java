@@ -25,6 +25,19 @@ public class GameActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        // a Java crash leaves the same <game>/crash.txt as plat.c's native one: the launcher offers to send it next start
+        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        final java.io.File gameDir = new java.io.File(getExternalFilesDir(null) != null ? getExternalFilesDir(null) : getFilesDir(), "game");
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            public void uncaughtException(Thread t, Throwable e) {
+                try (java.io.FileOutputStream o = new java.io.FileOutputStream(new java.io.File(gameDir, "crash.txt"), true)) {
+                    java.io.StringWriter w = new java.io.StringWriter();
+                    e.printStackTrace(new java.io.PrintWriter(w));
+                    o.write(("java " + e + " (thread " + t.getName() + ")\n" + w).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Exception ignored) { }
+                if (prev != null) prev.uncaughtException(t, e);
+            }
+        });
         Display d = getWindowManager().getDefaultDisplay();
         Display.Mode best = d.getMode();
         for (Display.Mode m : d.getSupportedModes())

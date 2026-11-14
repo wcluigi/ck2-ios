@@ -52,7 +52,8 @@ static Win *win_of(u32 h) { u32 i = (h - 0x10010) / 4; return h >= 0x10010 && i 
 // when the page has drawn; the page's Close posts WM_CLOSE (web_close), which DefWindowProcA turns into DestroyWindow
 // as on Windows -- the game sees IsWindow fail and hides its overlay.
 void plat_web_panel(u32 hwnd, const char *page, int x, int y, int w, int h, int visible);    // page "" = gone
-static int web_local(const char *t) {
+static int web_local(const char *t) {        // a game-folder page, or a web address (the shop's Top up: ckweb's rules, 15 Nov 2026)
+    if (!strncasecmp(t, "http://", 7) || !strncasecmp(t, "https://", 8)) return 1;
     if (!t[0] || strstr(t, "://") || strstr(t, "..")) return 0;
     size_t n = strcspn(t, "?");
     return (n > 5 && !strncasecmp(t + n - 5, ".html", 5)) || (n > 4 && !strncasecmp(t + n - 4, ".htm", 4));

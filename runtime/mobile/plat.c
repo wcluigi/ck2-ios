@@ -75,6 +75,47 @@ void plat_mem_init(void) {
 #endif
 }
 
+// ---- crash marker (15 Nov 2026, the user: "clicking send report when crashed will send crash log to dashboard"):
+// <game>/crash.txt names what ended the game; on the next start the launcher (Android LoginActivity / iOS) offers to
+// send it with the end of ck2mobile.log to POST /launcher/crash (the PC launcher's crash reports, dashboard Crashes).
+#ifndef _WIN32
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
+static char g_crash_path[600];
+static struct sigaction g_crash_old[32];
+static void crash_mark(const char *s) {               // async-signal-safe: open/write/close only
+    if (!g_crash_path[0]) return;
+    int fd = open(g_crash_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) { write(fd, s, strlen(s)); write(fd, "\n", 1); close(fd); }
+}
+static void crash_sig(int s, siginfo_t *si, void *uc) {
+    (void)uc;
+    static const char *nm[32] = {[SIGSEGV] = "SIGSEGV", [SIGBUS] = "SIGBUS", [SIGILL] = "SIGILL", [SIGFPE] = "SIGFPE", [SIGABRT] = "SIGABRT"};
+    char b[80] = "signal ", *p = b + 7;
+    for (const char *q = nm[s & 31] ? nm[s & 31] : "?"; *q; ) *p++ = *q++;
+    const char *at = " at 0x";
+    while (*at) *p++ = *at++;
+    uintptr_t a = (uintptr_t)si->si_addr;
+    for (int i = (int)sizeof a * 2 - 1; i >= 0; i--) *p++ = "0123456789abcdef"[(a >> (i * 4)) & 15];
+    *p = 0;
+    crash_mark(b);
+    sigaction(s, &g_crash_old[s & 31], 0);             // then the system's own handling (Android's tombstone) as before
+    raise(s);
+}
+static void crash_init(void) {                        // once the game folder is known (the log opens)
+    snprintf(g_crash_path, sizeof g_crash_path, "%s/crash.txt", g_game_dir[0] ? g_game_dir : ".");
+    struct sigaction sa = {0};
+    sa.sa_sigaction = crash_sig;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;             // shortcut: no sigaltstack, a stack overflow dies without a marker
+    int sigs[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT};
+    for (int i = 0; i < 5; i++) sigaction(sigs[i], &sa, &g_crash_old[sigs[i]]);
+}
+#else
+static void crash_mark(const char *s) { (void)s; }
+static void crash_init(void) {}
+#endif
+
 // ---- logging -----------------------------------------------------------------------------
 static FILE *g_logf;
 static pthread_mutex_t g_logmu = PTHREAD_MUTEX_INITIALIZER;
@@ -89,6 +130,7 @@ static void vlog(int fatal, const char *fmt, va_list ap) {
         char p[600];
         snprintf(p, sizeof p, "%s/ck2mobile.log", g_game_dir[0] ? g_game_dir : ".");
         g_logf = fopen(p, "w");
+        crash_init();
     }
     if (g_logf) { fputs(b, g_logf); if (b[0] && b[strlen(b) - 1] != '\n') fputc('\n', g_logf); fflush(g_logf); }
 #ifndef __ANDROID__
@@ -106,6 +148,9 @@ void rt_fatal(const char *fmt, ...) {
     vsnprintf(b, sizeof b, fmt, ap);
     va_end(ap);
     rt_log("FATAL: %s", b);
+    char m[1040];
+    snprintf(m, sizeof m, "FATAL: %s", b);
+    crash_mark(m);
     plat_fatal_hook(b);
     abort();
 }

@@ -404,7 +404,7 @@ static void web_load_local(WKWebView *w, NSString *page) {      // "web/ranked/i
     NSURL *url = q.location == NSNotFound ? file : [NSURL URLWithString:[file.absoluteString stringByAppendingString:[page substringFromIndex:q.location]]];
     [w loadFileURL:url ?: file allowingReadAccessToURL:[NSURL fileURLWithPath:g_web_game isDirectory:YES]];
 }
-static NSString *web_ini_css(void) {             // [Web] Css= in the game folder's ckweb.ini (as ckweb.exe reads it)
+static NSString *web_ini(NSString *key, NSString *def) {     // [Web] <key>= in the game folder's ckweb.ini (as ckweb.exe reads it)
     NSString *ini = [NSString stringWithContentsOfFile:[g_web_game stringByAppendingPathComponent:@"ckweb.ini"] encoding:NSUTF8StringEncoding error:nil];
     BOOL web = NO;
     for (NSString *line in [ini componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
@@ -412,10 +412,31 @@ static NSString *web_ini_css(void) {             // [Web] Css= in the game folde
         if ([t hasPrefix:@"["]) web = [t caseInsensitiveCompare:@"[Web]"] == NSOrderedSame;
         NSRange eq = [t rangeOfString:@"="];
         if (web && eq.location != NSNotFound && [[[t substringToIndex:eq.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]
-                                                    caseInsensitiveCompare:@"Css"] == NSOrderedSame)
+                                                    caseInsensitiveCompare:key] == NSOrderedSame)
             return [[t substringFromIndex:eq.location + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
     }
-    return @"";
+    return def;
+}
+static void web_css(WKWebView *w) {              // after a site page loads: ckweb.ini Css (hides the site header)
+    NSString *css = web_ini(@"Css", @"");
+    if (!css.length || ![w.URL.scheme hasPrefix:@"http"]) return;
+    NSData *q = [NSJSONSerialization dataWithJSONObject:@[css] options:0 error:nil];
+    NSString *lit = [[NSString alloc] initWithData:q encoding:NSUTF8StringEncoding];       // ["..."]
+    [w evaluateJavaScript:[NSString stringWithFormat:@"(function(){var s=document.createElement('style');s.textContent=%@[0];"
+                                                      "(document.head||document.documentElement).appendChild(s);})()", lit] completionHandler:nil];
+}
+// a panel titled with a web address (the shop's Top up = GUI.xml's old levelupgames URL): ckweb.cs PanelPage + MapUrl
+static void web_load_remote(WKWebView *w, NSString *page) {
+    NSString *host = [NSURL URLWithString:page].host.lowercaseString ?: @"", *url;
+    if ([host isEqualToString:@"pay.sdo.com"] || [host isEqualToString:@"account.levelupgames.ph"])
+        url = web_ini(@"Topup", @"https://crazykartlegacy.com/player/topup?ingame=1");
+    else {
+        NSString *over = web_ini(@"Override", @"");
+        url = over.length ? over : [host isEqualToString:@"lytogame.com"] || [host hasSuffix:@".lytogame.com"] ? web_ini(@"Fallback", @"web\\news.html") : page;
+    }
+    if (![url containsString:@"://"]) { web_load_local(w, url); return; }
+    NSURL *u = [NSURL URLWithString:url];
+    if (u) [w loadRequest:[NSURLRequest requestWithURL:u]];
 }
 
 @interface CKWebPanel : NSObject <WKScriptMessageHandler, WKNavigationDelegate>
@@ -446,14 +467,7 @@ static void board_close(void) {
     if ([json containsString:@"\"close\""]) board_close();
     else if ([json containsString:@"\"home\""] && g_board_site) [g_board_site loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:g_board_url]]];
 }
-- (void)webView:(WKWebView *)w didFinishNavigation:(WKNavigation *)nav {      // the site: ckweb.ini Css (hides its header)
-    NSString *css = web_ini_css();
-    if (!css.length || ![w.URL.scheme hasPrefix:@"http"]) return;
-    NSData *q = [NSJSONSerialization dataWithJSONObject:@[css] options:0 error:nil];
-    NSString *lit = [[NSString alloc] initWithData:q encoding:NSUTF8StringEncoding];       // ["..."]
-    [w evaluateJavaScript:[NSString stringWithFormat:@"(function(){var s=document.createElement('style');s.textContent=%@[0];"
-                                                      "(document.head||document.documentElement).appendChild(s);})()", lit] completionHandler:nil];
-}
+- (void)webView:(WKWebView *)w didFinishNavigation:(WKNavigation *)nav { web_css(w); }
 @end
 
 static void board_open(uint32_t owner, NSString *url) {
@@ -511,7 +525,9 @@ static void web_ask(CKWebPanel *p, long long rid, NSString *path) {
     self.ready = YES;
     web_ready(self.hwnd);
 }
+- (void)webView:(WKWebView *)w didFinishNavigation:(WKNavigation *)nav { web_css(w); }
 - (void)userContentController:(WKUserContentController *)uc didReceiveScriptMessage:(WKScriptMessage *)msg {
+    if ([self.page containsString:@"://"]) return;          // a site page in the panel: no bridge (sign-in key)
     NSData *d = [msg.body isKindOfClass:NSString.class] ? [(NSString *)msg.body dataUsingEncoding:NSUTF8StringEncoding] : nil;
     NSDictionary *m = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
     if (![m isKindOfClass:NSDictionary.class]) return;
@@ -558,7 +574,10 @@ void plat_web_panel(uint32_t hwnd, const char *page, int x, int y, int w, int h,
         }
         if (![pg isEqualToString:p.page ?: @""]) {
             p.page = pg; p.ready = NO;
-            web_load_local(p.web, pg);
+            BOOL remote = [pg containsString:@"://"];
+            p.web.navigationDelegate = remote ? p : nil;
+            p.web.scrollView.scrollEnabled = remote;            // site pages scroll; the game's pages size to the panel
+            if (remote) web_load_remote(p.web, pg); else web_load_local(p.web, pg);
             CKWebPanel *pp = p;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [pp reveal]; });   // ckweb's fallback
         }
@@ -2470,6 +2489,75 @@ static UIImage *url_image(id u) {                        // SVG frames / backgro
     if (self.overlay || self.presentedViewController) return;
     if (![self.prefs objectForKey:@"lang"]) [self showLanguage];
     else if (![self.prefs objectForKey:@"controltype"]) [self showControlType];
+    else [self offerCrashReport];
+}
+
+// ---- crash reports (15 Nov 2026, the user: "clicking send report when crashed will send crash log to dashboard"), as
+// Android's LoginActivity: plat.c leaves game/crash.txt; the player is asked; Send posts the report + the end of
+// ck2mobile.log to <api>/launcher/crash with the sign-in (the dashboard's Crashes page). Not signed in: sent at the next Play.
+- (void)offerCrashReport {
+    NSString *game = [docs() stringByAppendingPathComponent:@"game"], *mark = [game stringByAppendingPathComponent:@"crash.txt"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:mark]) return;
+    NSString *report = [self crashReport:game mark:mark];
+    [NSFileManager.defaultManager removeItemAtPath:mark error:nil];
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:[self t:@"The game stopped unexpectedly" zh:@"游戏意外停止"]
+        message:[self t:@"Send a crash report so it can be fixed? It holds technical details of the crash and the end of the game log."
+                     zh:@"发送崩溃报告以便修复？报告包含崩溃的技术信息和游戏日志的结尾。"] preferredStyle:UIAlertControllerStyleAlert];
+    __weak LoginVC *me = self;
+    [a addAction:[UIAlertAction actionWithTitle:[self t:@"Don't send" zh:@"不发送"] style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:[self t:@"Send report" zh:@"发送报告"] style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        if (![report writeToFile:[docs() stringByAppendingPathComponent:@"crash_pending.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil]) return;
+        NSString *key = me.currentKey;
+        if (key.length) [me sendPendingCrash:key account:[me.prefs stringForKey:@"user"] ?: @"" srv:me.srv];
+        else [me say:[me t:@"The crash report is sent when you sign in." zh:@"崩溃报告将在登录后发送。"] error:NO];
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+- (NSString *)crashReport:(NSString *)game mark:(NSString *)mark {
+    NSString *why = [[NSString stringWithContentsOfFile:mark encoding:NSUTF8StringEncoding error:nil] ?: @""
+                     stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSString *log = [NSString stringWithContentsOfFile:[game stringByAppendingPathComponent:@"ck2mobile.log"] encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    log = [[NSRegularExpression regularExpressionWithPattern:@"-password \\S+" options:0 error:nil]
+           stringByReplacingMatchesInString:log options:0 range:NSMakeRange(0, log.length) withTemplate:@"-password ***"];   // the one-time game login
+    if (log.length > 48000) log = [log substringFromIndex:log.length - 48000];
+    NSDictionary *info = NSBundle.mainBundle.infoDictionary;
+    NSString *ver = [NSString stringWithFormat:@"%@ (build %@)", info[@"CFBundleShortVersionString"] ?: @"?", info[@"CFBundleVersion"] ?: @"?"];
+    NSString *acct = [self.prefs stringForKey:@"user"] ?: @"";
+    NSDate *when = [[NSFileManager.defaultManager attributesOfItemAtPath:mark error:nil] fileModificationDate] ?: [NSDate date];
+    NSISO8601DateFormatter *iso = [[NSISO8601DateFormatter alloc] init];
+    NSString *first = why.length ? [why componentsSeparatedByString:@"\n"].firstObject : @"no reason recorded";
+    NSMutableString *b = [NSMutableString string];
+    [b appendString:@"CRAZY KART LEGACY OPEN BETA -- CRASH REPORT (PHONE)\n"];
+    [b appendFormat:@"time:        %@\n", [iso stringFromDate:when]];
+    [b appendFormat:@"account:     %@\n", acct.length ? acct : @"(not signed in)"];
+    [b appendFormat:@"server:      %@\n", self.srv ? @"Hong Kong" : @"India"];
+    [b appendFormat:@"build:       iOS app %@\n", ver];
+    [b appendFormat:@"phone:       iOS %@ %@\n", UIDevice.currentDevice.systemVersion, UIDevice.currentDevice.model];
+    [b appendFormat:@"\nEXCEPTION\n  %@\n  iOS app %@\n", first, ver];          // the dashboard's headline
+    if ([why containsString:@"\n"]) [b appendFormat:@"\nCRASH MARKER\n  %@\n", [why stringByReplacingOccurrencesOfString:@"\n" withString:@"\n  "]];
+    [b appendFormat:@"\nGAME LOG (ck2mobile.log, last part)\n%@", log];
+    return b;
+}
+- (void)sendPendingCrash:(NSString *)key account:(NSString *)account srv:(int)s {
+    NSString *path = [docs() stringByAppendingPathComponent:@"crash_pending.txt"];
+    NSString *report = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    if (!report.length || !key.length) return;
+    NSMutableURLRequest *rq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[API[s] stringByAppendingString:@"/launcher/crash"]]];
+    rq.HTTPMethod = @"POST";
+    rq.timeoutInterval = 20;
+    rq.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{@"report": report, @"dump": NSNull.null} options:0 error:nil];
+    [rq setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [rq setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
+    [rq setValue:account forHTTPHeaderField:@"X-CK-User"];
+    __weak LoginVC *me = self;
+    [[NSURLSession.sharedSession dataTaskWithRequest:rq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        long code = [r isKindOfClass:NSHTTPURLResponse.class] ? (long)((NSHTTPURLResponse *)r).statusCode : 0;
+        if (code == 200 || code == 413) [NSFileManager.defaultManager removeItemAtPath:path error:nil];   // filed, or never will be (too big)
+        NSLog(@"crash report: HTTP %ld", code);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (code == 200) [me say:[me t:@"Crash report sent, thank you." zh:@"崩溃报告已发送，谢谢。"] error:NO];
+        });
+    }] resume];
 }
 
 // ---- first start (the design): a light dialog on the night blue
@@ -2656,6 +2744,7 @@ static UIImage *url_image(id u) {                        // SVG frames / backgro
     if (!key.length) { [self showSignedIn]; return; }
     NSString *account = [self.prefs stringForKey:@"user"] ?: @"";
     int srv = self.srv;
+    [self sendPendingCrash:key account:account srv:srv];      // a crash report the player agreed to before signing in
     BOOL zh = self.zh;
     self.playBtn.enabled = NO;
     self.playBtn.alpha = 0.7;

@@ -131,6 +131,7 @@ final class WebPanels {
 
     // the page with SHIM first; the page's own address (query kept: ?lang=, ?a=) as the base, so relative files load
     void load(final Panel p) {
+        if (p.page.contains("://")) { loadRemote(p); return; }
         int q = p.page.indexOf('?');
         String path = (q < 0 ? p.page : p.page.substring(0, q)).replace('\\', '/');
         File f = new File(game, path);
@@ -141,6 +142,35 @@ final class WebPanels {
         html = head < 0 ? SHIM + html : html.substring(0, head + 6) + SHIM + html.substring(head + 6);
         p.web.loadDataWithBaseURL(Uri.fromFile(f).toString() + (q < 0 ? "" : p.page.substring(q)), html, "text/html", "utf-8", null);
         ui.postDelayed(new Runnable() { public void run() { reveal(p); } }, 2500);       // ckweb's fallback
+    }
+
+    // a panel titled with a web address (the shop's Top up = GUI.xml's old levelupgames URL): ckweb.cs PanelPage + MapUrl.
+    // No SHIM: the bridge (sign-in key) is for game-folder pages only. The game shows these panels without "ready".
+    void loadRemote(Panel p) {
+        String host = Uri.parse(p.page).getHost();
+        host = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        String url;
+        if (host.equals("pay.sdo.com") || host.equals("account.levelupgames.ph")) url = ini("Topup", "https://crazykartlegacy.com/player/topup?ingame=1");
+        else {
+            String over = ini("Override", "");
+            url = !over.isEmpty() ? over : host.equals("lytogame.com") || host.endsWith(".lytogame.com") ? ini("Fallback", "web\\news.html") : p.page;
+        }
+        if (!url.contains("://")) url = Uri.fromFile(new File(game, url.replace('\\', '/'))).toString();
+        p.web.setWebViewClient(cssClient());
+        CookieManager.getInstance().setCookie(BOARD_SITE, "ck_lang=" + lang + "; path=/; max-age=31536000");
+        p.web.loadUrl(url);
+    }
+
+    // keeps links inside the view and adds ckweb.ini's Css to site pages (hides the site header), as ckweb.exe does
+    WebViewClient cssClient() {
+        final String css = ini("Css", "");
+        return new WebViewClient() {
+            @Override public void onPageFinished(WebView v, String u) {
+                if (css.isEmpty() || !u.startsWith("http")) return;
+                v.evaluateJavascript("(function(){var s=document.createElement('style');s.textContent=" + JSONObject.quote(css)
+                        + ";(document.head||document.documentElement).appendChild(s);})()", null);
+            }
+        };
     }
 
     void reveal(Panel p) {
@@ -177,6 +207,7 @@ final class WebPanels {
         final Panel p;
         Bridge(Panel p) { this.p = p; }
         @JavascriptInterface public void post(String json) {
+            if (p.page.contains("://")) return;                // a site page in the panel: no bridge (sign-in key)
             JSONObject m;
             try { m = new JSONObject(json); } catch (Exception e) { return; }
             final int id = m.optInt("id", 0);
@@ -259,14 +290,7 @@ final class WebPanels {
         lp.leftMargin = x + 1;
         lp.topMargin = y + 1;
         box.addView(site, lp);
-        final String css = iniCss();
-        site.setWebViewClient(new WebViewClient() {
-            @Override public void onPageFinished(WebView v, String u) {         // ckweb.ini Css (hides the site header)
-                if (css.isEmpty() || !u.startsWith("http")) return;
-                v.evaluateJavascript("(function(){var s=document.createElement('style');s.textContent=" + JSONObject.quote(css)
-                        + ";(document.head||document.documentElement).appendChild(s);})()", null);
-            }
-        });
+        site.setWebViewClient(cssClient());
         CookieManager.getInstance().setCookie(BOARD_SITE, "ck_lang=" + lang + "; path=/; max-age=31536000");
         File f = new File(game, "web/ranked/board.html");
         try {
@@ -363,19 +387,19 @@ final class WebPanels {
         p.dismiss();                                   // onDismiss destroys the view
     }
 
-    // [Web] Css= in the game folder's ckweb.ini (the same file ckweb.exe reads on PC)
-    String iniCss() {
+    // [Web] <key>= in the game folder's ckweb.ini (the same file ckweb.exe reads on PC), else def
+    String ini(String key, String def) {
         try {
             String ini = new String(readAll(new FileInputStream(new File(game, "ckweb.ini"))), StandardCharsets.UTF_8);
             boolean web = false;
             for (String line : ini.split("\r?\n")) {
                 String t = line.trim();
                 if (t.startsWith("[")) web = t.equalsIgnoreCase("[Web]");
-                else if (web && t.indexOf('=') > 0 && t.substring(0, t.indexOf('=')).trim().equalsIgnoreCase("Css"))
+                else if (web && t.indexOf('=') > 0 && t.substring(0, t.indexOf('=')).trim().equalsIgnoreCase(key))
                     return t.substring(t.indexOf('=') + 1).trim();
             }
-        } catch (Exception e) { /* no ckweb.ini: the site as it is */ }
-        return "";
+        } catch (Exception e) { /* no ckweb.ini: the defaults */ }
+        return def;
     }
 
     static byte[] readAll(InputStream in) throws Exception { return VoiceChat.readAll(in); }

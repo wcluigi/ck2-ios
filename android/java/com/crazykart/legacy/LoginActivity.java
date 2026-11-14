@@ -114,6 +114,87 @@ public class LoginActivity extends Activity {
         showSignedIn();
         if (!prefs.contains("lang")) showLanguage();
         else if (!prefs.contains("controltype")) showControlType();
+        else offerCrashReport();
+    }
+
+    // ---- crash reports (15 Nov 2026, the user: "clicking send report when crashed will send crash log to dashboard") ----
+    // plat.c leaves <game>/crash.txt when the game crashed. On the next start the player is asked (nothing is sent on its
+    // own, as the PC launcher); Send posts the report + the end of ck2mobile.log to <api>/launcher/crash with the sign-in
+    // (server.py crash_report -> the dashboard's Crashes page). Not signed in yet: it goes at the next Play.
+    void offerCrashReport() {
+        File game = new File(getExternalFilesDir(null), "game"), mark = new File(game, "crash.txt");
+        if (!mark.isFile()) return;
+        final String report = crashReport(game, mark);
+        mark.delete();
+        new android.app.AlertDialog.Builder(this)
+            .setTitle(t("The game stopped unexpectedly", "游戏意外停止"))
+            .setMessage(t("Send a crash report so it can be fixed? It holds technical details of the crash and the end of the game log.",
+                          "发送崩溃报告以便修复？报告包含崩溃的技术信息和游戏日志的结尾。"))
+            .setPositiveButton(t("Send report", "发送报告"), new android.content.DialogInterface.OnClickListener() {
+                public void onClick(android.content.DialogInterface d, int w) {
+                    try (FileOutputStream o = new FileOutputStream(new File(getFilesDir(), "crash_pending.txt"))) { o.write(report.getBytes(StandardCharsets.UTF_8)); }
+                    catch (Exception e) { Log.w("ck2", "crash report: " + e); return; }
+                    String key = currentKey();
+                    if (!key.isEmpty()) sendPendingCrash(key, prefs.getString("user", ""), srv);
+                    else android.widget.Toast.makeText(LoginActivity.this, t("It is sent when you sign in.", "登录后发送。"), android.widget.Toast.LENGTH_LONG).show();
+                } })
+            .setNegativeButton(t("Don't send", "不发送"), null)
+            .show();
+    }
+
+    String crashReport(File game, File mark) {
+        String why = "", log = "";
+        try { why = new String(VoiceChat.readAll(new java.io.FileInputStream(mark)), StandardCharsets.UTF_8).trim(); } catch (Exception ignored) { }
+        try { log = new String(VoiceChat.readAll(new java.io.FileInputStream(new File(game, "ck2mobile.log"))), StandardCharsets.UTF_8); } catch (Exception ignored) { }
+        log = log.replaceAll("-password \\S+", "-password ***");                    // the one-time game login
+        if (log.length() > 48000) log = log.substring(log.length() - 48000);
+        String ver = "?";
+        try { android.content.pm.PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0); ver = pi.versionName + " (app " + pi.versionCode + ")"; } catch (Exception ignored) { }
+        String first = why.isEmpty() ? "no reason recorded" : why.split("\n")[0];
+        String acct = prefs.getString("user", "");
+        StringBuilder b = new StringBuilder();
+        b.append("CRAZY KART LEGACY OPEN BETA -- CRASH REPORT (PHONE)\n");
+        b.append("time:        ").append(new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(new java.util.Date(mark.lastModified()))).append('\n');
+        b.append("account:     ").append(acct.isEmpty() ? "(not signed in)" : acct).append('\n');
+        b.append("server:      ").append(NAMES[srv]).append('\n');
+        b.append("build:       ").append(ver).append('\n');
+        b.append("phone:       Android ").append(android.os.Build.VERSION.RELEASE).append(' ').append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append('\n');
+        b.append("\nEXCEPTION\n  ").append(first).append("\n  Android app ").append(ver).append('\n');      // the dashboard's headline
+        if (why.contains("\n")) b.append("\nCRASH MARKER\n  ").append(why.replace("\n", "\n  ")).append('\n');
+        b.append("\nGAME LOG (ck2mobile.log, last part)\n").append(log);
+        return b.toString();
+    }
+
+    void sendPendingCrash(final String key, final String account, final int s) {
+        final File f = new File(getFilesDir(), "crash_pending.txt");
+        if (!f.isFile() || key.isEmpty()) return;
+        new Thread(new Runnable() { public void run() {
+            int code = 0;
+            try {
+                org.json.JSONObject body = new org.json.JSONObject();
+                body.put("report", new String(VoiceChat.readAll(new java.io.FileInputStream(f)), StandardCharsets.UTF_8));
+                body.put("dump", org.json.JSONObject.NULL);
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(API[s] + "/launcher/crash").openConnection();
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(20000);
+                c.setDoOutput(true);
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setRequestProperty("Authorization", "Bearer " + key);
+                c.setRequestProperty("X-CK-User", account);
+                try (OutputStream o = c.getOutputStream()) { o.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
+                code = c.getResponseCode();
+                c.disconnect();
+            } catch (Exception e) { Log.w("ck2", "crash report: " + e); }
+            final int r = code;
+            if (r == 200 || r == 413) f.delete();                         // filed, or never will be (too big); else tried again at the next Play
+            Log.i("ck2", "crash report: HTTP " + r);
+            ui.post(new Runnable() { public void run() {
+                android.widget.Toast.makeText(LoginActivity.this, r == 200 ? t("Crash report sent, thank you.", "崩溃报告已发送，谢谢。")
+                        : t("Crash report not sent (", "崩溃报告未发送（") + (r == 0 ? t("no connection", "无法连接") : "HTTP " + r)
+                          + t("), tried again at the next Play.", "），下次开始游戏时重试。"), android.widget.Toast.LENGTH_LONG).show();
+            } });
+        } }).start();
     }
 
     @Override
@@ -1432,6 +1513,7 @@ public class LoginActivity extends Activity {
         if (key.isEmpty()) { showSignedIn(); return; }
         final String account = prefs.getString("user", "");
         final int srv = this.srv;
+        sendPendingCrash(key, account, srv);                // a crash report the player agreed to before signing in
         float maxHz = 60;                   // the panel's highest refresh rate: the game caps its frame rate at it
         for (android.view.Display.Mode m : getWindowManager().getDefaultDisplay().getSupportedModes()) maxHz = Math.max(maxHz, m.getRefreshRate());
         final int hz = Math.round(maxHz);
