@@ -79,8 +79,14 @@ void plat_mem_init(void) {
 // <game>/crash.txt names what ended the game; on the next start the launcher (Android LoginActivity / iOS) offers to
 // send it with the end of ck2mobile.log to POST /launcher/crash (the PC launcher's crash reports, dashboard Crashes).
 #ifndef _WIN32
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <signal.h>
+#ifdef __APPLE__
+#include <sys/ucontext.h>                             // <ucontext.h> wants _XOPEN_SOURCE there
+#else
+#include <ucontext.h>
+#endif
 #include <unistd.h>
 static char g_crash_path[600];
 static struct sigaction g_crash_old[32];
@@ -89,21 +95,64 @@ static void crash_mark(const char *s) {               // async-signal-safe: open
     int fd = open(g_crash_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) { write(fd, s, strlen(s)); write(fd, "\n", 1); close(fd); }
 }
+static char *crash_put(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
+static char *crash_hex(char *p, uintptr_t a, int digits) {
+    for (int i = digits - 1; i >= 0; i--) *p++ = "0123456789abcdef"[(a >> (i * 4)) & 15];
+    return p;
+}
+// " pc 0x... (libck2.so+0x...)": where the host code stood, as an offset in its library (the build's libck2.so maps
+// it back to a lifted game function); dladdr is not strictly signal-safe but only reads the loader's list
+static char *crash_where(char *p, const char *what, uintptr_t a) {
+    p = crash_put(p, what);
+    p = crash_hex(p, a, (int)sizeof a * 2);
+    Dl_info di;
+    if (a && dladdr((void *)a, &di) && di.dli_fname && di.dli_fbase) {
+        const char *base = di.dli_fname;
+        for (const char *q = di.dli_fname; *q; q++) if (*q == '/') base = q + 1;
+        p = crash_put(p, " (");
+        for (int n = 0; *base && n < 40; n++) *p++ = *base++;
+        p = crash_put(p, "+0x");
+        p = crash_hex(p, a - (uintptr_t)di.dli_fbase, 8);
+        p = crash_put(p, ")");
+    }
+    return p;
+}
+extern const char *volatile g_main_last_import;     // core.c: the game's latest system call and where it returns to
+extern u32 g_main_last_ret;
+static volatile sig_atomic_t g_crash_in;
 static void crash_sig(int s, siginfo_t *si, void *uc) {
-    (void)uc;
+    // A signal while this one is handled ends the game here: on Android the re-raise below came straight back to
+    // this handler and wrote "signal ..." lines until the system killed the frozen app (15 Nov 2026 reports: 222 to
+    // 1672 lines, the first one -- the real fault -- pushed out of the report).
+    if (g_crash_in++) _exit(128 + s);
     static const char *nm[32] = {[SIGSEGV] = "SIGSEGV", [SIGBUS] = "SIGBUS", [SIGILL] = "SIGILL", [SIGFPE] = "SIGFPE", [SIGABRT] = "SIGABRT"};
-    char b[80] = "signal ", *p = b + 7;
-    for (const char *q = nm[s & 31] ? nm[s & 31] : "?"; *q; ) *p++ = *q++;
-    const char *at = " at 0x";
-    while (*at) *p++ = *at++;
-    uintptr_t a = (uintptr_t)si->si_addr;
-    for (int i = (int)sizeof a * 2 - 1; i >= 0; i--) *p++ = "0123456789abcdef"[(a >> (i * 4)) & 15];
+    char b[400] = "signal ", *p = b + 7;
+    p = crash_put(p, nm[s & 31] ? nm[s & 31] : "?");
+    p = crash_put(p, " at 0x");
+    p = crash_hex(p, (uintptr_t)si->si_addr, (int)sizeof(uintptr_t) * 2);
+    uintptr_t pc = 0, lr = 0;
+#if defined(__ANDROID__) && defined(__aarch64__)
+    pc = ((ucontext_t *)uc)->uc_mcontext.pc; lr = ((ucontext_t *)uc)->uc_mcontext.regs[30];
+#elif defined(__APPLE__) && defined(__aarch64__)
+    pc = ((ucontext_t *)uc)->uc_mcontext->__ss.__pc; lr = ((ucontext_t *)uc)->uc_mcontext->__ss.__lr;
+#else
+    (void)uc;
+#endif
+    p = crash_where(p, " pc 0x", pc);
+    p = crash_where(p, " lr 0x", lr);
+    p = crash_put(p, " last call ");
+    const char *imp = g_main_last_import;
+    for (int n = 0; imp && *imp && n < 40; n++) *p++ = *imp++;
+    p = crash_put(p, " ret 0x");
+    p = crash_hex(p, g_main_last_ret, 8);
     *p = 0;
     crash_mark(b);
     sigaction(s, &g_crash_old[s & 31], 0);             // then the system's own handling (Android's tombstone) as before
     raise(s);
 }
 static void crash_init(void) {                        // once the game folder is known (the log opens)
+    static int done;
+    if (done++) return;                                // a reopened log: our handler must not become the "old" one
     snprintf(g_crash_path, sizeof g_crash_path, "%s/crash.txt", g_game_dir[0] ? g_game_dir : ".");
     struct sigaction sa = {0};
     sa.sa_sigaction = crash_sig;
