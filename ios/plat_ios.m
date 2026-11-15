@@ -1429,11 +1429,8 @@ static NSDictionary *hud_zh(void) {
     BOOL mobileOn = self.mode ? [self.mode isEqualToString:@"mobile"] : [NSUserDefaults.standardUserDefaults boolForKey:@"touchmobile"];
     for (NSInteger i = (NSInteger)self.elems.count - 1; i >= 0; i--) {
         HudElem *e = self.elems[(NSUInteger)i];
-        BOOL sw = [e.name isEqualToString:@"touch_autogas"];
-        // auto gas (touch_ui.c touch_mobile.txt, on unless "autogas=0"): no gas button in the race
-        BOOL gas = [e.name isEqualToString:@"touch_gas"] && mobileOn && ![[NSString stringWithContentsOfFile:[docs() stringByAppendingPathComponent:@"game/touch_mobile.txt"]
-                                                                         encoding:NSUTF8StringEncoding error:nil] ?: @"" containsString:@"autogas=0"];
-        if ((sw && !mobileOn) || gas) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
+        // the gas button stays here with auto gas on: only the race hides it (touch_ui.c), the user 15 Nov 2026
+        if ([e.name isEqualToString:@"touch_autogas"] && !mobileOn) { [self.kept addObject:e]; [self.elems removeObjectAtIndex:(NSUInteger)i]; }
     }
 }
 - (UILabel *)label:(NSString *)t color:(unsigned)c { return ck_label(t, f_body(13, UIFontWeightHeavy), c); }

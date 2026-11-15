@@ -77,10 +77,6 @@ public class HudEditorActivity extends Activity {
 
     File gameDir() { return new File(getExternalFilesDir(null), "game"); }
     File layoutFile() { return new File(gameDir(), "hud_layout.txt"); }
-    boolean autoGasOn() {                                // touch_ui.c touch_mobile.txt: on unless "autogas=0"
-        try { return !new String(java.nio.file.Files.readAllBytes(new File(gameDir(), "touch_mobile.txt").toPath())).contains("autogas=0"); }
-        catch (Exception e) { return true; }
-    }
     File iconFile(String name, String ext) { return new File(new File(gameDir(), "touch_icons"), name + ext); }
 
     @Override
@@ -100,8 +96,8 @@ public class HudEditorActivity extends Activity {
         for (int i = elems.size() - 1; i >= 0; i--) {
             Elem e = elems.get(i);
             if (zh) for (String[] z : ZH) if (z[0].equals(e.name)) e.label = z[1];
+            // the gas button stays here with auto gas on: only the race hides it (touch_ui.c), the user 15 Nov 2026
             if (e.name.equals("touch_autogas") && !mobileOn) { kept.add(e); elems.remove(i); }
-            else if (e.name.equals("touch_gas") && mobileOn && autoGasOn()) { kept.add(e); elems.remove(i); }   // auto gas: no gas button in the race
         }
         loadPictures();
 
