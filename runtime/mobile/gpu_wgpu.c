@@ -435,6 +435,10 @@ void gpu_init(void *native_window, int width, int height) {
     g_target = 0;
     rt_log("gpu_wgpu: device ready, back buffer %dx%d (game %d wide at x %d), race 3D at %dx%d (render quality %.0f%%), surface format %d\n",
            g_bw, g_bh, g_gw, g_ox, bb_w(), bb_h(), g_rs * 100, (int)g_surf_fmt);
+    // A low-memory phone (launcher CK_LOWMEM=1) builds pipelines when first drawn, not every shipped one at start: on
+    // 4 GB Android phones that burst ran the GPU out ("Not enough memory left") and lost the device (15 Nov 2026 reports)
+    const char *lm = getenv("CK_LOWMEM");
+    if (lm && *lm == '1') { rt_log("gpu: low-memory phone, pipelines built when first used\n"); return; }
     void *pipe_warm_entry(void *);
     pthread_t wt;
     pthread_attr_t wa;

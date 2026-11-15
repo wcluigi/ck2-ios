@@ -830,10 +830,23 @@ public class LoginActivity extends Activity {
         return new String(us, o, n, StandardCharsets.UTF_16LE);
     }
 
+    // Low-memory phone (15 Nov 2026, the user: compressed textures "turned on by default for low-memory phones"; 4 GB
+    // phones lost the GPU to "Not enough memory left" at start): Android's low-RAM flag or 4.5 GB or less. Compressed
+    // textures default on there (a player's own choice still wins), and the game skips building every shipped
+    // pipeline at start (options.txt lowmem=1 -> CK_LOWMEM, gpu_wgpu.c).
+    boolean lowMem() {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            return am.isLowRamDevice() || mi.totalMem <= (4608L << 20);
+        } catch (Exception e) { return false; }
+    }
+
     Opts loadOpts() {
         Opts o = new Opts();
         o.wide = prefs.getBoolean("wide", true); o.scale = prefs.getInt("scale", 100);
-        o.effects = prefs.getBoolean("effects", true); o.lean = prefs.getBoolean("lean", false); o.etc2 = prefs.getBoolean("etc2", false);
+        o.effects = prefs.getBoolean("effects", true); o.lean = prefs.getBoolean("lean", false); o.etc2 = prefs.getBoolean("etc2", lowMem());
         o.acc = prefs.getBoolean("accessories", true); o.ping = prefs.getString("ping", "room,race");
         o.noise = prefs.getString("noise", "ai"); o.voiceVol = prefs.getInt("voicevol", 100); o.micVol = prefs.getInt("micvol", 100);
         o.ctl = prefs.getString("controltype", prefs.getBoolean("touchmobile", false) ? "mobile" : "classic");
@@ -979,6 +992,7 @@ public class LoginActivity extends Activity {
         restore.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             Opts d = new Opts();
             d.ctl = opts.ctl; d.opacity = opts.opacity; d.macros = opts.macros;   // the design's defaults: display, game, sound, gamma
+            d.etc2 = lowMem();                                                     // compressed textures: on for low-memory phones
             opts = d;
             fillTab();
         } });
@@ -1553,7 +1567,8 @@ public class LoginActivity extends Activity {
                 // runtime options (not game arguments): read by plat_android.c at start
                 FileOutputStream oo = new FileOutputStream(new File(getFilesDir(), "options.txt"));
                 oo.write(("vsync=" + (prefs.getBoolean("vsync", true) ? 1 : 0) + "\nhz=" + hz + "\nwide=" + (prefs.getBoolean("wide", true) ? 1 : 0) + "\nscale=" + prefs.getInt("scale", 100)
-                        + "\nlean=" + (prefs.getBoolean("lean", false) ? 1 : 0) + "\netc2=" + (prefs.getBoolean("etc2", false) ? 1 : 0)
+                        + "\nlean=" + (prefs.getBoolean("lean", false) ? 1 : 0) + "\netc2=" + (prefs.getBoolean("etc2", lowMem()) ? 1 : 0)
+                        + "\nlowmem=" + (lowMem() ? 1 : 0)
                         + "\neffects=" + (prefs.getBoolean("effects", true) ? 1 : 0)
                         + "\ntouch=" + (prefs.getBoolean("touchmobile", false) ? "mobile" : "classic") + "\n").getBytes(StandardCharsets.UTF_8));
                 oo.close();

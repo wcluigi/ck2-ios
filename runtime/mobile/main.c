@@ -95,8 +95,60 @@ static void prof_poll(void) {
     rt_log("profile: %d samples -> profile.bin\n", n);
     prof_imports(n);
 }
+// Where a stalled game thread is on the phone side (15 Nov 2026: dashboard reports froze with the guest stack at the
+// main loop only, i.e. inside a replacement call, and the logs could not say which): the watchdog interrupts it a few
+// times and logs its pc and the frame-pointer chain as library+offset (symbolise with llvm-nm on that build's libck2.so).
+#define STALL_N 4
+#define STALL_DEPTH 12
+static u64 g_stall[STALL_N][STALL_DEPTH];
+static volatile int g_nstall;
+static void stall_sig(int s, siginfo_t *si, void *uc) {
+    (void)s; (void)si;
+    int n = g_nstall;
+    if (n >= STALL_N) return;
+    mcontext_t *m = &((ucontext_t *)uc)->uc_mcontext;
+    u64 *out = g_stall[n];
+    out[0] = m->pc; out[1] = m->regs[30];
+    u64 fp = m->regs[29], sp = m->sp;
+    for (int d = 2; d < STALL_DEPTH; d++) {                // fp -> {next fp, return address}, only up the stack
+        if (!fp || fp & 15 || fp < sp || fp - sp > (8u << 20)) break;
+        out[d] = ((u64 *)(uintptr_t)fp)[1];
+        u64 next = ((u64 *)(uintptr_t)fp)[0];
+        if (next <= fp) break;
+        fp = next;
+    }
+    g_nstall = n + 1;
+}
+static void stall_where(void) {
+    if (!g_game_tid) return;
+    memset(g_stall, 0, sizeof g_stall);
+    g_nstall = 0;
+    struct sigaction sa = {0}, old;
+    sa.sa_sigaction = stall_sig; sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigaction(SIGPROF, &sa, &old);
+    for (int i = 0; i < STALL_N; i++) {
+        syscall(SYS_tgkill, getpid(), g_game_tid, SIGPROF);
+        struct timespec ts = {0, 100000000};
+        nanosleep(&ts, 0);
+    }
+    sigaction(SIGPROF, &old, 0);
+    for (int i = 0; i < g_nstall; i++) {
+        char line[1200]; int len = snprintf(line, sizeof line, "watchdog: game thread sample %d:", i + 1);
+        for (int d = 0; d < STALL_DEPTH && g_stall[i][d] && len < (int)sizeof line - 80; d++) {
+            Dl_info di; u64 a = g_stall[i][d];
+            const char *lib = "?"; u64 off = a;
+            if (dladdr((void *)(uintptr_t)a, &di) && di.dli_fname) {
+                lib = strrchr(di.dli_fname, '/') ? strrchr(di.dli_fname, '/') + 1 : di.dli_fname;
+                off = a - (u64)(uintptr_t)di.dli_fbase;
+            }
+            len += snprintf(line + len, sizeof line - len, " %s+0x%llx", lib, (unsigned long long)off);
+        }
+        rt_log("%s\n", line);
+    }
+}
 #else
 static void prof_poll(void) {}
+static void stall_where(void) {}
 #endif
 
 static void *watchdog(void *p) {
@@ -112,6 +164,7 @@ static void *watchdog(void *p) {
         const char *imp = g_main_last_import;
         rt_log("watchdog: no frame for 8 s (frame %u); last call %s, returning to %08x\n", f, imp ? imp : "?", g_main_last_ret);
         guest_backtrace_of(thread_main());
+        stall_where();
     }
     return 0;
 }

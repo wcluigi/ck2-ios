@@ -863,6 +863,10 @@ static NSDictionary *wire_request(NSString *host, NSString *account, NSString *s
 }
 
 static NSString *docs(void) { return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject; }
+// Low-memory phone (15 Nov 2026, the user: compressed textures "turned on by default for low-memory phones"; Android
+// 4 GB phones lost the GPU to "Not enough memory left"): 4.5 GB or less. Compressed textures default on there, and the
+// GPU layer skips building every shipped pipeline at start (CK_LOWMEM, gpu_wgpu.c).
+static BOOL ck_low_mem(void) { return NSProcessInfo.processInfo.physicalMemory <= 4608ull << 20; }
 static NSString *bundle_image(void) { return [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"image"]; }
 
 // CrazyKart.ini [Option] key=value (the game's own settings file)
@@ -1719,7 +1723,7 @@ static UIImage *gamma_img(UIImage *src, float g) {
     return [[NSString alloc] initWithBytes:b length:n encoding:NSUTF16LittleEndianStringEncoding] ?: @"";
 }
 + (NSDictionary *)defaults {
-    return @{@"wide": @YES, @"scale": @100, @"detail": @0, @"effects": @YES, @"lean": @NO, @"etc2": @NO, @"fps": @0, @"accessories": @YES,
+    return @{@"wide": @YES, @"scale": @100, @"detail": @0, @"effects": @YES, @"lean": @NO, @"etc2": @(ck_low_mem()), @"fps": @0, @"accessories": @YES,
              @"ping": @"room,race", @"music": @YES, @"musicVol": @7, @"sfx": @YES, @"sfxVol": @7, @"gamma": @1.0};
 }
 - (void)viewDidLoad {
@@ -2819,7 +2823,8 @@ static NSString *crash_tail(NSString *path, unsigned long long max) {
         snprintf(scale_s, sizeof scale_s, "%d", [gd objectForKey:@"scale"] ? (int)MIN(100, MAX(50, [gd integerForKey:@"scale"])) : 100);
         setenv("CK_SCALE", scale_s, 1);
         setenv("CK_LEAN", [gd boolForKey:@"lean"] ? "1" : "0", 1);       // Compact 3D data
-        setenv("CK_ETC2", [gd boolForKey:@"etc2"] ? "1" : "0", 1);       // Compressed textures
+        setenv("CK_ETC2", ([gd objectForKey:@"etc2"] ? [gd boolForKey:@"etc2"] : ck_low_mem()) ? "1" : "0", 1);   // Compressed textures
+        setenv("CK_LOWMEM", ck_low_mem() ? "1" : "0", 1);
         setenv("CK_EFFECTS", ([gd objectForKey:@"effects"] ? [gd boolForKey:@"effects"] : YES) ? "1" : "0", 1);   // Effects
         setenv("CK_TOUCH", [gd boolForKey:@"touchmobile"] ? "mobile" : "classic", 1);                            // Touch controls
         g_screen_hz = (int)UIScreen.mainScreen.maximumFramesPerSecond;
