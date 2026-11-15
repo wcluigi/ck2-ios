@@ -2513,10 +2513,22 @@ static UIImage *url_image(id u) {                        // SVG frames / backgro
     }]];
     [self presentViewController:a animated:YES completion:nil];
 }
+// the last max bytes of a file as text (a whole 256 MB log ran Android out of memory, 15 Nov 2026)
+static NSString *crash_tail(NSString *path, unsigned long long max) {
+    NSFileHandle *h = [NSFileHandle fileHandleForReadingAtPath:path];
+    if (!h) return @"";
+    unsigned long long n = [h seekToEndOfFile];
+    [h seekToFileOffset:n > max ? n - max : 0];
+    NSData *d = [h readDataToEndOfFile];
+    [h closeFile];
+    const unsigned char *p = d.bytes; NSUInteger i = 0;
+    while (i < d.length && i < 3 && (p[i] & 0xC0) == 0x80) i++;      // cut mid-character: skip its tail bytes
+    d = [d subdataWithRange:NSMakeRange(i, d.length - i)];
+    return [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:d encoding:NSISOLatin1StringEncoding] ?: @"";
+}
 - (NSString *)crashReport:(NSString *)game mark:(NSString *)mark {
-    NSString *why = [[NSString stringWithContentsOfFile:mark encoding:NSUTF8StringEncoding error:nil] ?: @""
-                     stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSString *log = [NSString stringWithContentsOfFile:[game stringByAppendingPathComponent:@"ck2mobile.log"] encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    NSString *why = [crash_tail(mark, 8192) stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSString *log = crash_tail([game stringByAppendingPathComponent:@"ck2mobile.log"], 65536);
     log = [[NSRegularExpression regularExpressionWithPattern:@"-password \\S+" options:0 error:nil]
            stringByReplacingMatchesInString:log options:0 range:NSMakeRange(0, log.length) withTemplate:@"-password ***"];   // the one-time game login
     if (log.length > 48000) log = [log substringFromIndex:log.length - 48000];

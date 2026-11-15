@@ -126,11 +126,14 @@ static void vlog(int fatal, const char *fmt, va_list ap) {
     __android_log_print(fatal ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "ck2", "%s", b);
 #endif
     pthread_mutex_lock(&g_logmu);
+    static char p[600];
     if (!g_logf) {
-        char p[600];
         snprintf(p, sizeof p, "%s/ck2mobile.log", g_game_dir[0] ? g_game_dir : ".");
         g_logf = fopen(p, "w");
         crash_init();
+    } else if (ftell(g_logf) > (8 << 20)) {     // one session wrote 256 MB (15 Nov 2026): start over, the end is what counts
+        g_logf = freopen(p, "w", g_logf);
+        if (g_logf) fputs("(log restarted at 8 MB)\n", g_logf);
     }
     if (g_logf) { fputs(b, g_logf); if (b[0] && b[strlen(b) - 1] != '\n') fputc('\n', g_logf); fflush(g_logf); }
 #ifndef __ANDROID__

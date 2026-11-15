@@ -142,10 +142,21 @@ public class LoginActivity extends Activity {
             .show();
     }
 
+    static byte[] readTail(File f, int max) throws java.io.IOException {
+        try (java.io.RandomAccessFile r = new java.io.RandomAccessFile(f, "r")) {
+            long n = Math.min(r.length(), max);
+            byte[] b = new byte[(int) n];
+            r.seek(r.length() - n);
+            r.readFully(b);
+            return b;
+        }
+    }
+
     String crashReport(File game, File mark) {
         String why = "", log = "";
-        try { why = new String(VoiceChat.readAll(new java.io.FileInputStream(mark)), StandardCharsets.UTF_8).trim(); } catch (Exception ignored) { }
-        try { log = new String(VoiceChat.readAll(new java.io.FileInputStream(new File(game, "ck2mobile.log"))), StandardCharsets.UTF_8); } catch (Exception ignored) { }
+        // only the files' ends: a 256 MB log read whole was an OutOfMemoryError at start (15 Nov 2026)
+        try { why = new String(readTail(mark, 8192), StandardCharsets.UTF_8).trim(); } catch (Exception ignored) { }
+        try { log = new String(readTail(new File(game, "ck2mobile.log"), 65536), StandardCharsets.UTF_8); } catch (Exception ignored) { }
         log = log.replaceAll("-password \\S+", "-password ***");                    // the one-time game login
         if (log.length() > 48000) log = log.substring(log.length() - 48000);
         String ver = "?";
