@@ -437,6 +437,16 @@ void hud_draw(GVert *v, u32 n, const void *tex, HudXf *xf) {
         if (cx < h->sx || cx > h->sx + h->sw || cy < h->sy || cy > h->sy + h->sh) continue;
         if (h->sw * h->sh < best) { best = h->sw * h->sh; e = h; }
     }
+    // The top-speed label (tacho_top.py: rect 186..286 x 95..108 of the speedometer) reaches past the speedometer's
+    // rectangle on the right: its last digit's centre fell outside, into the race chat's strip, so "180" showed as
+    // "18" by the dial and a lone "0" moved with the chat (15 Nov 2026, the user). Anything just right of the
+    // speedometer, at its height, moves with it unless a smaller element holds it.
+    for (int i = 0; i < g_nel; i++) {
+        const HudElem *h = &g_el[i];
+        if (strcmp(h->name, "speedo")) continue;
+        if (cx >= h->sx && cx <= h->sx + h->sw + 100 && cy >= h->sy && cy <= h->sy + h->sh && (!e || e->sw * e->sh > h->sw * h->sh)) e = h;
+        break;
+    }
     // no other element claims it (time, laps keep theirs) and it lies on this frame's minimap picture: a map marker
     if (!e && mm_frame == g_frame_no && mm_el && w < mm[2] - mm[0] && cx >= mm[0] && cx <= mm[2] && cy >= mm[1] && cy <= mm[3]) e = mm_el;
     if (e && !strcmp(e->name, "speedo")) g_speedo_ms = ms_now();
