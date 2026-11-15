@@ -1,5 +1,18 @@
 #include "funcs.h"
 
+void F_005fe916(CPU *c) {
+  NATIVE_HOOK(0x5fe916u) REGS; LOADALL;
+L_005fe916:;
+  /* 005fe916 push dword ptr [esp + 4] */ { const u32 m_ = (u32)(esp + 0x4u); u32 v_ = M32(m_); esp -= 4; M32(esp) = v_; }
+  /* 005fe91a call 0x5fe8f0 */ esp -= 4; M32(esp) = 0x5fe91fu; SAVEALL; F_005fe8f0(c); ABI_CHECK(0x5fe8f0u, 0x5fe91au); RETCHK(0x5fe91fu, 0x5fe91au); LOADALL;
+  /* 005fe91f neg eax */ { u32 a_ = eax; u32 r_ = (0u - a_) & 0xffffffffu; eax = (u32)(r_); SETFC(OP_SUB, 0, a_, r_, 4); }
+  /* 005fe921 sbb eax, eax */ { u32 a_ = eax, b_ = eax; u32 ci_ = CF_; u32 r_ = (a_ - b_ - ci_) & 0xffffffffu; u32 co_ = ci_ ? (a_ <= b_) : (a_ < b_); u32 of_ = (((a_ ^ b_) & (a_ ^ r_)) & SIGNB(4)) != 0; SETF(OP_RES, of_, 0, r_, 4); SETC(OP_RAW, co_, 0, 0, 4); eax = (u32)(r_); }
+  /* 005fe923 neg eax */ { u32 a_ = eax; u32 r_ = (0u - a_) & 0xffffffffu; eax = (u32)(r_); SETFC(OP_SUB, 0, a_, r_, 4); }
+  /* 005fe925 pop ecx */ { u32 v_ = M32(esp); esp += 4; ecx = (u32)(v_); }
+  /* 005fe926 dec eax */ { u32 a_ = eax; u32 r_ = (a_ - 1u) & 0xffffffffu; eax = (u32)(r_); SETF(OP_DEC, a_, 1, r_, 4); }
+  /* 005fe927 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
 void F_005fe928(CPU *c) {
   NATIVE_HOOK(0x5fe928u) REGS; LOADALL;
 L_005fe928:;
@@ -81,12 +94,6 @@ void F_005fe99e(CPU *c) {
   NATIVE_HOOK(0x5fe99eu) REGS; LOADALL;
 L_005fe99e:;
   /* 005fe99e jmp dword ptr [0x62e3d0] */ { const u32 m_ = (u32)(0x62e3d0u); u32 t_ = M32(m_); SAVEALL; call_ind(c, t_); return; }
-}
-
-void F_005fe9a4(CPU *c) {
-  NATIVE_HOOK(0x5fe9a4u) REGS; LOADALL;
-L_005fe9a4:;
-  /* 005fe9a4 jmp dword ptr [0x62e3cc] */ { const u32 m_ = (u32)(0x62e3ccu); u32 t_ = M32(m_); SAVEALL; call_ind(c, t_); return; }
 }
 
 void F_005fe9aa(CPU *c) {
