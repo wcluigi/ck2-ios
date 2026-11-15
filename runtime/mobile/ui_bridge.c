@@ -40,8 +40,11 @@ static char g_token[40];
 static int g_page_on;                            // the app has the page (index.html): otherwise the bridge stays off
 const char *ui_page_url(void);
 
+static int ctl_ok(u32 c);
 void ui_note_root(u32 self) {                   // from native_gui_find_child: every control the game searches under
     for (int i = 0; i < g_nroots; i++) if (g_roots[i] == self) return;
+    if (g_nroots == NROOTS)                      // full: make room by dropping controls the game destroyed
+        for (int i = 0; i < g_nroots; ) { if (ctl_ok(g_roots[i])) i++; else g_roots[i] = g_roots[--g_nroots]; }
     if (g_nroots < NROOTS) g_roots[g_nroots++] = self;
 }
 
@@ -69,36 +72,55 @@ static int is_type(u32 ctl, const char *t) {
     char b[24];
     return str_at(ctl + 4, b, sizeof b) > 0 && !strcmp(b, t);
 }
+// A guest pointer the tree walk may follow: past the guest null page (0..0xffff is unmapped: a stale root there was
+// the 15 Nov 2026 phone crash in find_in) and short of the top.
+static int gp_ok(u32 a) { return a >= 0x10000 && a < 0xfffff000u; }
+// A live GUI control: its vtable is in the client's read-only data or one of its DLLs. A control the game destroyed
+// (a root noted on an earlier screen) fails this and is skipped, instead of walking freed memory -- which crashed the
+// phones or looped through garbage for seconds inside PeekMessageA (the dashboard's "no frame for 8 s").
+static int ctl_ok(u32 c) {
+    if (!gp_ok(c)) return 0;
+    u32 vt = M32(c);
+    return (vt >= 0x62e000 && vt < 0x673000) || (vt >= 0x10000000 && vt < 0x10500000);
+}
 static int shown(u32 ctl) {                      // visible itself and every parent
-    for (int d = 0; ctl && d < 40; d++, ctl = M32(ctl + 0x5c)) if (!M8(ctl + 0x3e)) return 0;
+    for (int d = 0; ctl && d < 40; d++, ctl = M32(ctl + 0x5c)) {
+        if (!gp_ok(ctl)) return 0;
+        if (!M8(ctl + 0x3e)) return 0;
+    }
     return 1;
 }
 static void abs_rect(u32 ctl, float r[4]) {      // design px, absolute
     float x = 0, y = 0;
     memcpy(r, HP(ctl + 0x44), 16);
-    for (u32 p = M32(ctl + 0x5c), d = 0; p && d < 40; p = M32(p + 0x5c), d++) { x += *(float *)HP(p + 0x44); y += *(float *)HP(p + 0x48); }
+    for (u32 p = M32(ctl + 0x5c), d = 0; gp_ok(p) && d < 40; p = M32(p + 0x5c), d++) { x += *(float *)HP(p + 0x44); y += *(float *)HP(p + 0x48); }
     r[2] -= r[0]; r[3] -= r[1];
     r[0] += x; r[1] += y;
 }
 static u32 find_in(u32 ctl, const char *nm, u32 nlen, int depth, u32 *budget, int want_shown) {
-    if (depth > 40) return 0;
+    if (depth > 40 || !ctl_ok(ctl)) return 0;
     u32 head = M32(ctl + 0x64);
-    if (!head) return 0;
-    for (u32 node = M32(head); node && node != head; node = M32(node)) {
-        if (!--*budget) return 0;
+    if (!gp_ok(head)) return 0;
+    for (u32 node = M32(head); gp_ok(node) && node != head; node = M32(node)) {
+        if (!*budget || !--*budget) return 0;
         u32 c = M32(node + 8);
-        if (!c) continue;
-        if (M32(c + 0x34) == nlen && !memcmp(HP(str_data(c + 0x20)), nm, nlen) && (!want_shown || shown(c))) return c;
+        if (!ctl_ok(c)) continue;
+        u32 d = str_data(c + 0x20);
+        if (M32(c + 0x34) == nlen && gp_ok(d) && !memcmp(HP(d), nm, nlen) && (!want_shown || shown(c))) return c;
         u32 r = find_in(c, nm, nlen, depth + 1, budget, want_shown);
         if (r) return r;
     }
     return 0;
 }
 static u32 find_one(const char *nm) {            // a shown control of that name first, else any
-    u32 nlen = (u32)strlen(nm);
+    u32 nlen = (u32)strlen(nm), budget = 20000;   // one budget for the whole search (was 200000 a root, 64 roots)
+    for (int i = 0; i < g_nroots; ) {             // roots the game destroyed since: dropped
+        if (ctl_ok(g_roots[i])) i++;
+        else g_roots[i] = g_roots[--g_nroots];
+    }
     for (int pass = 1; pass >= 0; pass--)
         for (int i = 0; i < g_nroots; i++) {
-            u32 budget = 200000, r = find_in(g_roots[i], nm, nlen, 0, &budget, pass);
+            u32 r = find_in(g_roots[i], nm, nlen, 0, &budget, pass);
             if (r) return r;
         }
     return 0;
@@ -114,7 +136,7 @@ static u32 ui_find(const char *path) {           // "Name" or "Parent/Child" (th
     for (char *s = slash + 1; s && *s && parent;) {
         char *e = strchr(s, '/');
         if (e) *e = 0;
-        u32 budget = 200000;
+        u32 budget = 20000;
         parent = find_in(parent, s, (u32)strlen(s), 0, &budget, 0);
         s = e ? e + 1 : 0;
     }
@@ -233,15 +255,17 @@ static int frames_now(char *out, int n) {
     char names[48][64];
     int k = 0;
     for (int i = 0; i < g_nroots; i++) {
-        u32 root = g_roots[i], head = M32(root + 0x64), budget = 8000;
-        if (!head || !is_type(root, "Desktop") || !M8(root + 0x3e)) continue;
-        for (u32 node = M32(head); node && node != head && --budget; node = M32(node)) {
+        u32 root = g_roots[i], budget = 8000;
+        if (!ctl_ok(root)) continue;                 // destroyed since it was noted
+        u32 head = M32(root + 0x64);
+        if (!gp_ok(head) || !is_type(root, "Desktop") || !M8(root + 0x3e)) continue;
+        for (u32 node = M32(head); gp_ok(node) && node != head && --budget; node = M32(node)) {
             u32 c = M32(node + 8);
-            if (!c || !M8(c + 0x3e)) continue;
+            if (!ctl_ok(c) || !M8(c + 0x3e)) continue;
             add_frame(c, names, &k);
             u32 h2 = M32(c + 0x64);
-            if (!h2) continue;
-            for (u32 n2 = M32(h2); n2 && n2 != h2 && --budget; n2 = M32(n2)) add_frame(M32(n2 + 8), names, &k);
+            if (!gp_ok(h2)) continue;
+            for (u32 n2 = M32(h2); gp_ok(n2) && n2 != h2 && --budget; n2 = M32(n2)) if (ctl_ok(M32(n2 + 8))) add_frame(M32(n2 + 8), names, &k);
         }
     }
     for (int a = 0; a < k; a++) for (int b = a + 1; b < k; b++)
@@ -328,9 +352,11 @@ static int g_press_x, g_press_y, g_press_step = -1;
 // list turns its page -- up = the next 5 rooms, down = the previous 5 -- by pressing the game's own page arrows (the
 // list is 5 rows the server fills a page at a time). Client coordinates. 1 = it was such a swipe (input.c then lets
 // the finger go off the list, so the row under it is not joined).
+int hud_race_recent(u32 ms);
 int ui_lobby_swipe(int x0, int y0, int x1, int y1) {
     int dx = x1 - x0, dy = y1 - y0;
     if (abs(dy) < 50 || abs(dy) < 2 * abs(dx)) return 0;
+    if (hud_race_recent(3000)) return 0;          // a race (speedometer drawn): no room list, no GUI search per swipe
     float r[4], lo[2] = {1e9f, 1e9f}, hi[2] = {-1e9f, -1e9f};
     int any = 0;
     for (int i = 0; i < 5; i++) {
