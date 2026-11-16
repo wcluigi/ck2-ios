@@ -1,5 +1,12 @@
 #include "funcs.h"
 
+void F_006223e3(CPU *c) {
+  NATIVE_HOOK(0x6223e3u) REGS; LOADALL;
+L_006223e3:;
+  /* 006223e3 lea ecx, [ebp - 0x4c] */ ecx = (u32)((u32)(ebp + 0xffffffb4u));
+  /* 006223e6 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
+}
+
 void F_006223eb(CPU *c) {
   NATIVE_HOOK(0x6223ebu) REGS; LOADALL;
 L_006223eb:;
@@ -1104,13 +1111,4 @@ L_005fee2a:;
 L_006229aa:;
   /* 006229aa mov eax, 0x669a38 */ { eax = (u32)(0x669a38u); }
   /* 006229af jmp 0x5fee2a */ goto L_005fee2a;
-}
-
-void F_006229c0(CPU *c) {
-  NATIVE_HOOK(0x6229c0u) REGS; LOADALL;
-L_006229c0:;
-  /* 006229c0 lea eax, [ebp - 0x40] */ eax = (u32)((u32)(ebp + 0xffffffc0u));
-  /* 006229c3 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 006229c4 call 0x45c140 */ esp -= 4; M32(esp) = 0x6229c9u; SAVEALL; F_0045c140(c); ABI_CHECK(0x45c140u, 0x6229c4u); RETCHK(0x6229c9u, 0x6229c4u); LOADALL;
-  /* 006229c9 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
 }

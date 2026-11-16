@@ -1,5 +1,30 @@
 #include "funcs.h"
 
+void F_00600000(CPU *c) {
+  NATIVE_HOOK(0x600000u) REGS; LOADALL;
+  goto L_00600000;
+L_005ff73e:;
+  /* 005ff73e mov edx, dword ptr [esp + 0x18] */ { const u32 m_ = (u32)(esp + 0x18u); edx = (u32)(M32(m_)); }
+  /* 005ff742 mov ecx, edi */ { ecx = (u32)(edi); }
+  /* 005ff744 sub ecx, dword ptr [esi] */ { const u32 m_ = (u32)(esi); u32 a_ = ecx, b_ = M32(m_); u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); ecx = (u32)(r_); }
+  /* 005ff746 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
+  /* 005ff747 add dword ptr [esi + 8], ecx */ { const u32 m_ = (u32)(esi + 0x8u); u32 a_ = M32(m_), b_ = ecx; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); M32(m_) = (u32)(r_); }
+  /* 005ff74a mov dword ptr [esi], edi */ { const u32 m_ = (u32)(esi); M32(m_) = (u32)(edi); }
+  /* 005ff74c push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
+  /* 005ff74d mov dword ptr [ebx + 0x34], edx */ { const u32 m_ = (u32)(ebx + 0x34u); M32(m_) = (u32)(edx); }
+  /* 005ff750 call 0x6011f0 */ esp -= 4; M32(esp) = 0x5ff755u; SAVEALL; F_006011f0(c); ABI_CHECK(0x6011f0u, 0x5ff750u); RETCHK(0x5ff755u, 0x5ff750u); LOADALL;
+  /* 005ff755 add esp, 0xc */ { u32 a_ = esp, b_ = 0xcu; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 005ff758 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
+  /* 005ff759 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
+  /* 005ff75a pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
+  /* 005ff75b pop ebx */ { u32 v_ = M32(esp); esp += 4; ebx = (u32)(v_); }
+  /* 005ff75c add esp, 0x34 */ { u32 a_ = esp, b_ = 0x34u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 005ff75f ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+L_00600000:;
+  /* 00600000 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 00600001 jmp 0x5ff73e */ goto L_005ff73e;
+}
+
 void F_0060001f(CPU *c) {
   NATIVE_HOOK(0x60001fu) REGS; LOADALL;
 L_0060001f:;
@@ -9274,44 +9299,4 @@ L_00605bb9:;
   /* 00605bc2 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
   /* 00605bc3 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
   /* 00605bc4 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
-}
-
-void F_00605bd0(CPU *c) {
-  NATIVE_HOOK(0x605bd0u) REGS; LOADALL;
-L_00605bd0:;
-  /* 00605bd0 mov ecx, dword ptr [esp + 4] */ { const u32 m_ = (u32)(esp + 0x4u); ecx = (u32)(M32(m_)); }
-  /* 00605bd4 mov edx, dword ptr [esp + 8] */ { const u32 m_ = (u32)(esp + 0x8u); edx = (u32)(M32(m_)); }
-  /* 00605bd8 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
-  /* 00605bd9 push edi */ { u32 v_ = edi; esp -= 4; M32(esp) = v_; }
-  /* 00605bda test ecx, ecx */ { u32 a_ = ecx, b_ = ecx; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 00605bdc jne 0x605be2 */ if (!ZF_) goto L_00605be2;
-  /* 00605bde test edx, edx */ { u32 a_ = edx, b_ = edx; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 00605be0 je 0x605c09 */ if (ZF_) goto L_00605c09;
-L_00605be2:;
-  /* 00605be2 mov eax, dword ptr [ecx + 0x1d0] */ { const u32 m_ = (u32)(ecx + 0x1d0u); eax = (u32)(M32(m_)); }
-  /* 00605be8 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 00605bea jle 0x605c09 */ if ((ZF_|LT_)) goto L_00605c09;
-  /* 00605bec mov ecx, dword ptr [ecx + 0x1d4] */ { const u32 m_ = (u32)(ecx + 0x1d4u); ecx = (u32)(M32(m_)); }
-  /* 00605bf2 lea esi, [eax + eax*4] */ esi = (u32)((u32)(eax + eax * 4u));
-  /* 00605bf5 lea ecx, [esi + ecx - 5] */ ecx = (u32)((u32)(esi + ecx + 0xfffffffbu));
-L_00605bf9:;
-  /* 00605bf9 mov esi, dword ptr [edx] */ { const u32 m_ = (u32)(edx); esi = (u32)(M32(m_)); }
-  /* 00605bfb mov edi, dword ptr [ecx] */ { const u32 m_ = (u32)(ecx); edi = (u32)(M32(m_)); }
-  /* 00605bfd cmp esi, edi */ { u32 a_ = esi, b_ = edi; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 00605bff je 0x605c0e */ if (ZF_) goto L_00605c0e;
-  /* 00605c01 dec eax */ { u32 a_ = eax; u32 r_ = (a_ - 1u) & 0xffffffffu; eax = (u32)(r_); SETF(OP_DEC, a_, 1, r_, 4); }
-  /* 00605c02 sub ecx, 5 */ { u32 a_ = ecx, b_ = 0x5u; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); ecx = (u32)(r_); }
-  /* 00605c05 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 00605c07 jne 0x605bf9 */ if (!ZF_) goto L_00605bf9;
-L_00605c09:;
-  /* 00605c09 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
-  /* 00605c0a xor eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); eax = (u32)(r_); }
-  /* 00605c0c pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
-  /* 00605c0d ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
-L_00605c0e:;
-  /* 00605c0e xor eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); eax = (u32)(r_); }
-  /* 00605c10 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
-  /* 00605c11 mov al, byte ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); eax = (eax & 0xffffff00u) | ((u32)(M8(m_)) & 0xffu); }
-  /* 00605c14 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
-  /* 00605c15 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
 }
