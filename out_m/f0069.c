@@ -1,15 +1,5 @@
 #include "funcs.h"
 
-void F_0061df22(CPU *c) {
-  NATIVE_HOOK(0x61df22u) REGS; LOADALL;
-  goto L_0061df22;
-L_005fee2a:;
-  /* 005fee2a jmp dword ptr [0x62e290] */ { const u32 m_ = (u32)(0x62e290u); u32 t_ = M32(m_); SAVEALL; call_ind(c, t_); return; }
-L_0061df22:;
-  /* 0061df22 mov eax, 0x6609ec */ { eax = (u32)(0x6609ecu); }
-  /* 0061df27 jmp 0x5fee2a */ goto L_005fee2a;
-}
-
 void F_0061df30(CPU *c) {
   NATIVE_HOOK(0x61df30u) REGS; LOADALL;
 L_0061df30:;
@@ -1353,4 +1343,11 @@ void F_0061e69b(CPU *c) {
 L_0061e69b:;
   /* 0061e69b lea ecx, [ebp - 0x14c] */ ecx = (u32)((u32)(ebp + 0xfffffeb4u));
   /* 0061e6a1 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
+}
+
+void F_0061e6a6(CPU *c) {
+  NATIVE_HOOK(0x61e6a6u) REGS; LOADALL;
+L_0061e6a6:;
+  /* 0061e6a6 lea ecx, [ebp - 0x2c] */ ecx = (u32)((u32)(ebp + 0xffffffd4u));
+  /* 0061e6a9 jmp 0x43ee60 */ SAVEALL; F_0043ee60(c); return;
 }
