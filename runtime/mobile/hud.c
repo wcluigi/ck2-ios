@@ -361,6 +361,30 @@ void hud_frame(void) {             // once per Present
 }
 
 // pretransformed draw about to go to the back buffer: move / scale it with its element (races only)
+u32 *d3d_tex_pixels(const void *gt, int *w, int *h);
+// 1 = a race-intro black bar (Wellcome_topline.png 64x64 / Wellcome_bottomline.png 128x128, 2-bit palettes: dark navy
+// 5,18,31 at alpha 119 / 238, the rest white at alpha 0): see hud_draw. Transparent pixels do not count.
+static int welcome_bar(const void *tex, float x0, float y0, float w, float h) {
+    if (!tex || x0 > 2 || w < 790) return 0;
+    int top = y0 < 2 && h > 58 && h < 70, bottom = y0 > 400 && h > 118 && h < 138;
+    if (!top && !bottom) return 0;
+    int tw = 0, th = 0, dark = 0;
+    u32 *px = d3d_tex_pixels(tex, &tw, &th);
+    if (px && tw * th <= 256 * 256) {
+        int seen = 0;
+        dark = 1;
+        for (int i = 0; i < tw * th && dark; i++) {
+            if ((px[i] >> 24) < 16) continue;                      // transparent (stored white)
+            seen = 1;
+            if ((px[i] & 0xff) > 48 || (px[i] >> 8 & 0xff) > 48 || (px[i] >> 16 & 0xff) > 48) dark = 0;
+        }
+        dark = dark && seen;
+    }
+    free(px);
+    static int nl; if (dark && nl++ < 4) rt_log("hud: welcome bar hidden %.0f %.0f %.0fx%.0f (tex %dx%d)\n", x0, y0, w, h, tw, th);
+    return dark;
+}
+
 void hud_draw(GVert *v, u32 n, const void *tex, HudXf *xf) {
     xf->on = 0;
     if (!n) return;
@@ -418,6 +442,11 @@ void hud_draw(GVert *v, u32 n, const void *tex, HudXf *xf) {
         return;
     }
     if (!user32_cursor_hidden()) return;
+    // The race intro's black bars (RacingGUIHigh StartInfoImageUp 1280x64 at 0,0 and StartInfoImageBottom 1280x128 at
+    // 0,672: laid out for 800 high, so on the phone's 720 the bottom one sat off its edge) are not drawn on phones (17 Nov
+    // 2026, the user: "disable that black frame on welcome banner, sometimes it is not on the right place on mobile";
+    // PC keeps them). Found by shape AND texture: full width, a top or bottom bar's height, a tiny all-dark picture.
+    if (welcome_bar(tex, x0, y0, w, h)) { for (u32 i = 1; i < n; i++) v[i] = v[0]; return; }
     // banner-shaped only: full-screen effects (ink, flash, fog) are not banners
     if (w >= 400 && w <= 560 && h >= 180 && h <= 300 && cx > 426 && cx < 853 && cy > 240 && cy < 480) {
         g_banner_ms = ms_now();
