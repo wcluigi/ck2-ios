@@ -176,10 +176,15 @@ public class LoginActivity extends Activity {
         return b.toString();
     }
 
+    // One upload at a time (17 Nov 2026): Send report starts one, and Play (go()) started a second while the first was
+    // still on its way -- the file is only deleted once the server answers -- so 1.0.0 phones filed every crash twice.
+    static final java.util.concurrent.atomic.AtomicBoolean crashSending = new java.util.concurrent.atomic.AtomicBoolean();
+
     void sendPendingCrash(final String key, final String account, final int s) {
         final File f = new File(getFilesDir(), "crash_pending.txt");
-        if (!f.isFile() || key.isEmpty()) return;
+        if (!f.isFile() || key.isEmpty() || !crashSending.compareAndSet(false, true)) return;
         new Thread(new Runnable() { public void run() {
+          try {
             int code = 0;
             try {
                 org.json.JSONObject body = new org.json.JSONObject();
@@ -205,6 +210,7 @@ public class LoginActivity extends Activity {
                         : t("Crash report not sent (", "崩溃报告未发送（") + (r == 0 ? t("no connection", "无法连接") : "HTTP " + r)
                           + t("), tried again at the next Play.", "），下次开始游戏时重试。"), android.widget.Toast.LENGTH_LONG).show();
             } });
+          } finally { crashSending.set(false); }
         } }).start();
     }
 

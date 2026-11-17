@@ -2551,10 +2551,14 @@ static NSString *crash_tail(NSString *path, unsigned long long max) {
     [b appendFormat:@"\nGAME LOG (ck2mobile.log, last part)\n%@", log];
     return b;
 }
+// One upload at a time (17 Nov 2026): Send report and Play could each start one before the first answered (the file
+// goes only then), so a crash was filed twice. Main-thread flag: both callers run there, the reset is dispatched there.
+static BOOL g_crash_sending;
 - (void)sendPendingCrash:(NSString *)key account:(NSString *)account srv:(int)s {
     NSString *path = [docs() stringByAppendingPathComponent:@"crash_pending.txt"];
     NSString *report = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
-    if (!report.length || !key.length) return;
+    if (!report.length || !key.length || g_crash_sending) return;
+    g_crash_sending = YES;
     NSMutableURLRequest *rq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[API[s] stringByAppendingString:@"/launcher/crash"]]];
     rq.HTTPMethod = @"POST";
     rq.timeoutInterval = 20;
@@ -2568,6 +2572,7 @@ static NSString *crash_tail(NSString *path, unsigned long long max) {
         if (code == 200 || code == 413) [NSFileManager.defaultManager removeItemAtPath:path error:nil];   // filed, or never will be (too big)
         NSLog(@"crash report: HTTP %ld", code);
         dispatch_async(dispatch_get_main_queue(), ^{
+            g_crash_sending = NO;
             if (code == 200) [me say:[me t:@"Crash report sent, thank you." zh:@"崩溃报告已发送，谢谢。"] error:NO];
         });
     }] resume];
