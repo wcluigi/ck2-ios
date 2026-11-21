@@ -2941,7 +2941,7 @@ L_00466d4b:;
   /* 00466d53 call 0x405bd0 */ esp -= 4; M32(esp) = 0x466d58u; SAVEALL; F_00405bd0(c); ABI_CHECK(0x405bd0u, 0x466d53u); RETCHK(0x466d58u, 0x466d53u); LOADALL;
   /* 00466d58 test al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
   /* 00466d5a je 0x466d74 */ if (ZF_) goto L_00466d74;
-  /* 00466d5c call 0x4a2730 */ esp -= 4; M32(esp) = 0x466d61u; SAVEALL; F_004a2730(c); ABI_CHECK(0x4a2730u, 0x466d5cu); RETCHK(0x466d61u, 0x466d5cu); LOADALL;
+  /* 00466d5c call 0x9e49e0 */ esp -= 4; M32(esp) = 0x466d61u; SAVEALL; F_009e49e0(c); ABI_CHECK(0x9e49e0u, 0x466d5cu); RETCHK(0x466d61u, 0x466d5cu); LOADALL;
   /* 00466d61 mov eax, dword ptr [edi] */ { const u32 m_ = (u32)(edi); eax = (u32)(M32(m_)); }
   /* 00466d63 push 0 */ { u32 v_ = 0x0u; esp -= 4; M32(esp) = v_; }
   /* 00466d65 push 0x3130 */ { u32 v_ = 0x3130u; esp -= 4; M32(esp) = v_; }

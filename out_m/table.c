@@ -2444,7 +2444,6 @@ const FnEnt ck_fn_table[] = {
   {0x004a2af0u, F_004a2af0},
   {0x004a2b20u, F_004a2b20},
   {0x004a2b70u, F_004a2b70},
-  {0x004a2b90u, F_004a2b90},
   {0x004a2ce0u, F_004a2ce0},
   {0x004a2cf0u, F_004a2cf0},
   {0x004a3980u, F_004a3980},
@@ -2456,7 +2455,6 @@ const FnEnt ck_fn_table[] = {
   {0x004a4dc0u, F_004a4dc0},
   {0x004a4e90u, F_004a4e90},
   {0x004a4f50u, F_004a4f50},
-  {0x004a5010u, F_004a5010},
   {0x004a50d0u, F_004a50d0},
   {0x004a5190u, F_004a5190},
   {0x004a56c0u, F_004a56c0},
@@ -8150,6 +8148,7 @@ const FnEnt ck_fn_table[] = {
   {0x005e3750u, F_005e3750},
   {0x005e3940u, F_005e3940},
   {0x005e3ec0u, F_005e3ec0},
+  {0x005e5000u, F_005e5000},
   {0x005e5100u, F_005e5100},
   {0x005e5310u, F_005e5310},
   {0x005e5550u, F_005e5550},
@@ -15117,6 +15116,12 @@ const FnEnt ck_fn_table[] = {
   {0x009e1e8cu, F_009e1e8c},
   {0x009e1ec4u, F_009e1ec4},
   {0x009e1f1au, F_009e1f1a},
+  {0x009e499du, F_009e499d},
+  {0x009e49e0u, F_009e49e0},
+  {0x009e49f9u, F_009e49f9},
+  {0x009e4b92u, F_009e4b92},
+  {0x009e4badu, F_009e4bad},
+  {0x009e4be0u, F_009e4be0},
   {0x10001000u, F_10001000},
   {0x1000101bu, F_1000101b},
   {0x1000103cu, F_1000103c},
@@ -17207,7 +17212,7 @@ const FnEnt ck_fn_table[] = {
   {0x1040a9d0u, F_1040a9d0},
   {0x1040a9dbu, F_1040a9db},
 };
-const u32 ck_fn_count = 17206;
+const u32 ck_fn_count = 17211;
 const u32 ck_entry = 0x005feba2u;
-const u32 ck_code_ranges[][2] = {{0x401000u, 0x62d000u}, {0x62d000u, 0x62e000u}, {0x9c1000u, 0x9c2000u}, {0x9c4000u, 0x9c5000u}, {0x9c5000u, 0x9c7000u}, {0x9dd000u, 0x9de000u}, {0x9de000u, 0x9e0000u}, {0x9e0000u, 0x9e1000u}, {0x9e1000u, 0x9e2000u}, {0x10001000u, 0x10008000u}, {0x10101000u, 0x1010d000u}, {0x10201000u, 0x1020b000u}, {0x10301000u, 0x10309000u}, {0x10401000u, 0x1040b000u}};
-const u32 ck_code_range_count = 14;
+const u32 ck_code_ranges[][2] = {{0x401000u, 0x62d000u}, {0x62d000u, 0x62e000u}, {0x9c1000u, 0x9c2000u}, {0x9c4000u, 0x9c5000u}, {0x9c5000u, 0x9c7000u}, {0x9dd000u, 0x9de000u}, {0x9de000u, 0x9e0000u}, {0x9e0000u, 0x9e1000u}, {0x9e1000u, 0x9e2000u}, {0x9e2000u, 0x9e4000u}, {0x9e4000u, 0x9e5000u}, {0x10001000u, 0x10008000u}, {0x10101000u, 0x1010d000u}, {0x10201000u, 0x1020b000u}, {0x10301000u, 0x10309000u}, {0x10401000u, 0x1040b000u}};
+const u32 ck_code_range_count = 16;

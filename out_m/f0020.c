@@ -1,470 +1,5 @@
 #include "funcs.h"
 
-void F_004e006c(CPU *c) {
-  NATIVE_HOOK(0x4e006cu) REGS; LOADALL;
-L_004e006c:;
-  /* 004e006c add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e006f mov dword ptr [esi + 0x308], edi */ { const u32 m_ = (u32)(esi + 0x308u); M32(m_) = (u32)(edi); }
-  /* 004e0075 mov dword ptr [esi + 0x30c], edi */ { const u32 m_ = (u32)(esi + 0x30cu); M32(m_) = (u32)(edi); }
-  /* 004e007b mov dword ptr [esi + 0x310], edi */ { const u32 m_ = (u32)(esi + 0x310u); M32(m_) = (u32)(edi); }
-  /* 004e0081 mov eax, dword ptr [esi + 0x2f8] */ { const u32 m_ = (u32)(esi + 0x2f8u); eax = (u32)(M32(m_)); }
-  /* 004e0087 cmp eax, edi */ { u32 a_ = eax, b_ = edi; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e0089 je 0x4e0094 */ if (ZF_) goto L_004e0094;
-  /* 004e008b push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e008c call 0x5fe7c4 */ esp -= 4; M32(esp) = 0x4e0091u; SAVEALL; F_005fe7c4(c); ABI_CHECK(0x5fe7c4u, 0x4e008cu); RETCHK(0x4e0091u, 0x4e008cu); LOADALL;
-  /* 004e0091 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-L_004e0094:;
-  /* 004e0094 mov dword ptr [esi + 0x2f8], edi */ { const u32 m_ = (u32)(esi + 0x2f8u); M32(m_) = (u32)(edi); }
-  /* 004e009a mov dword ptr [esi + 0x2fc], edi */ { const u32 m_ = (u32)(esi + 0x2fcu); M32(m_) = (u32)(edi); }
-  /* 004e00a0 mov dword ptr [esi + 0x300], edi */ { const u32 m_ = (u32)(esi + 0x300u); M32(m_) = (u32)(edi); }
-  /* 004e00a6 mov eax, dword ptr [esi + 0x2e4] */ { const u32 m_ = (u32)(esi + 0x2e4u); eax = (u32)(M32(m_)); }
-  /* 004e00ac cmp eax, edi */ { u32 a_ = eax, b_ = edi; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e00ae je 0x4e00b9 */ if (ZF_) goto L_004e00b9;
-  /* 004e00b0 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e00b1 call 0x5fe7c4 */ esp -= 4; M32(esp) = 0x4e00b6u; SAVEALL; F_005fe7c4(c); ABI_CHECK(0x5fe7c4u, 0x4e00b1u); RETCHK(0x4e00b6u, 0x4e00b1u); LOADALL;
-  /* 004e00b6 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-L_004e00b9:;
-  /* 004e00b9 mov dword ptr [esi + 0x2e4], edi */ { const u32 m_ = (u32)(esi + 0x2e4u); M32(m_) = (u32)(edi); }
-  /* 004e00bf mov dword ptr [esi + 0x2e8], edi */ { const u32 m_ = (u32)(esi + 0x2e8u); M32(m_) = (u32)(edi); }
-  /* 004e00c5 mov dword ptr [esi + 0x2ec], edi */ { const u32 m_ = (u32)(esi + 0x2ecu); M32(m_) = (u32)(edi); }
-  /* 004e00cb pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
-  /* 004e00cc pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
-  /* 004e00cd ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
-}
-
-void F_004e00d0(CPU *c) {
-  NATIVE_HOOK(0x4e00d0u) REGS; LOADALL;
-L_004e00d0:;
-  /* 004e00d0 push ebp */ { u32 v_ = ebp; esp -= 4; M32(esp) = v_; }
-  /* 004e00d1 mov ebp, esp */ { ebp = (u32)(esp); }
-  /* 004e00d3 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e00d4 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
-  /* 004e00d5 push edi */ { u32 v_ = edi; esp -= 4; M32(esp) = v_; }
-  /* 004e00d6 mov edi, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); edi = (u32)(M32(m_)); }
-  /* 004e00d9 mov ebx, ecx */ { ebx = (u32)(ecx); }
-  /* 004e00db mov esi, eax */ { esi = (u32)(eax); }
-  /* 004e00dd mov dword ptr [edi + 0xb0], ebx */ { const u32 m_ = (u32)(edi + 0xb0u); M32(m_) = (u32)(ebx); }
-  /* 004e00e3 call 0x4b1830 */ esp -= 4; M32(esp) = 0x4e00e8u; SAVEALL; F_004b1830(c); ABI_CHECK(0x4b1830u, 0x4e00e3u); RETCHK(0x4e00e8u, 0x4e00e3u); LOADALL;
-  /* 004e00e8 mov eax, dword ptr [ebp + 0x18] */ { const u32 m_ = (u32)(ebp + 0x18u); eax = (u32)(M32(m_)); }
-  /* 004e00eb mov ecx, dword ptr [ebp + 0x10] */ { const u32 m_ = (u32)(ebp + 0x10u); ecx = (u32)(M32(m_)); }
-  /* 004e00ee mov dword ptr [edi + 0xa0], ecx */ { const u32 m_ = (u32)(edi + 0xa0u); M32(m_) = (u32)(ecx); }
-  /* 004e00f4 mov ecx, dword ptr [ebp + 0x14] */ { const u32 m_ = (u32)(ebp + 0x14u); ecx = (u32)(M32(m_)); }
-  /* 004e00f7 mov dword ptr [edi + 0x5cc], eax */ { const u32 m_ = (u32)(edi + 0x5ccu); M32(m_) = (u32)(eax); }
-  /* 004e00fd mov edx, dword ptr [ebx + 0xc40] */ { const u32 m_ = (u32)(ebx + 0xc40u); edx = (u32)(M32(m_)); }
-  /* 004e0103 mov eax, dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); eax = (u32)(M32(m_)); }
-  /* 004e0106 mov dword ptr [edi + 0xac], ecx */ { const u32 m_ = (u32)(edi + 0xacu); M32(m_) = (u32)(ecx); }
-  /* 004e010c mov dword ptr [edi + 0x98], edx */ { const u32 m_ = (u32)(edi + 0x98u); M32(m_) = (u32)(edx); }
-  /* 004e0112 mov dword ptr [edi + 0xa4], eax */ { const u32 m_ = (u32)(edi + 0xa4u); M32(m_) = (u32)(eax); }
-  /* 004e0118 mov dword ptr [edi + 0xa8], esi */ { const u32 m_ = (u32)(edi + 0xa8u); M32(m_) = (u32)(esi); }
-  /* 004e011e mov dword ptr [esi + 0x2c], 0x40a00000 */ { const u32 m_ = (u32)(esi + 0x2cu); M32(m_) = (u32)(0x40a00000u); }
-  /* 004e0125 mov byte ptr [edi + 0xb4], 1 */ { const u32 m_ = (u32)(edi + 0xb4u); M8(m_) = (u8)(0x1u); }
-  /* 004e012c xor edx, edx */ { u32 a_ = edx, b_ = edx; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); edx = (u32)(r_); }
-  /* 004e012e lea eax, [edi + 0x598] */ eax = (u32)((u32)(edi + 0x598u));
-  /* 004e0134 mov dword ptr [eax], edx */ { const u32 m_ = (u32)(eax); M32(m_) = (u32)(edx); }
-  /* 004e0136 mov dword ptr [eax + 4], edx */ { const u32 m_ = (u32)(eax + 0x4u); M32(m_) = (u32)(edx); }
-  /* 004e0139 mov dword ptr [eax + 8], edx */ { const u32 m_ = (u32)(eax + 0x8u); M32(m_) = (u32)(edx); }
-  /* 004e013c mov dword ptr [eax + 0xc], edx */ { const u32 m_ = (u32)(eax + 0xcu); M32(m_) = (u32)(edx); }
-  /* 004e013f mov dword ptr [eax + 0x10], edx */ { const u32 m_ = (u32)(eax + 0x10u); M32(m_) = (u32)(edx); }
-  /* 004e0142 mov dword ptr [eax + 0x14], edx */ { const u32 m_ = (u32)(eax + 0x14u); M32(m_) = (u32)(edx); }
-  /* 004e0145 mov dword ptr [eax + 0x18], edx */ { const u32 m_ = (u32)(eax + 0x18u); M32(m_) = (u32)(edx); }
-  /* 004e0148 mov dword ptr [eax + 0x1c], edx */ { const u32 m_ = (u32)(eax + 0x1cu); M32(m_) = (u32)(edx); }
-  /* 004e014b xor ebx, ebx */ { u32 a_ = ebx, b_ = ebx; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); ebx = (u32)(r_); }
-  /* 004e014d mov dword ptr [edi + 4], 1 */ { const u32 m_ = (u32)(edi + 0x4u); M32(m_) = (u32)(0x1u); }
-  /* 004e0154 mov dword ptr [edi + 0x18], 0xffffffff */ { const u32 m_ = (u32)(edi + 0x18u); M32(m_) = (u32)(0xffffffffu); }
-  /* 004e015b mov byte ptr [edi + 0x58a], bl */ { const u32 m_ = (u32)(edi + 0x58au); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e0161 mov dword ptr [edi + 0x174], ebx */ { const u32 m_ = (u32)(edi + 0x174u); M32(m_) = (u32)(ebx); }
-  /* 004e0167 mov dword ptr [edi + 0x9c], ebx */ { const u32 m_ = (u32)(edi + 0x9cu); M32(m_) = (u32)(ebx); }
-  /* 004e016d mov dword ptr [edi + 0x4b4], ebx */ { const u32 m_ = (u32)(edi + 0x4b4u); M32(m_) = (u32)(ebx); }
-  /* 004e0173 mov dword ptr [edi + 0x32c], ebx */ { const u32 m_ = (u32)(edi + 0x32cu); M32(m_) = (u32)(ebx); }
-  /* 004e0179 mov edx, dword ptr [0x63f690] */ { const u32 m_ = (u32)(0x63f690u); edx = (u32)(M32(m_)); }
-  /* 004e017f lea ecx, [edi + 0x4a4] */ ecx = (u32)((u32)(edi + 0x4a4u));
-  /* 004e0185 mov dword ptr [ecx], edx */ { const u32 m_ = (u32)(ecx); M32(m_) = (u32)(edx); }
-  /* 004e0187 mov eax, dword ptr [0x63f694] */ { const u32 m_ = (u32)(0x63f694u); eax = (u32)(M32(m_)); }
-  /* 004e018c mov dword ptr [ecx + 4], eax */ { const u32 m_ = (u32)(ecx + 0x4u); M32(m_) = (u32)(eax); }
-  /* 004e018f mov edx, dword ptr [0x63f698] */ { const u32 m_ = (u32)(0x63f698u); edx = (u32)(M32(m_)); }
-  /* 004e0195 mov dword ptr [ecx + 8], edx */ { const u32 m_ = (u32)(ecx + 0x8u); M32(m_) = (u32)(edx); }
-  /* 004e0198 mov dword ptr [edi + 0x10], ebx */ { const u32 m_ = (u32)(edi + 0x10u); M32(m_) = (u32)(ebx); }
-  /* 004e019b mov byte ptr [edi + 0xb5], 1 */ { const u32 m_ = (u32)(edi + 0xb5u); M8(m_) = (u8)(0x1u); }
-  /* 004e01a2 mov dword ptr [edi + 0x5d0], ebx */ { const u32 m_ = (u32)(edi + 0x5d0u); M32(m_) = (u32)(ebx); }
-  /* 004e01a8 mov dword ptr [edi + 0x5d4], ebx */ { const u32 m_ = (u32)(edi + 0x5d4u); M32(m_) = (u32)(ebx); }
-  /* 004e01ae mov byte ptr [edi + 0x33c], bl */ { const u32 m_ = (u32)(edi + 0x33cu); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e01b4 mov dword ptr [edi + 0x340], ebx */ { const u32 m_ = (u32)(edi + 0x340u); M32(m_) = (u32)(ebx); }
-  /* 004e01ba mov dword ptr [edi + 0x63c], ebx */ { const u32 m_ = (u32)(edi + 0x63cu); M32(m_) = (u32)(ebx); }
-  /* 004e01c0 mov dword ptr [edi + 0x35c], 4 */ { const u32 m_ = (u32)(edi + 0x35cu); M32(m_) = (u32)(0x4u); }
-  /* 004e01ca mov dword ptr [edi + 0x360], ebx */ { const u32 m_ = (u32)(edi + 0x360u); M32(m_) = (u32)(ebx); }
-  /* 004e01d0 mov dword ptr [edi + 0x364], 0x3f000000 */ { const u32 m_ = (u32)(edi + 0x364u); M32(m_) = (u32)(0x3f000000u); }
-  /* 004e01da mov byte ptr [edi + 0x368], bl */ { const u32 m_ = (u32)(edi + 0x368u); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e01e0 call 0x4fb430 */ esp -= 4; M32(esp) = 0x4e01e5u; SAVEALL; F_004fb430(c); ABI_CHECK(0x4fb430u, 0x4e01e0u); RETCHK(0x4e01e5u, 0x4e01e0u); LOADALL;
-  /* 004e01e5 mov dword ptr [ebp + 0x18], eax */ { const u32 m_ = (u32)(ebp + 0x18u); M32(m_) = (u32)(eax); }
-  /* 004e01e8 mov eax, dword ptr [edi + 0x314] */ { const u32 m_ = (u32)(edi + 0x314u); eax = (u32)(M32(m_)); }
-  /* 004e01ee cmp eax, ebx */ { u32 a_ = eax, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e01f0 mov dword ptr [edi + 0x2dc], ebx */ { const u32 m_ = (u32)(edi + 0x2dcu); M32(m_) = (u32)(ebx); }
-  /* 004e01f6 mov byte ptr [edi + 0x1d0], bl */ { const u32 m_ = (u32)(edi + 0x1d0u); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e01fc mov dword ptr [edi + 0x1d4], ebx */ { const u32 m_ = (u32)(edi + 0x1d4u); M32(m_) = (u32)(ebx); }
-  /* 004e0202 mov byte ptr [edi + 0x1d8], bl */ { const u32 m_ = (u32)(edi + 0x1d8u); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e0208 mov byte ptr [edi + 0x318], bl */ { const u32 m_ = (u32)(edi + 0x318u); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e020e je 0x4e021f */ if (ZF_) goto L_004e021f;
-  /* 004e0210 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0211 call 0x5ac7e0 */ esp -= 4; M32(esp) = 0x4e0216u; SAVEALL; F_005ac7e0(c); ABI_CHECK(0x5ac7e0u, 0x4e0211u); RETCHK(0x4e0216u, 0x4e0211u); LOADALL;
-  /* 004e0216 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e0219 mov dword ptr [edi + 0x314], ebx */ { const u32 m_ = (u32)(edi + 0x314u); M32(m_) = (u32)(ebx); }
-L_004e021f:;
-  /* 004e021f mov byte ptr [edi + 0x2f0], bl */ { const u32 m_ = (u32)(edi + 0x2f0u); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e0225 call 0x5b18a0 */ esp -= 4; M32(esp) = 0x4e022au; SAVEALL; F_005b18a0(c); ABI_CHECK(0x5b18a0u, 0x4e0225u); RETCHK(0x4e022au, 0x4e0225u); LOADALL;
-  /* 004e022a push 0x64ec5c */ { u32 v_ = 0x64ec5cu; esp -= 4; M32(esp) = v_; }
-  /* 004e022f mov esi, eax */ { esi = (u32)(eax); }
-  /* 004e0231 call 0x5b17e0 */ esp -= 4; M32(esp) = 0x4e0236u; SAVEALL; F_005b17e0(c); ABI_CHECK(0x5b17e0u, 0x4e0231u); RETCHK(0x4e0236u, 0x4e0231u); LOADALL;
-  /* 004e0236 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e0237 push 0x64ec50 */ { u32 v_ = 0x64ec50u; esp -= 4; M32(esp) = v_; }
-  /* 004e023c call 0x5aca30 */ esp -= 4; M32(esp) = 0x4e0241u; SAVEALL; F_005aca30(c); ABI_CHECK(0x5aca30u, 0x4e023cu); RETCHK(0x4e0241u, 0x4e023cu); LOADALL;
-  /* 004e0241 add esp, 0xc */ { u32 a_ = esp, b_ = 0xcu; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e0244 cmp eax, ebx */ { u32 a_ = eax, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e0246 mov dword ptr [edi + 0x314], eax */ { const u32 m_ = (u32)(edi + 0x314u); M32(m_) = (u32)(eax); }
-  /* 004e024c je 0x4e0252 */ if (ZF_) goto L_004e0252;
-  /* 004e024e mov byte ptr [eax + 0x50], 2 */ { const u32 m_ = (u32)(eax + 0x50u); M8(m_) = (u8)(0x2u); }
-L_004e0252:;
-  /* 004e0252 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
-  /* 004e0253 call 0x5b17e0 */ esp -= 4; M32(esp) = 0x4e0258u; SAVEALL; F_005b17e0(c); ABI_CHECK(0x5b17e0u, 0x4e0253u); RETCHK(0x4e0258u, 0x4e0253u); LOADALL;
-  /* 004e0258 mov byte ptr [edi + 0x2f1], bl */ { const u32 m_ = (u32)(edi + 0x2f1u); M8(m_) = (u8)((ebx & 0xffu)); }
-  /* 004e025e mov dword ptr [edi + 0x5d8], ebx */ { const u32 m_ = (u32)(edi + 0x5d8u); M32(m_) = (u32)(ebx); }
-  /* 004e0264 mov dword ptr [edi + 0x5e0], ebx */ { const u32 m_ = (u32)(edi + 0x5e0u); M32(m_) = (u32)(ebx); }
-  /* 004e026a mov dword ptr [edi + 0x5e4], ebx */ { const u32 m_ = (u32)(edi + 0x5e4u); M32(m_) = (u32)(ebx); }
-  /* 004e0270 mov dword ptr [edi + 0x5dc], ebx */ { const u32 m_ = (u32)(edi + 0x5dcu); M32(m_) = (u32)(ebx); }
-  /* 004e0276 mov esi, dword ptr [edi + 0xb0] */ { const u32 m_ = (u32)(edi + 0xb0u); esi = (u32)(M32(m_)); }
-  /* 004e027c mov eax, dword ptr [esi + 0xc38] */ { const u32 m_ = (u32)(esi + 0xc38u); eax = (u32)(M32(m_)); }
-  /* 004e0282 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e0285 cmp eax, ebx */ { u32 a_ = eax, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e0287 je 0x4e0324 */ if (ZF_) goto L_004e0324;
-  /* 004e028d mov ecx, dword ptr [eax + 0x180] */ { const u32 m_ = (u32)(eax + 0x180u); ecx = (u32)(M32(m_)); }
-  /* 004e0293 cmp ecx, ebx */ { u32 a_ = ecx, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e0295 je 0x4e02a0 */ if (ZF_) goto L_004e02a0;
-  /* 004e0297 mov eax, ecx */ { eax = (u32)(ecx); }
-  /* 004e0299 mov edx, dword ptr [eax] */ { const u32 m_ = (u32)(eax); edx = (u32)(M32(m_)); }
-  /* 004e029b call dword ptr [edx + 0x18] */ { const u32 m_ = (u32)(edx + 0x18u); u32 t_ = M32(m_); esp -= 4; M32(esp) = 0x4e029eu; SAVEALL; call_ind(c, t_); RETCHK(0x4e029eu, 0x4e029bu); LOADALL; }
-  /* 004e029e jmp 0x4e02a3 */ goto L_004e02a3;
-L_004e02a0:;
-  /* 004e02a0 or eax, 0xffffffff */ { u32 a_ = eax, b_ = 0xffffffffu; u32 r_ = a_ | b_; SETFC(OP_LOGIC, 0, 0, r_, 4); eax = (u32)(r_); }
-L_004e02a3:;
-  /* 004e02a3 mov esi, dword ptr [esi + 0xc38] */ { const u32 m_ = (u32)(esi + 0xc38u); esi = (u32)(M32(m_)); }
-  /* 004e02a9 cmp esi, ebx */ { u32 a_ = esi, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e02ab je 0x4e0324 */ if (ZF_) goto L_004e0324;
-  /* 004e02ad push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e02ae call 0x55ead0 */ esp -= 4; M32(esp) = 0x4e02b3u; SAVEALL; F_0055ead0(c); ABI_CHECK(0x55ead0u, 0x4e02aeu); RETCHK(0x4e02b3u, 0x4e02aeu); LOADALL;
-  /* 004e02b3 mov edx, eax */ { edx = (u32)(eax); }
-  /* 004e02b5 cmp edx, ebx */ { u32 a_ = edx, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e02b7 mov dword ptr [ebp + 0xc], edx */ { const u32 m_ = (u32)(ebp + 0xcu); M32(m_) = (u32)(edx); }
-  /* 004e02ba je 0x4e0324 */ if (ZF_) goto L_004e0324;
-  /* 004e02bc mov esi, 0x1e678608 */ { esi = (u32)(0x1e678608u); }
-  /* 004e02c1 call 0x463e50 */ esp -= 4; M32(esp) = 0x4e02c6u; SAVEALL; F_00463e50(c); ABI_CHECK(0x463e50u, 0x4e02c1u); RETCHK(0x4e02c6u, 0x4e02c1u); LOADALL;
-  /* 004e02c6 mov esi, 0x1e6789f0 */ { esi = (u32)(0x1e6789f0u); }
-  /* 004e02cb mov byte ptr [edi + 0x369], al */ { const u32 m_ = (u32)(edi + 0x369u); M8(m_) = (u8)((eax & 0xffu)); }
-  /* 004e02d1 call 0x463e50 */ esp -= 4; M32(esp) = 0x4e02d6u; SAVEALL; F_00463e50(c); ABI_CHECK(0x463e50u, 0x4e02d1u); RETCHK(0x4e02d6u, 0x4e02d1u); LOADALL;
-  /* 004e02d6 mov byte ptr [edi + 0x36a], al */ { const u32 m_ = (u32)(edi + 0x36au); M8(m_) = (u8)((eax & 0xffu)); }
-  /* 004e02dc mov eax, dword ptr [edx + 0xbb4] */ { const u32 m_ = (u32)(edx + 0xbb4u); eax = (u32)(M32(m_)); }
-  /* 004e02e2 mov dword ptr [edi + 8], eax */ { const u32 m_ = (u32)(edi + 0x8u); M32(m_) = (u32)(eax); }
-  /* 004e02e5 mov ecx, dword ptr [edx + 0xc6c] */ { const u32 m_ = (u32)(edx + 0xc6cu); ecx = (u32)(M32(m_)); }
-  /* 004e02eb mov dword ptr [edi + 0xc], ecx */ { const u32 m_ = (u32)(edi + 0xcu); M32(m_) = (u32)(ecx); }
-  /* 004e02ee mov edi, 0x1f034cf0 */ { edi = (u32)(0x1f034cf0u); }
-  /* 004e02f3 mov eax, edx */ { eax = (u32)(edx); }
-  /* 004e02f5 call 0x463e80 */ esp -= 4; M32(esp) = 0x4e02fau; SAVEALL; F_00463e80(c); ABI_CHECK(0x463e80u, 0x4e02f5u); RETCHK(0x4e02fau, 0x4e02f5u); LOADALL;
-  /* 004e02fa test al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
-  /* 004e02fc mov esi, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); esi = (u32)(M32(m_)); }
-  /* 004e02ff je 0x4e0308 */ if (ZF_) goto L_004e0308;
-  /* 004e0301 mov dword ptr [esi + 0xc], 0x2e7c */ { const u32 m_ = (u32)(esi + 0xcu); M32(m_) = (u32)(0x2e7cu); }
-L_004e0308:;
-  /* 004e0308 mov edx, dword ptr [esi + 0xc] */ { const u32 m_ = (u32)(esi + 0xcu); edx = (u32)(M32(m_)); }
-  /* 004e030b mov eax, dword ptr [ebp + 0x18] */ { const u32 m_ = (u32)(ebp + 0x18u); eax = (u32)(M32(m_)); }
-  /* 004e030e push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
-  /* 004e030f push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0310 mov eax, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); eax = (u32)(M32(m_)); }
-  /* 004e0313 mov bl, 1 */ { ebx = (ebx & 0xffffff00u) | ((u32)(0x1u) & 0xffu); }
-  /* 004e0315 call 0x4fb620 */ esp -= 4; M32(esp) = 0x4e031au; SAVEALL; F_004fb620(c); ABI_CHECK(0x4fb620u, 0x4e0315u); RETCHK(0x4e031au, 0x4e0315u); LOADALL;
-  /* 004e031a test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e031c mov dword ptr [esi + 0x560], eax */ { const u32 m_ = (u32)(esi + 0x560u); M32(m_) = (u32)(eax); }
-  /* 004e0322 jne 0x4e032d */ if (!ZF_) goto L_004e032d;
-L_004e0324:;
-  /* 004e0324 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
-  /* 004e0325 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
-  /* 004e0326 xor al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 1); eax = (eax & 0xffffff00u) | ((u32)(r_) & 0xffu); }
-  /* 004e0328 pop ebx */ { u32 v_ = M32(esp); esp += 4; ebx = (u32)(v_); }
-  /* 004e0329 pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
-  /* 004e032a ret 0x14 */ c->popped = M32(esp); esp += 24u; SAVEALL; return;
-L_004e032d:;
-  /* 004e032d mov ecx, dword ptr [esi + 0x98] */ { const u32 m_ = (u32)(esi + 0x98u); ecx = (u32)(M32(m_)); }
-  /* 004e0333 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
-  /* 004e0334 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0335 mov eax, dword ptr [esi + 0xc] */ { const u32 m_ = (u32)(esi + 0xcu); eax = (u32)(M32(m_)); }
-  /* 004e0338 call 0x4fa510 */ esp -= 4; M32(esp) = 0x4e033du; SAVEALL; F_004fa510(c); ABI_CHECK(0x4fa510u, 0x4e0338u); RETCHK(0x4e033du, 0x4e0338u); LOADALL;
-  /* 004e033d mov eax, dword ptr [esi + 0x560] */ { const u32 m_ = (u32)(esi + 0x560u); eax = (u32)(M32(m_)); }
-  /* 004e0343 mov ecx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); ecx = (u32)(M32(m_)); }
-  /* 004e0346 mov edx, dword ptr [ebp + 0x18] */ { const u32 m_ = (u32)(ebp + 0x18u); edx = (u32)(M32(m_)); }
-  /* 004e0349 mov ebx, dword ptr [eax + 8] */ { const u32 m_ = (u32)(eax + 0x8u); ebx = (u32)(M32(m_)); }
-  /* 004e034c mov edi, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); edi = (u32)(M32(m_)); }
-  /* 004e034f push -1 */ { u32 v_ = 0xffffffffu; esp -= 4; M32(esp) = v_; }
-  /* 004e0351 push 0 */ { u32 v_ = 0x0u; esp -= 4; M32(esp) = v_; }
-  /* 004e0353 add ecx, 0x40 */ { u32 a_ = ecx, b_ = 0x40u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); ecx = (u32)(r_); }
-  /* 004e0356 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
-  /* 004e0357 mov eax, 1 */ { eax = (u32)(0x1u); }
-  /* 004e035c mov dword ptr [ebp + 0x10], ecx */ { const u32 m_ = (u32)(ebp + 0x10u); M32(m_) = (u32)(ecx); }
-  /* 004e035f call 0x4fb850 */ esp -= 4; M32(esp) = 0x4e0364u; SAVEALL; F_004fb850(c); ABI_CHECK(0x4fb850u, 0x4e035fu); RETCHK(0x4e0364u, 0x4e035fu); LOADALL;
-  /* 004e0364 lea edi, [ebx + 8] */ edi = (u32)((u32)(ebx + 0x8u));
-  /* 004e0367 mov ebx, eax */ { ebx = (u32)(eax); }
-  /* 004e0369 call 0x544a10 */ esp -= 4; M32(esp) = 0x4e036eu; SAVEALL; F_00544a10(c); ABI_CHECK(0x544a10u, 0x4e0369u); RETCHK(0x4e036eu, 0x4e0369u); LOADALL;
-  /* 004e036e mov eax, dword ptr [esi + 0xa4] */ { const u32 m_ = (u32)(esi + 0xa4u); eax = (u32)(M32(m_)); }
-  /* 004e0374 mov ecx, dword ptr [eax + 0x28] */ { const u32 m_ = (u32)(eax + 0x28u); ecx = (u32)(M32(m_)); }
-  /* 004e0377 mov dword ptr [esi + 0x530], ecx */ { const u32 m_ = (u32)(esi + 0x530u); M32(m_) = (u32)(ecx); }
-  /* 004e037d mov edx, dword ptr [eax + 0x228] */ { const u32 m_ = (u32)(eax + 0x228u); edx = (u32)(M32(m_)); }
-  /* 004e0383 mov eax, dword ptr [ebp + 0x10] */ { const u32 m_ = (u32)(ebp + 0x10u); eax = (u32)(M32(m_)); }
-  /* 004e0386 mov dword ptr [esi + 0x534], edx */ { const u32 m_ = (u32)(esi + 0x534u); M32(m_) = (u32)(edx); }
-  /* 004e038c mov ecx, dword ptr [eax] */ { const u32 m_ = (u32)(eax); ecx = (u32)(M32(m_)); }
-  /* 004e038e mov edx, dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); edx = (u32)(M32(m_)); }
-  /* 004e0391 mov dword ptr [esi + 0x538], edx */ { const u32 m_ = (u32)(esi + 0x538u); M32(m_) = (u32)(edx); }
-  /* 004e0397 mov ecx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); ecx = (u32)(M32(m_)); }
-  /* 004e039a mov edx, dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); edx = (u32)(M32(m_)); }
-  /* 004e039d mov dword ptr [esi + 0x53c], edx */ { const u32 m_ = (u32)(esi + 0x53cu); M32(m_) = (u32)(edx); }
-  /* 004e03a3 mov ecx, dword ptr [eax + 0xc] */ { const u32 m_ = (u32)(eax + 0xcu); ecx = (u32)(M32(m_)); }
-  /* 004e03a6 mov edx, dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); edx = (u32)(M32(m_)); }
-  /* 004e03a9 mov dword ptr [esi + 0x540], edx */ { const u32 m_ = (u32)(esi + 0x540u); M32(m_) = (u32)(edx); }
-  /* 004e03af mov ecx, dword ptr [eax + 8] */ { const u32 m_ = (u32)(eax + 0x8u); ecx = (u32)(M32(m_)); }
-  /* 004e03b2 mov edx, dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); edx = (u32)(M32(m_)); }
-  /* 004e03b5 mov dword ptr [esi + 0x544], edx */ { const u32 m_ = (u32)(esi + 0x544u); M32(m_) = (u32)(edx); }
-  /* 004e03bb mov eax, dword ptr [eax + 0x10] */ { const u32 m_ = (u32)(eax + 0x10u); eax = (u32)(M32(m_)); }
-  /* 004e03be mov ecx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); ecx = (u32)(M32(m_)); }
-  /* 004e03c1 mov edx, dword ptr [esi + 0x560] */ { const u32 m_ = (u32)(esi + 0x560u); edx = (u32)(M32(m_)); }
-  /* 004e03c7 mov dword ptr [esi + 0x548], ecx */ { const u32 m_ = (u32)(esi + 0x548u); M32(m_) = (u32)(ecx); }
-  /* 004e03cd mov esi, dword ptr [edx + 4] */ { const u32 m_ = (u32)(edx + 0x4u); esi = (u32)(M32(m_)); }
-  /* 004e03d0 call 0x4fafa0 */ esp -= 4; M32(esp) = 0x4e03d5u; SAVEALL; F_004fafa0(c); ABI_CHECK(0x4fafa0u, 0x4e03d0u); RETCHK(0x4e03d5u, 0x4e03d0u); LOADALL;
-  /* 004e03d5 mov esi, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); esi = (u32)(M32(m_)); }
-  /* 004e03d8 mov ebx, dword ptr [esi + 0x560] */ { const u32 m_ = (u32)(esi + 0x560u); ebx = (u32)(M32(m_)); }
-  /* 004e03de push 0 */ { u32 v_ = 0x0u; esp -= 4; M32(esp) = v_; }
-  /* 004e03e0 mov dword ptr [esi + 0x54c], eax */ { const u32 m_ = (u32)(esi + 0x54cu); M32(m_) = (u32)(eax); }
-  /* 004e03e6 call 0x4fa2c0 */ esp -= 4; M32(esp) = 0x4e03ebu; SAVEALL; F_004fa2c0(c); ABI_CHECK(0x4fa2c0u, 0x4e03e6u); RETCHK(0x4e03ebu, 0x4e03e6u); LOADALL;
-  /* 004e03eb mov eax, dword ptr [esi + 0x538] */ { const u32 m_ = (u32)(esi + 0x538u); eax = (u32)(M32(m_)); }
-  /* 004e03f1 lea ecx, [eax + 0x10] */ ecx = (u32)((u32)(eax + 0x10u));
-  /* 004e03f4 lea edx, [eax + 0x20] */ edx = (u32)((u32)(eax + 0x20u));
-  /* 004e03f7 mov dword ptr [esi + 0x550], ecx */ { const u32 m_ = (u32)(esi + 0x550u); M32(m_) = (u32)(ecx); }
-  /* 004e03fd lea ecx, [eax + 0x30] */ ecx = (u32)((u32)(eax + 0x30u));
-  /* 004e0400 add eax, 0x40 */ { u32 a_ = eax, b_ = 0x40u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e0403 xor ebx, ebx */ { u32 a_ = ebx, b_ = ebx; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); ebx = (u32)(r_); }
-  /* 004e0405 mov dword ptr [esi + 0x55c], eax */ { const u32 m_ = (u32)(esi + 0x55cu); M32(m_) = (u32)(eax); }
-  /* 004e040b mov dword ptr [esi + 0x558], ecx */ { const u32 m_ = (u32)(esi + 0x558u); M32(m_) = (u32)(ecx); }
-  /* 004e0411 xor eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); eax = (u32)(r_); }
-  /* 004e0413 mov dword ptr [esi + 0x554], edx */ { const u32 m_ = (u32)(esi + 0x554u); M32(m_) = (u32)(edx); }
-  /* 004e0419 mov dword ptr [esi + 0x568], ebx */ { const u32 m_ = (u32)(esi + 0x568u); M32(m_) = (u32)(ebx); }
-  /* 004e041f mov dword ptr [esi + 0x564], ebx */ { const u32 m_ = (u32)(esi + 0x564u); M32(m_) = (u32)(ebx); }
-  /* 004e0425 mov dword ptr [esi + 0x570], ebx */ { const u32 m_ = (u32)(esi + 0x570u); M32(m_) = (u32)(ebx); }
-  /* 004e042b mov dword ptr [esi + 0x574], ebx */ { const u32 m_ = (u32)(esi + 0x574u); M32(m_) = (u32)(ebx); }
-  /* 004e0431 mov dword ptr [esi + 0x20], 1 */ { const u32 m_ = (u32)(esi + 0x20u); M32(m_) = (u32)(0x1u); }
-  /* 004e0438 mov ecx, 0x2d */ { ecx = (u32)(0x2du); }
-  /* 004e043d lea edi, [esi + 0xc0] */ edi = (u32)((u32)(esi + 0xc0u));
-  /* 004e0443 rep stosd dword ptr es:[edi], eax */ { u32 st_ = c->df ? (u32)-4 : 4u; if (!c->df) { u32 v_ = eax; u32 n_ = ecx; for (u32 j_ = 0; j_ < n_; j_++) M32(edi + 4 * j_) = v_; edi += 4 * n_; ecx = 0; } else while (ecx) { M32(edi) = (u32)eax; edi += st_; ecx--; } }
-  /* 004e0445 or eax, 0xffffffff */ { u32 a_ = eax, b_ = 0xffffffffu; u32 r_ = a_ | b_; SETFC(OP_LOGIC, 0, 0, r_, 4); eax = (u32)(r_); }
-  /* 004e0448 mov dword ptr [esi + 0x328], eax */ { const u32 m_ = (u32)(esi + 0x328u); M32(m_) = (u32)(eax); }
-  /* 004e044e mov dword ptr [esi + 0x324], eax */ { const u32 m_ = (u32)(esi + 0x324u); M32(m_) = (u32)(eax); }
-  /* 004e0454 mov dword ptr [esi + 0x320], eax */ { const u32 m_ = (u32)(esi + 0x320u); M32(m_) = (u32)(eax); }
-  /* 004e045a mov dword ptr [esi + 0x31c], eax */ { const u32 m_ = (u32)(esi + 0x31cu); M32(m_) = (u32)(eax); }
-  /* 004e0460 push 1 */ { u32 v_ = 0x1u; esp -= 4; M32(esp) = v_; }
-  /* 004e0462 mov eax, 1 */ { eax = (u32)(0x1u); }
-  /* 004e0467 mov edi, esi */ { edi = (u32)(esi); }
-  /* 004e0469 mov dword ptr [esi + 0x338], ebx */ { const u32 m_ = (u32)(esi + 0x338u); M32(m_) = (u32)(ebx); }
-  /* 004e046f mov dword ptr [esi + 0x330], ebx */ { const u32 m_ = (u32)(esi + 0x330u); M32(m_) = (u32)(ebx); }
-  /* 004e0475 mov dword ptr [esi + 0x334], ebx */ { const u32 m_ = (u32)(esi + 0x334u); M32(m_) = (u32)(ebx); }
-  /* 004e047b call 0x4e5a20 */ esp -= 4; M32(esp) = 0x4e0480u; SAVEALL; F_004e5a20(c); ABI_CHECK(0x4e5a20u, 0x4e047bu); RETCHK(0x4e0480u, 0x4e047bu); LOADALL;
-  /* 004e0480 call 0x556030 */ esp -= 4; M32(esp) = 0x4e0485u; SAVEALL; F_00556030(c); ABI_CHECK(0x556030u, 0x4e0480u); RETCHK(0x4e0485u, 0x4e0480u); LOADALL;
-  /* 004e0485 mov edx, dword ptr [esi + 0xc] */ { const u32 m_ = (u32)(esi + 0xcu); edx = (u32)(M32(m_)); }
-  /* 004e0488 mov ecx, eax */ { ecx = (u32)(eax); }
-  /* 004e048a call 0x555820 */ esp -= 4; M32(esp) = 0x4e048fu; SAVEALL; F_00555820(c); ABI_CHECK(0x555820u, 0x4e048au); RETCHK(0x4e048fu, 0x4e048au); LOADALL;
-  /* 004e048f cmp eax, ebx */ { u32 a_ = eax, b_ = ebx; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
-  /* 004e0491 je 0x4e049f */ if (ZF_) goto L_004e049f;
-  /* 004e0493 mov edx, dword ptr [eax + 0x144] */ { const u32 m_ = (u32)(eax + 0x144u); edx = (u32)(M32(m_)); }
-  /* 004e0499 mov dword ptr [esi + 0x5c0], edx */ { const u32 m_ = (u32)(esi + 0x5c0u); M32(m_) = (u32)(edx); }
-L_004e049f:;
-  /* 004e049f mov eax, dword ptr [esi + 0x5c0] */ { const u32 m_ = (u32)(esi + 0x5c0u); eax = (u32)(M32(m_)); }
-  /* 004e04a5 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e04a6 call 0x4e8c90 */ esp -= 4; M32(esp) = 0x4e04abu; SAVEALL; F_004e8c90(c); ABI_CHECK(0x4e8c90u, 0x4e04a6u); RETCHK(0x4e04abu, 0x4e04a6u); LOADALL;
-  /* 004e04ab mov ebx, eax */ { ebx = (u32)(eax); }
-  /* 004e04ad call 0x4e9000 */ esp -= 4; M32(esp) = 0x4e04b2u; SAVEALL; F_004e9000(c); ABI_CHECK(0x4e9000u, 0x4e04adu); RETCHK(0x4e04b2u, 0x4e04adu); LOADALL;
-  /* 004e04b2 mov dword ptr [esi + 0x5bc], eax */ { const u32 m_ = (u32)(esi + 0x5bcu); M32(m_) = (u32)(eax); }
-  /* 004e04b8 xor ecx, ecx */ { u32 a_ = ecx, b_ = ecx; u32 r_ = a_ ^ b_; SETFC(OP_LOGIC, 0, 0, r_, 4); ecx = (u32)(r_); }
-  /* 004e04ba lea edx, [esi + 0x178] */ edx = (u32)((u32)(esi + 0x178u));
-  /* 004e04c0 mov dword ptr [edx], ecx */ { const u32 m_ = (u32)(edx); M32(m_) = (u32)(ecx); }
-  /* 004e04c2 mov dword ptr [edx + 4], ecx */ { const u32 m_ = (u32)(edx + 0x4u); M32(m_) = (u32)(ecx); }
-  /* 004e04c5 mov dword ptr [edx + 8], ecx */ { const u32 m_ = (u32)(edx + 0x8u); M32(m_) = (u32)(ecx); }
-  /* 004e04c8 mov dword ptr [edx + 0xc], ecx */ { const u32 m_ = (u32)(edx + 0xcu); M32(m_) = (u32)(ecx); }
-  /* 004e04cb mov dword ptr [edx + 0x10], ecx */ { const u32 m_ = (u32)(edx + 0x10u); M32(m_) = (u32)(ecx); }
-  /* 004e04ce mov dword ptr [edx + 0x14], ecx */ { const u32 m_ = (u32)(edx + 0x14u); M32(m_) = (u32)(ecx); }
-  /* 004e04d1 mov dword ptr [edx + 0x18], ecx */ { const u32 m_ = (u32)(edx + 0x18u); M32(m_) = (u32)(ecx); }
-  /* 004e04d4 mov dword ptr [edx + 0x1c], ecx */ { const u32 m_ = (u32)(edx + 0x1cu); M32(m_) = (u32)(ecx); }
-  /* 004e04d7 mov dword ptr [edx + 0x20], ecx */ { const u32 m_ = (u32)(edx + 0x20u); M32(m_) = (u32)(ecx); }
-  /* 004e04da mov dword ptr [edx + 0x24], ecx */ { const u32 m_ = (u32)(edx + 0x24u); M32(m_) = (u32)(ecx); }
-  /* 004e04dd mov eax, 3 */ { eax = (u32)(0x3u); }
-  /* 004e04e2 mov dword ptr [esi + 0x578], eax */ { const u32 m_ = (u32)(esi + 0x578u); M32(m_) = (u32)(eax); }
-  /* 004e04e8 mov dword ptr [esi + 0x57c], eax */ { const u32 m_ = (u32)(esi + 0x57cu); M32(m_) = (u32)(eax); }
-  /* 004e04ee mov dword ptr [esi + 0x580], eax */ { const u32 m_ = (u32)(esi + 0x580u); M32(m_) = (u32)(eax); }
-  /* 004e04f4 mov eax, dword ptr [esi + 0x544] */ { const u32 m_ = (u32)(esi + 0x544u); eax = (u32)(M32(m_)); }
-  /* 004e04fa push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e04fb mov dword ptr [esi + 0x1a8], ecx */ { const u32 m_ = (u32)(esi + 0x1a8u); M32(m_) = (u32)(ecx); }
-  /* 004e0501 mov dword ptr [esi + 0x584], 0x3f800000 */ { const u32 m_ = (u32)(esi + 0x584u); M32(m_) = (u32)(0x3f800000u); }
-  /* 004e050b call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e0510u; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e050bu); RETCHK(0x4e0510u, 0x4e050bu); LOADALL;
-  /* 004e0510 mov ecx, dword ptr [esi + 0x578] */ { const u32 m_ = (u32)(esi + 0x578u); ecx = (u32)(M32(m_)); }
-  /* 004e0516 mov ebx, dword ptr [ebp + 0x18] */ { const u32 m_ = (u32)(ebp + 0x18u); ebx = (u32)(M32(m_)); }
-  /* 004e0519 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e051c add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e051f push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0520 shl ecx, 4 */ { u32 n_ = (4u) & 31u; if (n_) { u32 a_ = ecx; u32 r_ = (n_ < 32u ? (a_ << n_) : 0u) & 0xffffffffu; u32 cf_ = n_ <= 32u ? (a_ >> (32u - n_)) & 1u : 0u; u32 of_ = ((r_ >> 31) & 1u) ^ cf_; SETF(OP_RES, of_, 0, r_, 4); SETC(OP_RAW, cf_, 0, 0, 4); ecx = (u32)(r_); } }
-  /* 004e0523 mov edx, dword ptr [ecx + 0x63e818] */ { const u32 m_ = (u32)(ecx + 0x63e818u); edx = (u32)(M32(m_)); }
-  /* 004e0529 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e052a call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e052fu; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e052au); RETCHK(0x4e052fu, 0x4e052au); LOADALL;
-  /* 004e052f mov edx, dword ptr [esi + 0x548] */ { const u32 m_ = (u32)(esi + 0x548u); edx = (u32)(M32(m_)); }
-  /* 004e0535 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
-  /* 004e0536 mov dword ptr [esi + 0x1b8], eax */ { const u32 m_ = (u32)(esi + 0x1b8u); M32(m_) = (u32)(eax); }
-  /* 004e053c call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e0541u; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e053cu); RETCHK(0x4e0541u, 0x4e053cu); LOADALL;
-  /* 004e0541 add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e0544 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e0547 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0548 mov eax, dword ptr [esi + 0x578] */ { const u32 m_ = (u32)(esi + 0x578u); eax = (u32)(M32(m_)); }
-  /* 004e054e shl eax, 4 */ { u32 n_ = (4u) & 31u; if (n_) { u32 a_ = eax; u32 r_ = (n_ < 32u ? (a_ << n_) : 0u) & 0xffffffffu; u32 cf_ = n_ <= 32u ? (a_ >> (32u - n_)) & 1u : 0u; u32 of_ = ((r_ >> 31) & 1u) ^ cf_; SETF(OP_RES, of_, 0, r_, 4); SETC(OP_RAW, cf_, 0, 0, 4); eax = (u32)(r_); } }
-  /* 004e0551 mov edx, dword ptr [eax + 0x63e818] */ { const u32 m_ = (u32)(eax + 0x63e818u); edx = (u32)(M32(m_)); }
-  /* 004e0557 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e0558 call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e055du; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e0558u); RETCHK(0x4e055du, 0x4e0558u); LOADALL;
-  /* 004e055d mov dword ptr [esi + 0x1bc], eax */ { const u32 m_ = (u32)(esi + 0x1bcu); M32(m_) = (u32)(eax); }
-  /* 004e0563 mov eax, dword ptr [esi + 0x1b8] */ { const u32 m_ = (u32)(esi + 0x1b8u); eax = (u32)(M32(m_)); }
-  /* 004e0569 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e056b mov edi, 1 */ { edi = (u32)(0x1u); }
-  /* 004e0570 je 0x4e0575 */ if (ZF_) goto L_004e0575;
-  /* 004e0572 mov dword ptr [eax + 0x34], edi */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(edi); }
-L_004e0575:;
-  /* 004e0575 mov eax, dword ptr [esi + 0x1bc] */ { const u32 m_ = (u32)(esi + 0x1bcu); eax = (u32)(M32(m_)); }
-  /* 004e057b test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e057d je 0x4e0582 */ if (ZF_) goto L_004e0582;
-  /* 004e057f mov dword ptr [eax + 0x34], edi */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(edi); }
-L_004e0582:;
-  /* 004e0582 mov ecx, dword ptr [esi + 0x548] */ { const u32 m_ = (u32)(esi + 0x548u); ecx = (u32)(M32(m_)); }
-  /* 004e0588 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
-  /* 004e0589 call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e058eu; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e0589u); RETCHK(0x4e058eu, 0x4e0589u); LOADALL;
-  /* 004e058e add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e0591 add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e0594 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0595 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e0596 mov edx, 0x7d3 */ { edx = (u32)(0x7d3u); }
-  /* 004e059b call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e05a0u; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e059bu); RETCHK(0x4e05a0u, 0x4e059bu); LOADALL;
-  /* 004e05a0 mov edx, dword ptr [esi + 0x544] */ { const u32 m_ = (u32)(esi + 0x544u); edx = (u32)(M32(m_)); }
-  /* 004e05a6 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
-  /* 004e05a7 mov dword ptr [esi + 0x1c0], eax */ { const u32 m_ = (u32)(esi + 0x1c0u); M32(m_) = (u32)(eax); }
-  /* 004e05ad call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e05b2u; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e05adu); RETCHK(0x4e05b2u, 0x4e05adu); LOADALL;
-  /* 004e05b2 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e05b5 add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e05b8 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e05b9 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e05ba mov edx, 0x7d4 */ { edx = (u32)(0x7d4u); }
-  /* 004e05bf call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e05c4u; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e05bfu); RETCHK(0x4e05c4u, 0x4e05bfu); LOADALL;
-  /* 004e05c4 mov dword ptr [esi + 0x1c8], eax */ { const u32 m_ = (u32)(esi + 0x1c8u); M32(m_) = (u32)(eax); }
-  /* 004e05ca mov eax, dword ptr [esi + 0x548] */ { const u32 m_ = (u32)(esi + 0x548u); eax = (u32)(M32(m_)); }
-  /* 004e05d0 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e05d1 call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e05d6u; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e05d1u); RETCHK(0x4e05d6u, 0x4e05d1u); LOADALL;
-  /* 004e05d6 add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e05d9 add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e05dc push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e05dd push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e05de mov edx, 0x7d5 */ { edx = (u32)(0x7d5u); }
-  /* 004e05e3 call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e05e8u; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e05e3u); RETCHK(0x4e05e8u, 0x4e05e3u); LOADALL;
-  /* 004e05e8 mov ecx, dword ptr [esi + 0x544] */ { const u32 m_ = (u32)(esi + 0x544u); ecx = (u32)(M32(m_)); }
-  /* 004e05ee push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
-  /* 004e05ef mov dword ptr [esi + 0x1c4], eax */ { const u32 m_ = (u32)(esi + 0x1c4u); M32(m_) = (u32)(eax); }
-  /* 004e05f5 call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e05fau; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e05f5u); RETCHK(0x4e05fau, 0x4e05f5u); LOADALL;
-  /* 004e05fa add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e05fd add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e0600 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0601 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e0602 mov edx, 0x7d6 */ { edx = (u32)(0x7d6u); }
-  /* 004e0607 call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e060cu; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e0607u); RETCHK(0x4e060cu, 0x4e0607u); LOADALL;
-  /* 004e060c mov dword ptr [esi + 0x1cc], eax */ { const u32 m_ = (u32)(esi + 0x1ccu); M32(m_) = (u32)(eax); }
-  /* 004e0612 mov eax, dword ptr [esi + 0x1c0] */ { const u32 m_ = (u32)(esi + 0x1c0u); eax = (u32)(M32(m_)); }
-  /* 004e0618 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e061a je 0x4e062a */ if (ZF_) goto L_004e062a;
-  /* 004e061c mov dword ptr [eax + 0x34], edi */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(edi); }
-  /* 004e061f mov eax, dword ptr [esi + 0x1c0] */ { const u32 m_ = (u32)(esi + 0x1c0u); eax = (u32)(M32(m_)); }
-  /* 004e0625 call 0x54ad90 */ esp -= 4; M32(esp) = 0x4e062au; SAVEALL; F_0054ad90(c); ABI_CHECK(0x54ad90u, 0x4e0625u); RETCHK(0x4e062au, 0x4e0625u); LOADALL;
-L_004e062a:;
-  /* 004e062a mov eax, dword ptr [esi + 0x1c8] */ { const u32 m_ = (u32)(esi + 0x1c8u); eax = (u32)(M32(m_)); }
-  /* 004e0630 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e0632 je 0x4e0642 */ if (ZF_) goto L_004e0642;
-  /* 004e0634 mov dword ptr [eax + 0x34], edi */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(edi); }
-  /* 004e0637 mov eax, dword ptr [esi + 0x1c8] */ { const u32 m_ = (u32)(esi + 0x1c8u); eax = (u32)(M32(m_)); }
-  /* 004e063d call 0x54ad90 */ esp -= 4; M32(esp) = 0x4e0642u; SAVEALL; F_0054ad90(c); ABI_CHECK(0x54ad90u, 0x4e063du); RETCHK(0x4e0642u, 0x4e063du); LOADALL;
-L_004e0642:;
-  /* 004e0642 mov eax, dword ptr [esi + 0x1c4] */ { const u32 m_ = (u32)(esi + 0x1c4u); eax = (u32)(M32(m_)); }
-  /* 004e0648 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e064a je 0x4e065a */ if (ZF_) goto L_004e065a;
-  /* 004e064c mov dword ptr [eax + 0x34], edi */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(edi); }
-  /* 004e064f mov eax, dword ptr [esi + 0x1c4] */ { const u32 m_ = (u32)(esi + 0x1c4u); eax = (u32)(M32(m_)); }
-  /* 004e0655 call 0x54ad90 */ esp -= 4; M32(esp) = 0x4e065au; SAVEALL; F_0054ad90(c); ABI_CHECK(0x54ad90u, 0x4e0655u); RETCHK(0x4e065au, 0x4e0655u); LOADALL;
-L_004e065a:;
-  /* 004e065a mov eax, dword ptr [esi + 0x1cc] */ { const u32 m_ = (u32)(esi + 0x1ccu); eax = (u32)(M32(m_)); }
-  /* 004e0660 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e0662 je 0x4e0672 */ if (ZF_) goto L_004e0672;
-  /* 004e0664 mov dword ptr [eax + 0x34], edi */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(edi); }
-  /* 004e0667 mov eax, dword ptr [esi + 0x1cc] */ { const u32 m_ = (u32)(esi + 0x1ccu); eax = (u32)(M32(m_)); }
-  /* 004e066d call 0x54ad90 */ esp -= 4; M32(esp) = 0x4e0672u; SAVEALL; F_0054ad90(c); ABI_CHECK(0x54ad90u, 0x4e066du); RETCHK(0x4e0672u, 0x4e066du); LOADALL;
-L_004e0672:;
-  /* 004e0672 mov al, byte ptr [esi + 0x1d8] */ { const u32 m_ = (u32)(esi + 0x1d8u); eax = (eax & 0xffffff00u) | ((u32)(M8(m_)) & 0xffu); }
-  /* 004e0678 test al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
-  /* 004e067a je 0x4e06d1 */ if (ZF_) goto L_004e06d1;
-  /* 004e067c mov al, byte ptr [esi + 0x2f0] */ { const u32 m_ = (u32)(esi + 0x2f0u); eax = (eax & 0xffffff00u) | ((u32)(M8(m_)) & 0xffu); }
-  /* 004e0682 test al, al */ { u32 a_ = (eax & 0xffu), b_ = (eax & 0xffu); u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
-  /* 004e0684 je 0x4e06d1 */ if (ZF_) goto L_004e06d1;
-  /* 004e0686 lea edi, [esi + 0x1dc] */ edi = (u32)((u32)(esi + 0x1dcu));
-  /* 004e068c mov dword ptr [ebp + 8], 0x40 */ { const u32 m_ = (u32)(ebp + 0x8u); M32(m_) = (u32)(0x40u); }
-L_004e0693:;
-  /* 004e0693 mov edx, dword ptr [esi + 0x548] */ { const u32 m_ = (u32)(esi + 0x548u); edx = (u32)(M32(m_)); }
-  /* 004e0699 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
-  /* 004e069a call 0x5abd50 */ esp -= 4; M32(esp) = 0x4e069fu; SAVEALL; F_005abd50(c); ABI_CHECK(0x5abd50u, 0x4e069au); RETCHK(0x4e069fu, 0x4e069au); LOADALL;
-  /* 004e069f add esp, 4 */ { u32 a_ = esp, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
-  /* 004e06a2 add eax, 0x30 */ { u32 a_ = eax, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); eax = (u32)(r_); }
-  /* 004e06a5 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e06a6 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
-  /* 004e06a7 mov edx, 0x7d3 */ { edx = (u32)(0x7d3u); }
-  /* 004e06ac call 0x4fbc90 */ esp -= 4; M32(esp) = 0x4e06b1u; SAVEALL; F_004fbc90(c); ABI_CHECK(0x4fbc90u, 0x4e06acu); RETCHK(0x4e06b1u, 0x4e06acu); LOADALL;
-  /* 004e06b1 test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
-  /* 004e06b3 mov dword ptr [edi], eax */ { const u32 m_ = (u32)(edi); M32(m_) = (u32)(eax); }
-  /* 004e06b5 je 0x4e06c5 */ if (ZF_) goto L_004e06c5;
-  /* 004e06b7 mov dword ptr [eax + 0x34], 1 */ { const u32 m_ = (u32)(eax + 0x34u); M32(m_) = (u32)(0x1u); }
-  /* 004e06be mov eax, dword ptr [edi] */ { const u32 m_ = (u32)(edi); eax = (u32)(M32(m_)); }
-  /* 004e06c0 call 0x54ad90 */ esp -= 4; M32(esp) = 0x4e06c5u; SAVEALL; F_0054ad90(c); ABI_CHECK(0x54ad90u, 0x4e06c0u); RETCHK(0x4e06c5u, 0x4e06c0u); LOADALL;
-L_004e06c5:;
-  /* 004e06c5 mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
-  /* 004e06c8 add edi, 4 */ { u32 a_ = edi, b_ = 0x4u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); edi = (u32)(r_); }
-  /* 004e06cb dec eax */ { u32 a_ = eax; u32 r_ = (a_ - 1u) & 0xffffffffu; eax = (u32)(r_); SETF(OP_DEC, a_, 1, r_, 4); }
-  /* 004e06cc mov dword ptr [ebp + 8], eax */ { const u32 m_ = (u32)(ebp + 0x8u); M32(m_) = (u32)(eax); }
-  /* 004e06cf jne 0x4e0693 */ if (!ZF_) goto L_004e0693;
-L_004e06d1:;
-  /* 004e06d1 mov eax, dword ptr [esi + 0x1ac] */ { const u32 m_ = (u32)(esi + 0x1acu); eax = (u32)(M32(m_)); }
-  /* 004e06d7 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
-  /* 004e06d8 mov dword ptr [esi + 0x1a0], eax */ { const u32 m_ = (u32)(esi + 0x1a0u); M32(m_) = (u32)(eax); }
-  /* 004e06de mov dword ptr [esi + 0x1a4], eax */ { const u32 m_ = (u32)(esi + 0x1a4u); M32(m_) = (u32)(eax); }
-  /* 004e06e4 call 0x4e6d50 */ esp -= 4; M32(esp) = 0x4e06e9u; SAVEALL; F_004e6d50(c); ABI_CHECK(0x4e6d50u, 0x4e06e4u); RETCHK(0x4e06e9u, 0x4e06e4u); LOADALL;
-  /* 004e06e9 mov ebx, esi */ { ebx = (u32)(esi); }
-  /* 004e06eb call 0x4e0a20 */ esp -= 4; M32(esp) = 0x4e06f0u; SAVEALL; F_004e0a20(c); ABI_CHECK(0x4e0a20u, 0x4e06ebu); RETCHK(0x4e06f0u, 0x4e06ebu); LOADALL;
-  /* 004e06f0 mov ecx, dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); ecx = (u32)(M32(m_)); }
-  /* 004e06f3 mov eax, dword ptr [esi + 0x560] */ { const u32 m_ = (u32)(esi + 0x560u); eax = (u32)(M32(m_)); }
-  /* 004e06f9 mov edx, dword ptr [ecx] */ { const u32 m_ = (u32)(ecx); edx = (u32)(M32(m_)); }
-  /* 004e06fb mov edi, dword ptr [eax + 8] */ { const u32 m_ = (u32)(eax + 0x8u); edi = (u32)(M32(m_)); }
-  /* 004e06fe call dword ptr [edx + 0x20] */ { const u32 m_ = (u32)(edx + 0x20u); u32 t_ = M32(m_); esp -= 4; M32(esp) = 0x4e0701u; SAVEALL; call_ind(c, t_); RETCHK(0x4e0701u, 0x4e06feu); LOADALL; }
-  /* 004e0701 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
-  /* 004e0702 push edi */ { u32 v_ = edi; esp -= 4; M32(esp) = v_; }
-  /* 004e0703 call 0x4fb1c0 */ esp -= 4; M32(esp) = 0x4e0708u; SAVEALL; F_004fb1c0(c); ABI_CHECK(0x4fb1c0u, 0x4e0703u); RETCHK(0x4e0708u, 0x4e0703u); LOADALL;
-  /* 004e0708 mov eax, dword ptr [esi + 0x560] */ { const u32 m_ = (u32)(esi + 0x560u); eax = (u32)(M32(m_)); }
-  /* 004e070e mov ecx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); ecx = (u32)(M32(m_)); }
-  /* 004e0711 mov edx, dword ptr [ecx + 0x20] */ { const u32 m_ = (u32)(ecx + 0x20u); edx = (u32)(M32(m_)); }
-  /* 004e0714 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
-  /* 004e0715 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
-  /* 004e0716 mov dword ptr [edx], 2 */ { const u32 m_ = (u32)(edx); M32(m_) = (u32)(0x2u); }
-  /* 004e071c mov al, 1 */ { eax = (eax & 0xffffff00u) | ((u32)(0x1u) & 0xffu); }
-  /* 004e071e pop ebx */ { u32 v_ = M32(esp); esp += 4; ebx = (u32)(v_); }
-  /* 004e071f pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
-  /* 004e0720 ret 0x14 */ c->popped = M32(esp); esp += 24u; SAVEALL; return;
-}
-
 void F_004e0730(CPU *c) {
   NATIVE_HOOK(0x4e0730u) REGS; LOADALL;
 L_004e0730:;
@@ -13999,4 +13534,309 @@ L_004ee0f4:;
 L_004ee105:;
   /* 004ee105 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
   /* 004ee106 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
+void F_004ee110(CPU *c) {
+  NATIVE_HOOK(0x4ee110u) REGS; LOADALL;
+L_004ee110:;
+  /* 004ee110 push ebp */ { u32 v_ = ebp; esp -= 4; M32(esp) = v_; }
+  /* 004ee111 mov ebp, esp */ { ebp = (u32)(esp); }
+  /* 004ee113 sub esp, 0xac */ { u32 a_ = esp, b_ = 0xacu; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 004ee119 push esi */ { u32 v_ = esi; esp -= 4; M32(esp) = v_; }
+  /* 004ee11a mov esi, ecx */ { esi = (u32)(ecx); }
+  /* 004ee11c mov eax, dword ptr [esi + 4] */ { const u32 m_ = (u32)(esi + 0x4u); eax = (u32)(M32(m_)); }
+  /* 004ee11f test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
+  /* 004ee121 je 0x4ee421 */ if (ZF_) goto L_004ee421;
+  /* 004ee127 mov ecx, dword ptr [esi + 0x10] */ { const u32 m_ = (u32)(esi + 0x10u); ecx = (u32)(M32(m_)); }
+  /* 004ee12a cmp ecx, 0x10 */ { u32 a_ = ecx, b_ = 0x10u; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
+  /* 004ee12d je 0x4ee14b */ if (ZF_) goto L_004ee14b;
+  /* 004ee12f cmp ecx, 0x20 */ { u32 a_ = ecx, b_ = 0x20u; u32 r_ = (a_ - b_) & 0xffffffffu; SETFC(OP_SUB, a_, b_, r_, 4); }
+  /* 004ee132 jne 0x4ee421 */ if (!ZF_) goto L_004ee421;
+  /* 004ee138 mov eax, dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); eax = (u32)(M32(m_)); }
+  /* 004ee13b mov edx, dword ptr [eax] */ { const u32 m_ = (u32)(eax); edx = (u32)(M32(m_)); }
+  /* 004ee13d mov eax, esi */ { eax = (u32)(esi); }
+  /* 004ee13f call 0x4ee950 */ esp -= 4; M32(esp) = 0x4ee144u; SAVEALL; F_004ee950(c); ABI_CHECK(0x4ee950u, 0x4ee13fu); RETCHK(0x4ee144u, 0x4ee13fu); LOADALL;
+  /* 004ee144 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
+  /* 004ee145 mov esp, ebp */ { esp = (u32)(ebp); }
+  /* 004ee147 pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
+  /* 004ee148 ret 8 */ c->popped = M32(esp); esp += 12u; SAVEALL; return;
+L_004ee14b:;
+  /* 004ee14b mov ecx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); ecx = (u32)(M32(m_)); }
+  /* 004ee14e push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
+  /* 004ee14f or dword ptr [ebp - 0x34], 0x20003 */ { const u32 m_ = (u32)(ebp + 0xffffffccu); u32 a_ = M32(m_), b_ = 0x20003u; u32 r_ = a_ | b_; SETFC(OP_LOGIC, 0, 0, r_, 4); M32(m_) = (u32)(r_); }
+  /* 004ee156 mov ebx, dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); ebx = (u32)(M32(m_)); }
+  /* 004ee159 mov eax, dword ptr [ebx + 4] */ { const u32 m_ = (u32)(ebx + 0x4u); eax = (u32)(M32(m_)); }
+  /* 004ee15c mov dword ptr [ebp - 0x2c], 0x3f800000 */ { const u32 m_ = (u32)(ebp + 0xffffffd4u); M32(m_) = (u32)(0x3f800000u); }
+  /* 004ee163 mov dword ptr [ebp - 0x30], 0 */ { const u32 m_ = (u32)(ebp + 0xffffffd0u); M32(m_) = (u32)(0x0u); }
+  /* 004ee16a mov dword ptr [ebp - 0x28], 0 */ { const u32 m_ = (u32)(ebp + 0xffffffd8u); M32(m_) = (u32)(0x0u); }
+  /* 004ee171 mov dword ptr [ebp - 0x18], 0x3f800000 */ { const u32 m_ = (u32)(ebp + 0xffffffe8u); M32(m_) = (u32)(0x3f800000u); }
+  /* 004ee178 mov dword ptr [ebp - 0x40], 0x3f800000 */ { const u32 m_ = (u32)(ebp + 0xffffffc0u); M32(m_) = (u32)(0x3f800000u); }
+  /* 004ee17f mov dword ptr [ebp - 0x38], 0 */ { const u32 m_ = (u32)(ebp + 0xffffffc8u); M32(m_) = (u32)(0x0u); }
+  /* 004ee186 mov dword ptr [ebp - 0x3c], 0 */ { const u32 m_ = (u32)(ebp + 0xffffffc4u); M32(m_) = (u32)(0x0u); }
+  /* 004ee18d mov dword ptr [ebp - 0x1c], 0 */ { const u32 m_ = (u32)(ebp + 0xffffffe4u); M32(m_) = (u32)(0x0u); }
+  /* 004ee194 mov dword ptr [ebp - 0x20], 0 */ { const u32 m_ = (u32)(ebp + 0xffffffe0u); M32(m_) = (u32)(0x0u); }
+  /* 004ee19b mov dword ptr [ebp - 8], 0 */ { const u32 m_ = (u32)(ebp + 0xfffffff8u); M32(m_) = (u32)(0x0u); }
+  /* 004ee1a2 mov dword ptr [ebp - 0xc], 0 */ { const u32 m_ = (u32)(ebp + 0xfffffff4u); M32(m_) = (u32)(0x0u); }
+  /* 004ee1a9 mov dword ptr [ebp - 0x10], 0 */ { const u32 m_ = (u32)(ebp + 0xfffffff0u); M32(m_) = (u32)(0x0u); }
+  /* 004ee1b0 mov edx, dword ptr [eax] */ { const u32 m_ = (u32)(eax); edx = (u32)(M32(m_)); }
+  /* 004ee1b2 mov dword ptr [ebp - 0x30], edx */ { const u32 m_ = (u32)(ebp + 0xffffffd0u); M32(m_) = (u32)(edx); }
+  /* 004ee1b5 fld dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); FPUSH((double)MF32(m_)); }
+  /* 004ee1b8 fadd dword ptr [0x656d80] */ { const u32 m_ = (u32)(0x656d80u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee1be push edi */ { u32 v_ = edi; esp -= 4; M32(esp) = v_; }
+  /* 004ee1bf mov edi, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); edi = (u32)(M32(m_)); }
+  /* 004ee1c2 mov dword ptr [ebp - 0x50], ecx */ { const u32 m_ = (u32)(ebp + 0xffffffb0u); M32(m_) = (u32)(ecx); }
+  /* 004ee1c5 lea ecx, [ebp - 0x30] */ ecx = (u32)((u32)(ebp + 0xffffffd0u));
+  /* 004ee1c8 fstp dword ptr [ebp - 0x2c] */ { const u32 m_ = (u32)(ebp + 0xffffffd4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee1cb mov eax, dword ptr [eax + 8] */ { const u32 m_ = (u32)(eax + 0x8u); eax = (u32)(M32(m_)); }
+  /* 004ee1ce push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee1cf mov edx, ecx */ { edx = (u32)(ecx); }
+  /* 004ee1d1 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee1d2 add edi, 0x30 */ { u32 a_ = edi, b_ = 0x30u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); edi = (u32)(r_); }
+  /* 004ee1d5 mov dword ptr [ebp - 0x28], eax */ { const u32 m_ = (u32)(ebp + 0xffffffd8u); M32(m_) = (u32)(eax); }
+  /* 004ee1d8 call 0x5aa860 */ esp -= 4; M32(esp) = 0x4ee1ddu; SAVEALL; F_005aa860(c); ABI_CHECK(0x5aa860u, 0x4ee1d8u); RETCHK(0x4ee1ddu, 0x4ee1d8u); LOADALL;
+  /* 004ee1dd fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee1df fld dword ptr [esi + 0x24] */ { const u32 m_ = (u32)(esi + 0x24u); FPUSH((double)MF32(m_)); }
+  /* 004ee1e2 lea eax, [ebp - 0x4c] */ eax = (u32)((u32)(ebp + 0xffffffb4u));
+  /* 004ee1e5 fsub dword ptr [esi + 0x30] */ { const u32 m_ = (u32)(esi + 0x30u); ST(0) = FR(ST(0) - (double)MF32(m_)); }
+  /* 004ee1e8 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee1e9 fstp dword ptr [ebp - 0x4c] */ { const u32 m_ = (u32)(ebp + 0xffffffb4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee1ec fld dword ptr [esi + 0x28] */ { const u32 m_ = (u32)(esi + 0x28u); FPUSH((double)MF32(m_)); }
+  /* 004ee1ef fsub dword ptr [esi + 0x34] */ { const u32 m_ = (u32)(esi + 0x34u); ST(0) = FR(ST(0) - (double)MF32(m_)); }
+  /* 004ee1f2 fstp dword ptr [ebp - 0x48] */ { const u32 m_ = (u32)(ebp + 0xffffffb8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee1f5 fld dword ptr [esi + 0x2c] */ { const u32 m_ = (u32)(esi + 0x2cu); FPUSH((double)MF32(m_)); }
+  /* 004ee1f8 fsub dword ptr [esi + 0x38] */ { const u32 m_ = (u32)(esi + 0x38u); ST(0) = FR(ST(0) - (double)MF32(m_)); }
+  /* 004ee1fb fstp dword ptr [ebp - 0x44] */ { const u32 m_ = (u32)(ebp + 0xffffffbcu); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee1fe call 0x5aa970 */ esp -= 4; M32(esp) = 0x4ee203u; SAVEALL; F_005aa970(c); ABI_CHECK(0x5aa970u, 0x4ee1feu); RETCHK(0x4ee203u, 0x4ee1feu); LOADALL;
+  /* 004ee203 fstp dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee206 mov eax, dword ptr [esi + 0x1c] */ { const u32 m_ = (u32)(esi + 0x1cu); eax = (u32)(M32(m_)); }
+  /* 004ee209 add esp, 0xc */ { u32 a_ = esp, b_ = 0xcu; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 004ee20c test eax, eax */ { u32 a_ = eax, b_ = eax; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 4); }
+  /* 004ee20e je 0x4ee243 */ if (ZF_) goto L_004ee243;
+  /* 004ee210 fld dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); FPUSH((double)MF32(m_)); }
+  /* 004ee213 fcomp dword ptr [0x656dbc] */ { const u32 m_ = (u32)(0x656dbcu); c->fsw = fcom_sw(c->fsw, ST(0), (double)MF32(m_)); FPOP(); }
+  /* 004ee219 fnstsw ax */ eax = (eax & 0xffff0000u) | (FSW_ & 0xffffu);
+  /* 004ee21b test ah, 0x41 */ { u32 a_ = ((eax >> 8) & 0xffu), b_ = 0x41u; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
+  /* 004ee21e jne 0x4ee243 */ if (!ZF_) goto L_004ee243;
+  /* 004ee220 mov ecx, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); ecx = (u32)(M32(m_)); }
+  /* 004ee222 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee223 lea edx, [ebp - 0x4c] */ edx = (u32)((u32)(ebp + 0xffffffb4u));
+  /* 004ee226 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee227 mov eax, edx */ { eax = (u32)(edx); }
+  /* 004ee229 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee22a call 0x5aac00 */ esp -= 4; M32(esp) = 0x4ee22fu; SAVEALL; F_005aac00(c); ABI_CHECK(0x5aac00u, 0x4ee22au); RETCHK(0x4ee22fu, 0x4ee22au); LOADALL;
+  /* 004ee22f lea ecx, [ebp - 0x4c] */ ecx = (u32)((u32)(ebp + 0xffffffb4u));
+  /* 004ee232 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee233 lea edx, [ebp - 0x20] */ edx = (u32)((u32)(ebp + 0xffffffe0u));
+  /* 004ee236 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee237 call 0x5aa860 */ esp -= 4; M32(esp) = 0x4ee23cu; SAVEALL; F_005aa860(c); ABI_CHECK(0x5aa860u, 0x4ee237u); RETCHK(0x4ee23cu, 0x4ee237u); LOADALL;
+  /* 004ee23c fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee23e add esp, 0x14 */ { u32 a_ = esp, b_ = 0x14u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 004ee241 jmp 0x4ee275 */ goto L_004ee275;
+L_004ee243:;
+  /* 004ee243 mov ecx, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); ecx = (u32)(M32(m_)); }
+  /* 004ee246 fld dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); FPUSH((double)MF32(m_)); }
+  /* 004ee249 fmul dword ptr [ecx + 0x20] */ { const u32 m_ = (u32)(ecx + 0x20u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee24c lea eax, [ecx + 0x20] */ eax = (u32)((u32)(ecx + 0x20u));
+  /* 004ee24f fstp dword ptr [ebp - 0x4c] */ { const u32 m_ = (u32)(ebp + 0xffffffb4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee252 fld dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); FPUSH((double)MF32(m_)); }
+  /* 004ee255 fmul dword ptr [ecx + 0x24] */ { const u32 m_ = (u32)(ecx + 0x24u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee258 fstp dword ptr [ebp - 0x48] */ { const u32 m_ = (u32)(ebp + 0xffffffb8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee25b fld dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); FPUSH((double)MF32(m_)); }
+  /* 004ee25e fmul dword ptr [ecx + 0x28] */ { const u32 m_ = (u32)(ecx + 0x28u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee261 fstp dword ptr [ebp - 0x44] */ { const u32 m_ = (u32)(ebp + 0xffffffbcu); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee264 mov ecx, dword ptr [eax] */ { const u32 m_ = (u32)(eax); ecx = (u32)(M32(m_)); }
+  /* 004ee266 mov dword ptr [ebp - 0x20], ecx */ { const u32 m_ = (u32)(ebp + 0xffffffe0u); M32(m_) = (u32)(ecx); }
+  /* 004ee269 mov edx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); edx = (u32)(M32(m_)); }
+  /* 004ee26c mov dword ptr [ebp - 0x1c], edx */ { const u32 m_ = (u32)(ebp + 0xffffffe4u); M32(m_) = (u32)(edx); }
+  /* 004ee26f mov eax, dword ptr [eax + 8] */ { const u32 m_ = (u32)(eax + 0x8u); eax = (u32)(M32(m_)); }
+  /* 004ee272 mov dword ptr [ebp - 0x18], eax */ { const u32 m_ = (u32)(ebp + 0xffffffe8u); M32(m_) = (u32)(eax); }
+L_004ee275:;
+  /* 004ee275 fld dword ptr [ebp - 0x2c] */ { const u32 m_ = (u32)(ebp + 0xffffffd4u); FPUSH((double)MF32(m_)); }
+  /* 004ee278 lea ecx, [ebp - 0x40] */ ecx = (u32)((u32)(ebp + 0xffffffc0u));
+  /* 004ee27b fmul dword ptr [ebp - 0x18] */ { const u32 m_ = (u32)(ebp + 0xffffffe8u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee27e push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee27f mov edx, ecx */ { edx = (u32)(ecx); }
+  /* 004ee281 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee282 fld dword ptr [ebp - 0x28] */ { const u32 m_ = (u32)(ebp + 0xffffffd8u); FPUSH((double)MF32(m_)); }
+  /* 004ee285 fmul dword ptr [ebp - 0x1c] */ { const u32 m_ = (u32)(ebp + 0xffffffe4u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee288 fsubp st(1) */ { double s0_ = ST(0); ST(1) = FR(ST(1) - s0_); FPOP(); }
+  /* 004ee28a fstp dword ptr [ebp - 0x40] */ { const u32 m_ = (u32)(ebp + 0xffffffc0u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee28d fld dword ptr [ebp - 0x28] */ { const u32 m_ = (u32)(ebp + 0xffffffd8u); FPUSH((double)MF32(m_)); }
+  /* 004ee290 fmul dword ptr [ebp - 0x20] */ { const u32 m_ = (u32)(ebp + 0xffffffe0u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee293 fld dword ptr [ebp - 0x30] */ { const u32 m_ = (u32)(ebp + 0xffffffd0u); FPUSH((double)MF32(m_)); }
+  /* 004ee296 fmul dword ptr [ebp - 0x18] */ { const u32 m_ = (u32)(ebp + 0xffffffe8u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee299 fsubp st(1) */ { double s0_ = ST(0); ST(1) = FR(ST(1) - s0_); FPOP(); }
+  /* 004ee29b fstp dword ptr [ebp - 0x3c] */ { const u32 m_ = (u32)(ebp + 0xffffffc4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee29e fld dword ptr [ebp - 0x1c] */ { const u32 m_ = (u32)(ebp + 0xffffffe4u); FPUSH((double)MF32(m_)); }
+  /* 004ee2a1 fmul dword ptr [ebp - 0x30] */ { const u32 m_ = (u32)(ebp + 0xffffffd0u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2a4 fld dword ptr [ebp - 0x20] */ { const u32 m_ = (u32)(ebp + 0xffffffe0u); FPUSH((double)MF32(m_)); }
+  /* 004ee2a7 fmul dword ptr [ebp - 0x2c] */ { const u32 m_ = (u32)(ebp + 0xffffffd4u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2aa fsubp st(1) */ { double s0_ = ST(0); ST(1) = FR(ST(1) - s0_); FPOP(); }
+  /* 004ee2ac fstp dword ptr [ebp - 0x38] */ { const u32 m_ = (u32)(ebp + 0xffffffc8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee2af call 0x5aa860 */ esp -= 4; M32(esp) = 0x4ee2b4u; SAVEALL; F_005aa860(c); ABI_CHECK(0x5aa860u, 0x4ee2afu); RETCHK(0x4ee2b4u, 0x4ee2afu); LOADALL;
+  /* 004ee2b4 fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee2b6 fld dword ptr [ebp - 0x1c] */ { const u32 m_ = (u32)(ebp + 0xffffffe4u); FPUSH((double)MF32(m_)); }
+  /* 004ee2b9 lea eax, [ebp - 0x30] */ eax = (u32)((u32)(ebp + 0xffffffd0u));
+  /* 004ee2bc fmul dword ptr [ebp - 0x38] */ { const u32 m_ = (u32)(ebp + 0xffffffc8u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2bf push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee2c0 mov ecx, eax */ { ecx = (u32)(eax); }
+  /* 004ee2c2 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee2c3 fld dword ptr [ebp - 0x3c] */ { const u32 m_ = (u32)(ebp + 0xffffffc4u); FPUSH((double)MF32(m_)); }
+  /* 004ee2c6 fmul dword ptr [ebp - 0x18] */ { const u32 m_ = (u32)(ebp + 0xffffffe8u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2c9 fsubp st(1) */ { double s0_ = ST(0); ST(1) = FR(ST(1) - s0_); FPOP(); }
+  /* 004ee2cb fstp dword ptr [ebp - 0x30] */ { const u32 m_ = (u32)(ebp + 0xffffffd0u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee2ce fld dword ptr [ebp - 0x40] */ { const u32 m_ = (u32)(ebp + 0xffffffc0u); FPUSH((double)MF32(m_)); }
+  /* 004ee2d1 fmul dword ptr [ebp - 0x18] */ { const u32 m_ = (u32)(ebp + 0xffffffe8u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2d4 fld dword ptr [ebp - 0x20] */ { const u32 m_ = (u32)(ebp + 0xffffffe0u); FPUSH((double)MF32(m_)); }
+  /* 004ee2d7 fmul dword ptr [ebp - 0x38] */ { const u32 m_ = (u32)(ebp + 0xffffffc8u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2da fsubp st(1) */ { double s0_ = ST(0); ST(1) = FR(ST(1) - s0_); FPOP(); }
+  /* 004ee2dc fstp dword ptr [ebp - 0x2c] */ { const u32 m_ = (u32)(ebp + 0xffffffd4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee2df fld dword ptr [ebp - 0x20] */ { const u32 m_ = (u32)(ebp + 0xffffffe0u); FPUSH((double)MF32(m_)); }
+  /* 004ee2e2 fmul dword ptr [ebp - 0x3c] */ { const u32 m_ = (u32)(ebp + 0xffffffc4u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2e5 fld dword ptr [ebp - 0x1c] */ { const u32 m_ = (u32)(ebp + 0xffffffe4u); FPUSH((double)MF32(m_)); }
+  /* 004ee2e8 fmul dword ptr [ebp - 0x40] */ { const u32 m_ = (u32)(ebp + 0xffffffc0u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee2eb fsubp st(1) */ { double s0_ = ST(0); ST(1) = FR(ST(1) - s0_); FPOP(); }
+  /* 004ee2ed fstp dword ptr [ebp - 0x28] */ { const u32 m_ = (u32)(ebp + 0xffffffd8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee2f0 call 0x5aa860 */ esp -= 4; M32(esp) = 0x4ee2f5u; SAVEALL; F_005aa860(c); ABI_CHECK(0x5aa860u, 0x4ee2f0u); RETCHK(0x4ee2f5u, 0x4ee2f0u); LOADALL;
+  /* 004ee2f5 fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee2f7 mov edx, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); edx = (u32)(M32(m_)); }
+  /* 004ee2f9 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee2fa lea eax, [esi + 0x30] */ eax = (u32)((u32)(esi + 0x30u));
+  /* 004ee2fd push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee2fe lea eax, [ebp - 0x10] */ eax = (u32)((u32)(ebp + 0xfffffff0u));
+  /* 004ee301 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee302 call 0x5aac00 */ esp -= 4; M32(esp) = 0x4ee307u; SAVEALL; F_005aac00(c); ABI_CHECK(0x5aac00u, 0x4ee302u); RETCHK(0x4ee307u, 0x4ee302u); LOADALL;
+  /* 004ee307 fld dword ptr [ebp - 0x10] */ { const u32 m_ = (u32)(ebp + 0xfffffff0u); FPUSH((double)MF32(m_)); }
+  /* 004ee30a mov eax, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); eax = (u32)(M32(m_)); }
+  /* 004ee30c fadd dword ptr [eax + 0x30] */ { const u32 m_ = (u32)(eax + 0x30u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee30f lea ecx, [ebp - 0x40] */ ecx = (u32)((u32)(ebp + 0xffffffc0u));
+  /* 004ee312 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee313 fstp dword ptr [ebp - 0x10] */ { const u32 m_ = (u32)(ebp + 0xfffffff0u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee316 fld dword ptr [ebp - 0xc] */ { const u32 m_ = (u32)(ebp + 0xfffffff4u); FPUSH((double)MF32(m_)); }
+  /* 004ee319 fadd dword ptr [eax + 0x34] */ { const u32 m_ = (u32)(eax + 0x34u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee31c fstp dword ptr [ebp - 0xc] */ { const u32 m_ = (u32)(ebp + 0xfffffff4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee31f fld dword ptr [ebp - 8] */ { const u32 m_ = (u32)(ebp + 0xfffffff8u); FPUSH((double)MF32(m_)); }
+  /* 004ee322 fadd dword ptr [eax + 0x38] */ { const u32 m_ = (u32)(eax + 0x38u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee325 fstp dword ptr [ebp - 8] */ { const u32 m_ = (u32)(ebp + 0xfffffff8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee328 call 0x5ae8b0 */ esp -= 4; M32(esp) = 0x4ee32du; SAVEALL; F_005ae8b0(c); ABI_CHECK(0x5ae8b0u, 0x4ee328u); RETCHK(0x4ee32du, 0x4ee328u); LOADALL;
+  /* 004ee32d mov edx, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); edx = (u32)(M32(m_)); }
+  /* 004ee330 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee331 lea eax, [ebp - 0xac] */ eax = (u32)((u32)(ebp + 0xffffff54u));
+  /* 004ee337 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee338 call 0x5af080 */ esp -= 4; M32(esp) = 0x4ee33du; SAVEALL; F_005af080(c); ABI_CHECK(0x5af080u, 0x4ee338u); RETCHK(0x4ee33du, 0x4ee338u); LOADALL;
+  /* 004ee33d push 2 */ { u32 v_ = 0x2u; esp -= 4; M32(esp) = v_; }
+  /* 004ee33f lea ecx, [ebp - 0x40] */ ecx = (u32)((u32)(ebp + 0xffffffc0u));
+  /* 004ee342 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee343 lea edx, [ebp - 0xac] */ edx = (u32)((u32)(ebp + 0xffffff54u));
+  /* 004ee349 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee34a call 0x5af5b0 */ esp -= 4; M32(esp) = 0x4ee34fu; SAVEALL; F_005af5b0(c); ABI_CHECK(0x5af5b0u, 0x4ee34au); RETCHK(0x4ee34fu, 0x4ee34au); LOADALL;
+  /* 004ee34f lea eax, [ebp - 0x6c] */ eax = (u32)((u32)(ebp + 0xffffff94u));
+  /* 004ee352 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee353 lea ecx, [ebp - 0x54] */ ecx = (u32)((u32)(ebp + 0xffffffacu));
+  /* 004ee356 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee357 lea edx, [ebp - 0x60] */ edx = (u32)((u32)(ebp + 0xffffffa0u));
+  /* 004ee35a push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee35b lea eax, [ebp - 0xac] */ eax = (u32)((u32)(ebp + 0xffffff54u));
+  /* 004ee361 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee362 call 0x5af730 */ esp -= 4; M32(esp) = 0x4ee367u; SAVEALL; F_005af730(c); ABI_CHECK(0x5af730u, 0x4ee362u); RETCHK(0x4ee367u, 0x4ee362u); LOADALL;
+  /* 004ee367 fld dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); FPUSH((double)MF32(m_)); }
+  /* 004ee36a fcom dword ptr [0x656d80] */ { const u32 m_ = (u32)(0x656d80u); c->fsw = fcom_sw(c->fsw, ST(0), (double)MF32(m_)); }
+  /* 004ee370 add esp, 0x44 */ { u32 a_ = esp, b_ = 0x44u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 004ee373 fnstsw ax */ eax = (eax & 0xffff0000u) | (FSW_ & 0xffffu);
+  /* 004ee375 test ah, 0x41 */ { u32 a_ = ((eax >> 8) & 0xffu), b_ = 0x41u; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
+  /* 004ee378 jne 0x4ee384 */ if (!ZF_) goto L_004ee384;
+  /* 004ee37a fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee37c fld dword ptr [0x656d80] */ { const u32 m_ = (u32)(0x656d80u); FPUSH((double)MF32(m_)); }
+  /* 004ee382 jmp 0x4ee399 */ goto L_004ee399;
+L_004ee384:;
+  /* 004ee384 fcom dword ptr [0x656d88] */ { const u32 m_ = (u32)(0x656d88u); c->fsw = fcom_sw(c->fsw, ST(0), (double)MF32(m_)); }
+  /* 004ee38a fnstsw ax */ eax = (eax & 0xffff0000u) | (FSW_ & 0xffffu);
+  /* 004ee38c test ah, 5 */ { u32 a_ = ((eax >> 8) & 0xffu), b_ = 0x5u; u32 r_ = a_ & b_; SETFC(OP_LOGIC, 0, 0, r_, 1); }
+  /* 004ee38f jp 0x4ee399 */ if (PF_) goto L_004ee399;
+  /* 004ee391 fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee393 fld dword ptr [0x656d88] */ { const u32 m_ = (u32)(0x656d88u); FPUSH((double)MF32(m_)); }
+L_004ee399:;
+  /* 004ee399 fld dword ptr [ebp - 0x54] */ { const u32 m_ = (u32)(ebp + 0xffffffacu); FPUSH((double)MF32(m_)); }
+  /* 004ee39c mov edx, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); edx = (u32)(M32(m_)); }
+  /* 004ee39f push 2 */ { u32 v_ = 0x2u; esp -= 4; M32(esp) = v_; }
+  /* 004ee3a1 fmul st(1) */ ST(0) = FR(ST(0) * ST(1));
+  /* 004ee3a3 push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee3a4 lea ecx, [ebp - 0x60] */ ecx = (u32)((u32)(ebp + 0xffffffa0u));
+  /* 004ee3a7 fstp dword ptr [esp] */ { const u32 m_ = (u32)(esp); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee3aa push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee3ab push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee3ac fstp st(0) */ ST(0) = ST(0); FPOP();
+  /* 004ee3ae call 0x5aefe0 */ esp -= 4; M32(esp) = 0x4ee3b3u; SAVEALL; F_005aefe0(c); ABI_CHECK(0x5aefe0u, 0x4ee3aeu); RETCHK(0x4ee3b3u, 0x4ee3aeu); LOADALL;
+  /* 004ee3b3 mov eax, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); eax = (u32)(M32(m_)); }
+  /* 004ee3b5 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee3b6 lea eax, [esi + 0x24] */ eax = (u32)((u32)(esi + 0x24u));
+  /* 004ee3b9 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee3ba push edi */ { u32 v_ = edi; esp -= 4; M32(esp) = v_; }
+  /* 004ee3bb call 0x5aac00 */ esp -= 4; M32(esp) = 0x4ee3c0u; SAVEALL; F_005aac00(c); ABI_CHECK(0x5aac00u, 0x4ee3bbu); RETCHK(0x4ee3c0u, 0x4ee3bbu); LOADALL;
+  /* 004ee3c0 mov ecx, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); ecx = (u32)(M32(m_)); }
+  /* 004ee3c2 fld dword ptr [ecx + 0x30] */ { const u32 m_ = (u32)(ecx + 0x30u); FPUSH((double)MF32(m_)); }
+  /* 004ee3c5 fadd dword ptr [edi] */ { const u32 m_ = (u32)(edi); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee3c7 fstp dword ptr [edi] */ { const u32 m_ = (u32)(edi); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee3c9 mov edx, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); edx = (u32)(M32(m_)); }
+  /* 004ee3cb fld dword ptr [edx + 0x34] */ { const u32 m_ = (u32)(edx + 0x34u); FPUSH((double)MF32(m_)); }
+  /* 004ee3ce fadd dword ptr [edi + 4] */ { const u32 m_ = (u32)(edi + 0x4u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee3d1 fstp dword ptr [edi + 4] */ { const u32 m_ = (u32)(edi + 0x4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee3d4 mov eax, dword ptr [ebx] */ { const u32 m_ = (u32)(ebx); eax = (u32)(M32(m_)); }
+  /* 004ee3d6 fld dword ptr [eax + 0x38] */ { const u32 m_ = (u32)(eax + 0x38u); FPUSH((double)MF32(m_)); }
+  /* 004ee3d9 fadd dword ptr [edi + 8] */ { const u32 m_ = (u32)(edi + 0x8u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee3dc fstp dword ptr [edi + 8] */ { const u32 m_ = (u32)(edi + 0x8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee3df mov ecx, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); ecx = (u32)(M32(m_)); }
+  /* 004ee3e2 fld dword ptr [ebp + 0xc] */ { const u32 m_ = (u32)(ebp + 0xcu); FPUSH((double)MF32(m_)); }
+  /* 004ee3e5 fchs */ ST(0) = -ST(0);
+  /* 004ee3e7 fld st(0) */ { double v_ = ST(0); FPUSH(v_); }
+  /* 004ee3e9 fmul dword ptr [ecx + 0x20] */ { const u32 m_ = (u32)(ecx + 0x20u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee3ec fadd dword ptr [edi] */ { const u32 m_ = (u32)(edi); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee3ee fstp dword ptr [edi] */ { const u32 m_ = (u32)(edi); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee3f0 mov edx, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); edx = (u32)(M32(m_)); }
+  /* 004ee3f3 fld st(0) */ { double v_ = ST(0); FPUSH(v_); }
+  /* 004ee3f5 fmul dword ptr [edx + 0x24] */ { const u32 m_ = (u32)(edx + 0x24u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee3f8 fadd dword ptr [edi + 4] */ { const u32 m_ = (u32)(edi + 0x4u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee3fb fstp dword ptr [edi + 4] */ { const u32 m_ = (u32)(edi + 0x4u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee3fe mov eax, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); eax = (u32)(M32(m_)); }
+  /* 004ee401 fmul dword ptr [eax + 0x28] */ { const u32 m_ = (u32)(eax + 0x28u); ST(0) = FR(ST(0) * (double)MF32(m_)); }
+  /* 004ee404 fadd dword ptr [edi + 8] */ { const u32 m_ = (u32)(edi + 0x8u); ST(0) = FR(ST(0) + (double)MF32(m_)); }
+  /* 004ee407 fstp dword ptr [edi + 8] */ { const u32 m_ = (u32)(edi + 0x8u); MF32(m_) = (float)ST(0); FPOP(); }
+  /* 004ee40a mov ecx, dword ptr [esi + 8] */ { const u32 m_ = (u32)(esi + 0x8u); ecx = (u32)(M32(m_)); }
+  /* 004ee40d push ecx */ { u32 v_ = ecx; esp -= 4; M32(esp) = v_; }
+  /* 004ee40e call 0x5ae8b0 */ esp -= 4; M32(esp) = 0x4ee413u; SAVEALL; F_005ae8b0(c); ABI_CHECK(0x5ae8b0u, 0x4ee40eu); RETCHK(0x4ee413u, 0x4ee40eu); LOADALL;
+  /* 004ee413 mov edx, dword ptr [ebp - 0x50] */ { const u32 m_ = (u32)(ebp + 0xffffffb0u); edx = (u32)(M32(m_)); }
+  /* 004ee416 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee417 call 0x5abcd0 */ esp -= 4; M32(esp) = 0x4ee41cu; SAVEALL; F_005abcd0(c); ABI_CHECK(0x5abcd0u, 0x4ee417u); RETCHK(0x4ee41cu, 0x4ee417u); LOADALL;
+  /* 004ee41c add esp, 0x24 */ { u32 a_ = esp, b_ = 0x24u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 004ee41f pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
+  /* 004ee420 pop ebx */ { u32 v_ = M32(esp); esp += 4; ebx = (u32)(v_); }
+L_004ee421:;
+  /* 004ee421 pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
+  /* 004ee422 mov esp, ebp */ { esp = (u32)(ebp); }
+  /* 004ee424 pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
+  /* 004ee425 ret 8 */ c->popped = M32(esp); esp += 12u; SAVEALL; return;
+}
+
+void F_004ee430(CPU *c) {
+  NATIVE_HOOK(0x4ee430u) REGS; LOADALL;
+L_004ee430:;
+  /* 004ee430 push ebp */ { u32 v_ = ebp; esp -= 4; M32(esp) = v_; }
+  /* 004ee431 mov ebp, esp */ { ebp = (u32)(esp); }
+  /* 004ee433 push ebx */ { u32 v_ = ebx; esp -= 4; M32(esp) = v_; }
+  /* 004ee434 lea eax, [ecx + 0x24] */ eax = (u32)((u32)(ecx + 0x24u));
+  /* 004ee437 push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee438 mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
+  /* 004ee43b mov edx, dword ptr [eax + 4] */ { const u32 m_ = (u32)(eax + 0x4u); edx = (u32)(M32(m_)); }
+  /* 004ee43e mov eax, dword ptr [eax] */ { const u32 m_ = (u32)(eax); eax = (u32)(M32(m_)); }
+  /* 004ee440 push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee441 lea ebx, [ecx + 0x30] */ ebx = (u32)((u32)(ecx + 0x30u));
+  /* 004ee444 mov ecx, dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); ecx = (u32)(M32(m_)); }
+  /* 004ee447 mov edx, dword ptr [ecx + 4] */ { const u32 m_ = (u32)(ecx + 0x4u); edx = (u32)(M32(m_)); }
+  /* 004ee44a push eax */ { u32 v_ = eax; esp -= 4; M32(esp) = v_; }
+  /* 004ee44b push edx */ { u32 v_ = edx; esp -= 4; M32(esp) = v_; }
+  /* 004ee44c call 0x4ee460 */ esp -= 4; M32(esp) = 0x4ee451u; SAVEALL; F_004ee460(c); ABI_CHECK(0x4ee460u, 0x4ee44cu); RETCHK(0x4ee451u, 0x4ee44cu); LOADALL;
+  /* 004ee451 add esp, 0x10 */ { u32 a_ = esp, b_ = 0x10u; u32 r_ = (a_ + b_) & 0xffffffffu; SETFC(OP_ADD, a_, b_, r_, 4); esp = (u32)(r_); }
+  /* 004ee454 pop ebx */ { u32 v_ = M32(esp); esp += 4; ebx = (u32)(v_); }
+  /* 004ee455 pop ebp */ { u32 v_ = M32(esp); esp += 4; ebp = (u32)(v_); }
+  /* 004ee456 ret 4 */ c->popped = M32(esp); esp += 8u; SAVEALL; return;
 }
