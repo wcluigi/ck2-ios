@@ -92,6 +92,8 @@ HLE(i_ImmGetContext) { return 0x7e000001; }
 // The game's text field turns the IME on when it takes the focus (SingleLineEdit 0x51fe8a, ImmSetOpenStatus 1). Right
 // after a tap that means the player tapped a text field: open the phone's text box, typed back into it without Enter
 // (12 Nov 2026, the user: phones could not type the nickname at account creation). Not right after the chat box.
+// ImmIsIME must say yes (24 Nov 2026, the user: still no keyboard for the room password / new account name): the
+// field asks ImmIsIME(GetKeyboardLayout(0)) first (0x51fe6c) and never called ImmSetOpenStatus while it said no.
 extern u32 g_tap_ms, g_chat_ms;
 void plat_open_text(void);
 HLE(i_ImmSetOpenStatus) {
@@ -142,7 +144,7 @@ static const HleDef defs[] = {
     DEF("oleaut32", "SysStringLen", o_SysStringLen, 1), DEF("oleaut32", "SysReAllocString", o_SysReAllocString, 2), DEF("oleaut32", "VariantClear", r0, 1),
     DEF("shell32", "DragAcceptFiles", r0, 2), DEF("shell32", "DragFinish", r0, 1), DEF("shell32", "DragQueryFileA", r0, 4),
     DEF("shell32", "ShellExecuteA", s_ShellExecuteA, 6), DEF("shlwapi", "PathFileExistsA", s_PathFileExistsA, 1),
-    DEF("imm32", "ImmGetContext", i_ImmGetContext, 1), DEF("imm32", "ImmReleaseContext", r1, 2), DEF("imm32", "ImmIsIME", r0, 1),
+    DEF("imm32", "ImmGetContext", i_ImmGetContext, 1), DEF("imm32", "ImmReleaseContext", r1, 2), DEF("imm32", "ImmIsIME", r1, 1),
     DEF("imm32", "ImmSetOpenStatus", i_ImmSetOpenStatus, 2),
     DEF("avifil32", "AVIFileInit", r0, 0), DEF("avifil32", "AVIFileExit", r0, 0), DEF("avifil32", "AVIStreamOpenFromFileA", a_fail, 6),
     DEF("avifil32", "AVIStreamRelease", r0, 1), DEF("avifil32", "AVIStreamGetFrameOpen", r0, 2), DEF("avifil32", "AVIStreamGetFrame", r0, 2),

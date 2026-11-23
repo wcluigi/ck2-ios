@@ -32,7 +32,7 @@ int hud_touch(int id, int act, int *x, int *y);
 static int g_mouse_ptr = -1;        // the pointer that drives the mouse (first touch not on a race control)
 static int g_down_x, g_down_y;      // where that finger went down (lobby swipe)
 int ui_lobby_swipe(int x0, int y0, int x1, int y1);
-u32 g_tap_ms, g_chat_ms;            // last tap released / last chat box opened (hle_misc.c ImmSetOpenStatus, 12 Nov 2026)
+u32 g_tap_ms, g_chat_ms;            // last tap pressed or released / last chat box opened (hle_misc.c ImmSetOpenStatus, 12 Nov 2026)
 void open_chat(void) { g_chat_ms = ms_now(); plat_open_chat(); }
 static void pointer_hide(void);
 static void touch_event(int id, int act, int x, int y) {
@@ -42,6 +42,7 @@ static void touch_event(int id, int act, int x, int y) {
     if (act == 0) {
         if (g_mouse_ptr >= 0) return;
         g_mouse_ptr = id; g_down_x = x; g_down_y = y;
+        g_tap_ms = ms_now();                 // a field can take the focus on the press, before the release
         ui_mouse(0x200, x, y, 0); ui_mouse(0x201, x, y, 1);
         return;
     }
