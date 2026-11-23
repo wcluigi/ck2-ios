@@ -1,5 +1,41 @@
 #include "funcs.h"
 
+void F_104087cc(CPU *c) {
+  NATIVE_HOOK(0x104087ccu) REGS; LOADALL;
+L_104087cc:;
+  /* 104087cc mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
+  /* 104087cf pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
+  /* 104087d0 pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
+  /* 104087d1 leave */ esp = ebp; ebp = M32(esp); esp += 4;
+  /* 104087d2 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
+void F_104087d4(CPU *c) {
+  NATIVE_HOOK(0x104087d4u) REGS; LOADALL;
+L_104087d4:;
+  /* 104087d4 mov al, byte ptr [esi] */ { const u32 m_ = (u32)(esi); eax = (eax & 0xffffff00u) | ((u32)(M8(m_)) & 0xffu); }
+  /* 104087d6 mov byte ptr [edi], al */ { const u32 m_ = (u32)(edi); M8(m_) = (u8)((eax & 0xffu)); }
+  /* 104087d8 mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
+  /* 104087db pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
+  /* 104087dc pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
+  /* 104087dd leave */ esp = ebp; ebp = M32(esp); esp += 4;
+  /* 104087de ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
+void F_104087e0(CPU *c) {
+  NATIVE_HOOK(0x104087e0u) REGS; LOADALL;
+L_104087e0:;
+  /* 104087e0 mov al, byte ptr [esi] */ { const u32 m_ = (u32)(esi); eax = (eax & 0xffffff00u) | ((u32)(M8(m_)) & 0xffu); }
+  /* 104087e2 mov byte ptr [edi], al */ { const u32 m_ = (u32)(edi); M8(m_) = (u8)((eax & 0xffu)); }
+  /* 104087e4 mov al, byte ptr [esi + 1] */ { const u32 m_ = (u32)(esi + 0x1u); eax = (eax & 0xffffff00u) | ((u32)(M8(m_)) & 0xffu); }
+  /* 104087e7 mov byte ptr [edi + 1], al */ { const u32 m_ = (u32)(edi + 0x1u); M8(m_) = (u8)((eax & 0xffu)); }
+  /* 104087ea mov eax, dword ptr [ebp + 8] */ { const u32 m_ = (u32)(ebp + 0x8u); eax = (u32)(M32(m_)); }
+  /* 104087ed pop esi */ { u32 v_ = M32(esp); esp += 4; esi = (u32)(v_); }
+  /* 104087ee pop edi */ { u32 v_ = M32(esp); esp += 4; edi = (u32)(v_); }
+  /* 104087ef leave */ esp = ebp; ebp = M32(esp); esp += 4;
+  /* 104087f0 ret */ c->popped = M32(esp); esp += 4u; SAVEALL; return;
+}
+
 void F_104087f4(CPU *c) {
   NATIVE_HOOK(0x104087f4u) REGS; LOADALL;
 L_104087f4:;

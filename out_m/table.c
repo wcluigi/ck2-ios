@@ -15058,11 +15058,13 @@ const FnEnt ck_fn_table[] = {
   {0x009ddcf6u, F_009ddcf6},
   {0x009de000u, F_009de000},
   {0x009de180u, F_009de180},
+  {0x009de20bu, F_009de20b},
   {0x009de320u, F_009de320},
   {0x009de400u, F_009de400},
   {0x009de445u, F_009de445},
   {0x009de472u, F_009de472},
   {0x009de720u, F_009de720},
+  {0x009dea58u, F_009dea58},
   {0x009dfe00u, F_009dfe00},
   {0x009dfe49u, F_009dfe49},
   {0x009dfe6du, F_009dfe6d},
@@ -15116,6 +15118,7 @@ const FnEnt ck_fn_table[] = {
   {0x009e1e8cu, F_009e1e8c},
   {0x009e1ec4u, F_009e1ec4},
   {0x009e1f1au, F_009e1f1a},
+  {0x009e3a61u, F_009e3a61},
   {0x009e499du, F_009e499d},
   {0x009e49e0u, F_009e49e0},
   {0x009e49f9u, F_009e49f9},
@@ -17212,7 +17215,7 @@ const FnEnt ck_fn_table[] = {
   {0x1040a9d0u, F_1040a9d0},
   {0x1040a9dbu, F_1040a9db},
 };
-const u32 ck_fn_count = 17211;
+const u32 ck_fn_count = 17214;
 const u32 ck_entry = 0x005feba2u;
 const u32 ck_code_ranges[][2] = {{0x401000u, 0x62d000u}, {0x62d000u, 0x62e000u}, {0x9c1000u, 0x9c2000u}, {0x9c4000u, 0x9c5000u}, {0x9c5000u, 0x9c7000u}, {0x9dd000u, 0x9de000u}, {0x9de000u, 0x9e0000u}, {0x9e0000u, 0x9e1000u}, {0x9e1000u, 0x9e2000u}, {0x9e2000u, 0x9e4000u}, {0x9e4000u, 0x9e5000u}, {0x10001000u, 0x10008000u}, {0x10101000u, 0x1010d000u}, {0x10201000u, 0x1020b000u}, {0x10301000u, 0x10309000u}, {0x10401000u, 0x1040b000u}};
 const u32 ck_code_range_count = 16;
